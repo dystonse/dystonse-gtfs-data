@@ -1,0 +1,2 @@
+# we want to keep this folder, but not its contents.
+*.txt
