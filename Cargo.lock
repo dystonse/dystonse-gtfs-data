@@ -637,6 +637,7 @@ name = "myapp"
 version = "1.0.0"
 dependencies = [
  "bytes 0.5.4",
+ "chrono",
  "gtfs-rt",
  "gtfs-structures",
  "mysql",

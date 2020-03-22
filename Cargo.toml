@@ -10,3 +10,4 @@ prost = "0.4"
 bytes = "0.5.4"
 gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "accelerate", default-features = false, version = "0.19.1" }
 mysql = "18.0.0"
+chrono = "0.4.11"

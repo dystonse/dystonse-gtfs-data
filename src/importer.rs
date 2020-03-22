@@ -1,82 +1,170 @@
 use gtfs_structures::Gtfs;
 use mysql::*;
-use prost::Message; // need to use this, otherwise FeedMessage won't have a `decode` method
+use prost::Message; // need to use this, otherwise GtfsRealtimeMessage won't have a `decode` method
 use mysql::prelude::*;
-use gtfs_rt::FeedMessage;
-use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
+use chrono::{NaiveDate,NaiveDateTime,NaiveTime,Timelike};
+use gtfs_rt::FeedMessage as GtfsRealtimeMessage;
+use gtfs_structures::Trip as ScheduleTrip;
 
 use crate::FnResult;
 
 
 pub struct Importer<'a> {
     conn: PooledConn,
-    gtfs: &'a Gtfs
+    gtfs_schedule: &'a Gtfs
+}
+
+enum EventType {
+    Arrival,
+    Departure
+}
+
+struct EventTimes {
+    schedule: Option<i64>,
+    estimate: Option<i64>,
+    delay: Option<i64>
+}
+
+impl EventTimes {
+    fn empty() -> EventTimes {
+        EventTimes {schedule: None, estimate: None, delay: None }
+    }
 }
 
 impl<'a> Importer<'a> {
-    pub fn new(gtfs: &'a Gtfs, pool: &Pool) -> std::result::Result<Importer<'a>, Box<dyn Error>> {
-        Ok(Importer { gtfs, conn: pool.get_conn()?})
+    pub fn new(gtfs_schedule: &'a Gtfs, pool: &Pool) -> FnResult<Importer<'a>> {
+        Ok(Importer { gtfs_schedule, conn: pool.get_conn()?})
     }
 
-    pub fn read_proto_buffer(&mut self, path: &str) -> FnResult<()> {
+    pub fn import_realtime_into_database(&mut self, path: &str) -> FnResult<()> {
         let mut file = File::open(path)?;
         let mut vec = Vec::<u8>::new();
     
         // suboptimal, I'd rather not read the whole file into memory, but maybe Prost just works like this
         file.read_to_end(&mut vec)?;
-        let message = FeedMessage::decode(&vec)?;
+        let message = GtfsRealtimeMessage::decode(&vec)?;
     
-        let time_record = message.header.timestamp.expect("No global timestamp");
-    
+        let time_of_recording = message.header.timestamp.expect("No global timestamp");
+
+        // TODO: Remove those statistics, they aren't accurate anyway
+        let mut count_all_trip_updates = 0;
+        let mut count_all_stop_time_updates = 0;
+        let mut count_success = 0;
+        let count_no_arrival = 0;
+        let count_no_delay = 0;
         
-           // `message.entity` is actually a collection of entities
+        // `message.entity` is actually a collection of entities
         for entity in message.entity {
             if let Some(trip_update) = entity.trip_update {
-                // the fields of trip_update are Options, so we need to handle the case that they are missing.
-                let trip = trip_update.trip;
+                count_all_trip_updates += 1;
+
+                let realtime_trip = trip_update.trip;
     
-                let route_id = trip.route_id.expect("Trip needs route_id");
-                // et start_time = trip.start_time.expect("Trip needs start_time");
-                let trip_id = trip.trip_id.expect("Trip needs id");
+                let route_id = realtime_trip.route_id.expect("Trip needs route_id");
+                let trip_id = realtime_trip.trip_id.expect("Trip needs id");
+
+                let start_date = if let Some(datestring) = realtime_trip.start_date {
+                    NaiveDate::parse_from_str(&datestring, "%Y%m%d").expect(&datestring).and_hms(0, 0, 0)
+                } else {
+                    println!("Trip without start date. Skipping.");
+                    continue;
+                };
+
+                // TODO check if we actually need this
+                let realtime_schedule_start_time = if let Some(timestring) = realtime_trip.start_time {
+                    NaiveTime::parse_from_str(&timestring, "%H:%M:%S").expect(&timestring)
+                } else {
+                    println!("Trip without start time. Skipping.");
+                    continue;
+                };
+                
+                let schedule_trip = if let Ok(trip) = self.gtfs_schedule.get_trip(&trip_id) {
+                    trip
+                } else {
+                    println!("Did not find trip {} in schedule. Skipping.", trip_id);
+                    continue;
+                };
+
+                let schedule_start_time = schedule_trip.stop_times[0].departure_time;
+                let time_difference = realtime_schedule_start_time.num_seconds_from_midnight() - schedule_start_time.unwrap();
+                if time_difference != 0 {
+                    println!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
+                }
     
+
                 for stop_time_update in trip_update.stop_time_update {
-                    let s = self.conn.prep(r"INSERT INTO `realtime` 
-                    (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `time_record`, `time_schedule`, `time_estimate`, `mode`, `delay`) 
+                    count_all_stop_time_updates += 1;
+
+                    let statement = self.conn.prep(r"INSERT INTO `realtime` 
+                    (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `mode`, `delay_arrival`, `delay_departure`,
+                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`) 
                     VALUES 
-                    (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, FROM_UNIXTIME(:time_record), FROM_UNIXTIME(:time_schedule), FROM_UNIXTIME(:time_estimate), :mode, :delay) ").expect("Could not prepare statement");
+                    (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, :mode, :delay_arrival, :delay_departure, 
+                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate))")
+                    .expect("Could not prepare statement");
     
-                    let stop_id = stop_time_update.stop_id.expect("no stop_time");
+                    let stop_id = stop_time_update.stop_id.expect("no stop_id");
                     let stop_sequence = stop_time_update.stop_sequence.expect("no stop_sequence") as usize;
     
-                    // There's an enum but conversion to u32 is not supported: gtfs.get_route(&route_id).expect("I've got not route!!!").route_type as u32;
-                    let mode = 0;
-                    let delay = if let Some(arrival) = stop_time_update.arrival {
-                        arrival.delay.expect("no delay")
-                    } else {
-                        continue;
-                    };
-    
-                    // TODO time_record includes a date, time_schedule and time_estimate currently are on 1970-01-01.
-                    let time_schedule = self.gtfs.get_trip(&trip_id).expect("no trip in schedule").stop_times[stop_sequence].arrival_time.expect("no arrival time") as i32;
-                    let time_estimate = time_schedule + delay;
-    
-                    
-                    self.conn.exec_drop(s, params! { 
-                        "trip_id" => trip_id.clone(), 
+                    // There's an enum but conversion to u32 is not supported: gtfs.get_route(&route_id).expect("I've got no route!!!").route_type as u32;
+                    // TODO add a method impl to RouteType to convert it back to u32
+                    let mode = 99;
+
+                    let arrival   = self.handle_stop_time_update(stop_time_update.arrival,   start_date, EventType::Arrival  , &schedule_trip, stop_sequence);
+                    let departure = self.handle_stop_time_update(stop_time_update.departure, start_date, EventType::Departure, &schedule_trip, stop_sequence);
+
+                    self.conn.exec_drop(statement, params! { 
+                        "trip_id" => &trip_id, 
                         stop_id,
-                        "route_id" => route_id.clone(),
+                        "route_id" => &route_id,
                         stop_sequence, 
-                        time_record, 
-                        time_schedule, 
-                        time_estimate, 
+                        time_of_recording, 
                         mode, 
-                        delay 
+                        "time_arrival_schedule" => arrival.schedule, 
+                        "time_arrival_estimate" => arrival.estimate, 
+                        "delay_arrival" => arrival.delay,
+                        "time_departure_schedule" => departure.schedule, 
+                        "time_departure_estimate" => departure.estimate, 
+                        "delay_departure" => departure.delay 
                     })?;
+
+                    count_success += 1;
                 }
             }
         }
+        // TODO: Remove those statistics, they aren't accurate anyway
+        println!("Finished processing {} trip updates with {} stop time updates. Success: {}, No arrival: {}, No delay: {}", 
+            count_all_trip_updates, count_all_stop_time_updates, count_success, count_no_arrival, count_no_delay);
         Ok(())
+    }
+
+    fn handle_stop_time_update(&self, 
+                               event: Option<gtfs_rt::trip_update::StopTimeEvent>, 
+                               start_date: NaiveDateTime, 
+                               event_type: EventType,
+                               schedule_trip: &ScheduleTrip,
+                               stop_sequence: usize
+                              ) -> EventTimes {
+        let delay = if let Some(event) = event {
+            if let Some(delay) = event.delay {
+                delay as i64
+            } else {
+                println!("Stop time update {} without delay. Skipping.", match event_type { EventType::Arrival => "arrival", EventType::Departure => "departure" });
+                return EventTimes::empty();
+            }
+        } else {
+            return EventTimes::empty();
+        };
+
+        let event_time = match event_type {
+            EventType::Arrival   => schedule_trip.stop_times[stop_sequence].arrival_time,
+            EventType::Departure => schedule_trip.stop_times[stop_sequence].departure_time
+        };
+        let schedule = start_date.timestamp() + event_time.expect("no arrival time") as i64;
+        let estimate = schedule + delay;
+        
+        EventTimes { delay: Some(delay), schedule: Some(schedule), estimate: Some(estimate) }
     }
 }
