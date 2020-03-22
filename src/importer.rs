@@ -10,6 +10,7 @@ use gtfs_structures::Trip as ScheduleTrip;
 
 use crate::FnResult;
 
+const MAX_BATCH_SIZE: usize = 1000;
 
 pub struct Importer<'a> {
     conn: PooledConn,
@@ -33,6 +34,12 @@ impl EventTimes {
     }
 }
 
+struct BatchedInsertions<'a> {
+    params_vec: Vec<Params>,
+    conn: &'a mut PooledConn,
+    statement: Statement
+}
+
 impl<'a> Importer<'a> {
     pub fn new(gtfs_schedule: &'a Gtfs, pool: &Pool) -> FnResult<Importer<'a>> {
         Ok(Importer { gtfs_schedule, conn: pool.get_conn()?})
@@ -54,6 +61,8 @@ impl<'a> Importer<'a> {
         let mut count_success = 0;
         let count_no_arrival = 0;
         let count_no_delay = 0;
+
+        let mut batched = BatchedInsertions::new(&mut self.conn);
         
         // `message.entity` is actually a collection of entities
         for entity in message.entity {
@@ -97,14 +106,6 @@ impl<'a> Importer<'a> {
                 for stop_time_update in trip_update.stop_time_update {
                     count_all_stop_time_updates += 1;
 
-                    let statement = self.conn.prep(r"INSERT INTO `realtime` 
-                    (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `mode`, `delay_arrival`, `delay_departure`,
-                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`) 
-                    VALUES 
-                    (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, :mode, :delay_arrival, :delay_departure, 
-                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate))")
-                    .expect("Could not prepare statement");
-    
                     let stop_id = stop_time_update.stop_id.expect("no stop_id");
                     let stop_sequence = stop_time_update.stop_sequence.expect("no stop_sequence") as usize;
     
@@ -112,10 +113,10 @@ impl<'a> Importer<'a> {
                     // TODO add a method impl to RouteType to convert it back to u32
                     let mode = 99;
 
-                    let arrival   = self.handle_stop_time_update(stop_time_update.arrival,   start_date, EventType::Arrival  , &schedule_trip, stop_sequence);
-                    let departure = self.handle_stop_time_update(stop_time_update.departure, start_date, EventType::Departure, &schedule_trip, stop_sequence);
+                    let arrival   = Importer::handle_stop_time_update(stop_time_update.arrival,   start_date, EventType::Arrival  , &schedule_trip, stop_sequence);
+                    let departure = Importer::handle_stop_time_update(stop_time_update.departure, start_date, EventType::Departure, &schedule_trip, stop_sequence);
 
-                    self.conn.exec_drop(statement, params! { 
+                    batched.add_insertion(Params::from(params! { 
                         "trip_id" => &trip_id, 
                         stop_id,
                         "route_id" => &route_id,
@@ -128,7 +129,7 @@ impl<'a> Importer<'a> {
                         "time_departure_schedule" => departure.schedule, 
                         "time_departure_estimate" => departure.estimate, 
                         "delay_departure" => departure.delay 
-                    })?;
+                    }))?;
 
                     count_success += 1;
                 }
@@ -140,8 +141,7 @@ impl<'a> Importer<'a> {
         Ok(())
     }
 
-    fn handle_stop_time_update(&self, 
-                               event: Option<gtfs_rt::trip_update::StopTimeEvent>, 
+    fn handle_stop_time_update(event: Option<gtfs_rt::trip_update::StopTimeEvent>, 
                                start_date: NaiveDateTime, 
                                event_type: EventType,
                                schedule_trip: &ScheduleTrip,
@@ -166,5 +166,35 @@ impl<'a> Importer<'a> {
         let estimate = schedule + delay;
         
         EventTimes { delay: Some(delay), schedule: Some(schedule), estimate: Some(estimate) }
+    }
+}
+
+impl <'a> BatchedInsertions<'a> {
+    fn new(conn: &mut PooledConn) -> BatchedInsertions {
+        let statement = conn.prep(r"INSERT INTO `realtime` 
+                    (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `mode`, `delay_arrival`, `delay_departure`,
+                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`) 
+                    VALUES 
+                    (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, :mode, :delay_arrival, :delay_departure, 
+                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate))")
+                    .expect("Could not prepare statement");
+    
+        BatchedInsertions { params_vec : Vec::with_capacity(MAX_BATCH_SIZE), conn, statement}
+    }
+
+    fn add_insertion(&mut self, insertion: Params) -> FnResult<()>  {
+        self.params_vec.push(insertion);
+        if self.params_vec.len() > MAX_BATCH_SIZE {
+            self.write_to_database()?;
+        }
+        Ok(())
+    }
+
+    fn write_to_database(&mut self) -> FnResult<()> {
+        let mut tx = self.conn.start_transaction(TxOpts::default())?;
+        tx.exec_batch(&self.statement, &self.params_vec)?;
+        self.params_vec.clear();
+        tx.commit()?;
+        Ok(())
     }
 }
