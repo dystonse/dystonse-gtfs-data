@@ -8,5 +8,5 @@ edition = "2018"
 gtfs-rt = "0.1.0"
 prost = "0.4"
 bytes = "0.5.4"
-gtfs-structures = { path = "../gtfs-structure", default-features = false }
+gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "accelerate", default-features = false, version = "0.19.1" }
 mysql = "18.0.0"
