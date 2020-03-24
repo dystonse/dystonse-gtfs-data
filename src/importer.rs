@@ -49,9 +49,19 @@ impl<'a> Importer<'a> {
     pub fn import_realtime_into_database(&mut self, path: &str) -> FnResult<()> {
         let mut file = File::open(path)?;
         let mut vec = Vec::<u8>::new();
+        
+        if path.ends_with(".zip") {
+            let mut archive = zip::ZipArchive::new(file).unwrap();
+            let mut zipped_file = archive.by_index(0).unwrap();
+            if self.verbose {
+                println!("Reading {} from zip…", zipped_file.name());
+            }
+            zipped_file.read_to_end(&mut vec)?;
+        } else {
+            file.read_to_end(&mut vec)?;
+        }
     
         // suboptimal, I'd rather not read the whole file into memory, but maybe Prost just works like this
-        file.read_to_end(&mut vec)?;
         let message = GtfsRealtimeMessage::decode(&vec)?;
     
         let time_of_recording = message.header.timestamp.expect("No global timestamp");
@@ -139,8 +149,8 @@ impl<'a> Importer<'a> {
         }
         // TODO: Remove those statistics, they aren't accurate anyway
         if self.verbose {
-        println!("Finished processing {} trip updates with {} stop time updates. Success: {}, No arrival: {}, No delay: {}", 
-            count_all_trip_updates, count_all_stop_time_updates, count_success, count_no_arrival, count_no_delay);
+            println!("Finished processing {} trip updates with {} stop time updates. Success: {}, No arrival: {}, No delay: {}", 
+                count_all_trip_updates, count_all_stop_time_updates, count_success, count_no_arrival, count_no_delay);
         }
         Ok(())
     }

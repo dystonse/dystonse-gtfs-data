@@ -311,6 +311,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dystonse-gtfs-importer"
+version = "1.0.0"
+dependencies = [
+ "bytes 0.5.4",
+ "chrono",
+ "gtfs-rt",
+ "gtfs-structures",
+ "mysql",
+ "prost",
+ "zip",
+]
+
+[[package]]
 name = "either"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -631,18 +644,6 @@ name = "multimap"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eb04b9f127583ed176e163fb9ec6f3e793b87e21deedd5734a69386a18a0151"
-
-[[package]]
-name = "myapp"
-version = "1.0.0"
-dependencies = [
- "bytes 0.5.4",
- "chrono",
- "gtfs-rt",
- "gtfs-structures",
- "mysql",
- "prost",
-]
 
 [[package]]
 name = "mysql"
