@@ -1,6 +1,5 @@
 use std::env;
 use std::error::Error;
-use std::ffi::OsString;
 use gtfs_structures::Gtfs;
 
 use mysql::*;
@@ -26,28 +25,60 @@ fn open_db() -> FnResult<Pool>  {
     Ok(pool)
 }
 
-/// Returns the nth positional argument sent to this process. If there are not enough
-/// positional arguments, then this returns an error.
-fn get_nth_arg(n: usize) -> FnResult<OsString> {
-    match env::args_os().nth(n) {
-        None => Err(From::from("Expected at least n argument(s), but got less.")),
-        Some(file_path) => Ok(file_path),
-    }
-}
-
 /// Opens the database, reads schedule and transfers realtime data from 
-/// protobuffer file into the database.
+/// protobuffer files into the database.
 /// gtfs is read from the first command line parameter (url or path to zip or directory)
-/// gtfsrt is read from the second command line parameter (path to pb file)
+/// gtfsrt is read from all other command line parameters (path to pb file)
 fn main() -> FnResult<()> {
-    
-    let gtfs_schedule_filename = get_nth_arg(1)?;
-    let gtfs_schedule_filename = gtfs_schedule_filename.to_str().expect("invalid OsString");
-    let gtfs_realtime_filename = get_nth_arg(2)?;
-    let gtfs_realtime_filename = gtfs_realtime_filename.to_str().expect("invalid OsString");
+
+    let mut args = env::args_os();
+    // skip element 0 because it's the executable's name
+    args.next(); 
+
+    // use element 1 as schedule file
+    let mut gtfs_schedule_filename_oss = args.next().unwrap();
+    let mut gtfs_schedule_filename = gtfs_schedule_filename_oss.to_str().expect("invalid OsString");
+
+    let mut verbose = false;
+
+    // if the first arg is "-v", enable verbose mode and use next argument as "first" to define the schedule file
+    if gtfs_schedule_filename == "-v" {
+        verbose = true;
+        gtfs_schedule_filename_oss = args.next().unwrap();
+        gtfs_schedule_filename = gtfs_schedule_filename_oss.to_str().expect("invalid OsString");
+    }
+
+    // use all other elements as realtime file
+    let gtfs_realtime_filenames = args.map(|arg| String::from(arg.to_str().expect("invalid OsString")));
+
+    // connect to the database
+    if verbose {
+        println!("Connecting to database…");
+    }
     let pool = open_db()?;
-    let gtfs = Gtfs::new(gtfs_schedule_filename).expect("Gtfs deserialisierung");
-    let mut imp = importer::Importer::new(&gtfs, &pool).expect("Could not create importer");
-    imp.import_realtime_into_database(gtfs_realtime_filename)?;
+
+    // parse schedule
+    if verbose {
+        println!("Parsing schedule…");
+    }
+    let gtfs = Gtfs::new(gtfs_schedule_filename).expect("Gtfs deserialisation");
+
+    if verbose {
+        println!("Importing realtime data…");
+    }
+    // create importer and iterate over all realtime files
+    let mut imp = importer::Importer::new(&gtfs, &pool, verbose).expect("Could not create importer");
+    for gtfs_realtime_filename in gtfs_realtime_filenames {
+        imp.import_realtime_into_database(&gtfs_realtime_filename)?;
+        if verbose {
+            println!("Finished importing file: {}", &gtfs_realtime_filename);
+        } else {
+            println!("{}", &gtfs_realtime_filename);
+        }
+    }
+
+    if verbose {
+        println!("Done!");
+    }
     Ok(())
 }

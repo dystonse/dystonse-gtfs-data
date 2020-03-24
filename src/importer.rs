@@ -14,7 +14,8 @@ const MAX_BATCH_SIZE: usize = 1000;
 
 pub struct Importer<'a> {
     conn: PooledConn,
-    gtfs_schedule: &'a Gtfs
+    gtfs_schedule: &'a Gtfs,
+    verbose: bool
 }
 
 enum EventType {
@@ -41,8 +42,8 @@ struct BatchedInsertions<'a> {
 }
 
 impl<'a> Importer<'a> {
-    pub fn new(gtfs_schedule: &'a Gtfs, pool: &Pool) -> FnResult<Importer<'a>> {
-        Ok(Importer { gtfs_schedule, conn: pool.get_conn()?})
+    pub fn new(gtfs_schedule: &'a Gtfs, pool: &Pool, verbose: bool) -> FnResult<Importer<'a>> {
+        Ok(Importer { gtfs_schedule, conn: pool.get_conn()?, verbose})
     }
 
     pub fn import_realtime_into_database(&mut self, path: &str) -> FnResult<()> {
@@ -77,7 +78,8 @@ impl<'a> Importer<'a> {
                 let start_date = if let Some(datestring) = realtime_trip.start_date {
                     NaiveDate::parse_from_str(&datestring, "%Y%m%d").expect(&datestring).and_hms(0, 0, 0)
                 } else {
-                    println!("Trip without start date. Skipping.");
+                    
+                    eprintln!("Trip without start date. Skipping.");
                     continue;
                 };
 
@@ -85,21 +87,21 @@ impl<'a> Importer<'a> {
                 let realtime_schedule_start_time = if let Some(timestring) = realtime_trip.start_time {
                     NaiveTime::parse_from_str(&timestring, "%H:%M:%S").expect(&timestring)
                 } else {
-                    println!("Trip without start time. Skipping.");
+                    eprintln!("Trip without start time. Skipping.");
                     continue;
                 };
                 
                 let schedule_trip = if let Ok(trip) = self.gtfs_schedule.get_trip(&trip_id) {
                     trip
                 } else {
-                    println!("Did not find trip {} in schedule. Skipping.", trip_id);
+                    eprintln!("Did not find trip {} in schedule. Skipping.", trip_id);
                     continue;
                 };
 
                 let schedule_start_time = schedule_trip.stop_times[0].departure_time;
                 let time_difference = realtime_schedule_start_time.num_seconds_from_midnight() - schedule_start_time.unwrap();
                 if time_difference != 0 {
-                    println!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
+                    eprintln!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
                 }
     
 
@@ -136,8 +138,10 @@ impl<'a> Importer<'a> {
             }
         }
         // TODO: Remove those statistics, they aren't accurate anyway
+        if self.verbose {
         println!("Finished processing {} trip updates with {} stop time updates. Success: {}, No arrival: {}, No delay: {}", 
             count_all_trip_updates, count_all_stop_time_updates, count_success, count_no_arrival, count_no_delay);
+        }
         Ok(())
     }
 
@@ -151,7 +155,7 @@ impl<'a> Importer<'a> {
             if let Some(delay) = event.delay {
                 delay as i64
             } else {
-                println!("Stop time update {} without delay. Skipping.", match event_type { EventType::Arrival => "arrival", EventType::Departure => "departure" });
+                eprintln!("Stop time update {} without delay. Skipping.", match event_type { EventType::Arrival => "arrival", EventType::Departure => "departure" });
                 return EventTimes::empty();
             }
         } else {
