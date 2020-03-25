@@ -13,7 +13,7 @@ use crate::FnResult;
 const MAX_BATCH_SIZE: usize = 1000;
 
 pub struct Importer<'a> {
-    conn: PooledConn,
+    pool: &'a Pool,
     gtfs_schedule: &'a Gtfs,
     verbose: bool
 }
@@ -42,11 +42,11 @@ struct BatchedInsertions<'a> {
 }
 
 impl<'a> Importer<'a> {
-    pub fn new(gtfs_schedule: &'a Gtfs, pool: &Pool, verbose: bool) -> FnResult<Importer<'a>> {
-        Ok(Importer { gtfs_schedule, conn: pool.get_conn()?, verbose})
+    pub fn new(gtfs_schedule: &'a Gtfs, pool: &'a Pool, verbose: bool) -> FnResult<Importer<'a>> {
+        Ok(Importer { gtfs_schedule, pool, verbose})
     }
 
-    pub fn import_realtime_into_database(&mut self, path: &str) -> FnResult<()> {
+    pub fn import_realtime_into_database(& self, path: &str) -> FnResult<()> {
         let mut file = File::open(path)?;
         let mut vec = Vec::<u8>::new();
         
@@ -73,7 +73,8 @@ impl<'a> Importer<'a> {
         let count_no_arrival = 0;
         let count_no_delay = 0;
 
-        let mut batched = BatchedInsertions::new(&mut self.conn);
+        let mut conn = self.pool.get_conn()?;
+        let mut batched = BatchedInsertions::new(&mut conn);
         
         // `message.entity` is actually a collection of entities
         for entity in message.entity {

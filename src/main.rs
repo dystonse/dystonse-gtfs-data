@@ -3,8 +3,10 @@ use std::error::Error;
 use gtfs_structures::Gtfs;
 
 use mysql::*;
+use rayon::prelude::*;
 
 mod importer;
+use importer::Importer;
 
 // This is handy, because mysql defines its own Result type and we don't 
 // want to repeat std::result::Result
@@ -67,18 +69,33 @@ fn main() -> FnResult<()> {
         println!("Importing realtime data…");
     }
     // create importer and iterate over all realtime files
-    let mut imp = importer::Importer::new(&gtfs, &pool, verbose).expect("Could not create importer");
-    for gtfs_realtime_filename in gtfs_realtime_filenames {
+    let imp = Importer::new(&gtfs, &pool, verbose).expect("Could not create importer");
+
+    gtfs_realtime_filenames
+        .par_iter()
+        .for_each(|gtfs_realtime_filename| {
+            match process_gtfs_realtime(&gtfs_realtime_filename, &imp, verbose) {
+                Ok(_) => (),
+                Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e)
+            }
+        });
+    
+    if verbose {
+        println!("Done!");
+    }
+    Ok(())
+}
+
+fn process_gtfs_realtime(
+    gtfs_realtime_filename: &str,
+    imp: &Importer,
+    verbose: bool,
+) -> FnResult<()> {
         imp.import_realtime_into_database(&gtfs_realtime_filename)?;
         if verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
         } else {
             println!("{}", &gtfs_realtime_filename);
         }
-    }
-
-    if verbose {
-        println!("Done!");
-    }
     Ok(())
 }
