@@ -1,11 +1,26 @@
-# docker-rust-test
+# dystonse-gtfs-importer
 
-This is a simple test repository. It used to conatin a hello-world-application written in Rust, and some docker fluff:
+This is a Rust crate that reads a static gtfs schedule file and any number of gtfs-realtime .pb or .zip files (given as command line arguments), matches the realtime data to the schedule data and writes everything into a mysql database.
+
+## How to use this
+
+`DB_PASSWORD=<password> cargo run [--release] -- [-v] <gtfs file path> <gfts-rt file path(s)>`
+
+A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this.
+Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`.
+
+`DB_PASSWORD` always has to be specified when running this.
+
+without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
+
+## Docker integration
+
+This started out as a simple test repository for compiling Rust applications in docker. It used to contain a hello-world-application written in Rust, and some docker fluff:
 
  * compile inside a docker container
  * copy binary into another container
 
-We currently use it to test rust development in general, and to check if this works with cros-scompiling.
+We used it to test rust development in general, and to check if this works with cross-compiling.
 
 ## How to cross-compile
 
