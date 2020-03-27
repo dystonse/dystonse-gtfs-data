@@ -6,7 +6,8 @@ This is a Rust crate that reads a static gtfs schedule file and any number of gt
 
 `DB_PASSWORD=<password> cargo run [--release] -- manual [-v] <gtfs file path> <gfts-rt file path(s)>`
 
-A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this.
+A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this crate.
+
 Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`.
 
 `DB_PASSWORD` always has to be specified when running this.
@@ -37,6 +38,8 @@ This started out as a simple test repository for compiling Rust applications in 
 We used it to test rust development in general, and to check if this works with cross-compiling.
 
 ## How to cross-compile
+
+_NOTE: The following parts are probably outdated. We will update them when we have fixed the docker config for the current crate, so that it can be compiled into a usable docker image again_
 
 Use `docker buildx build --platform linux/amd64,linux/arm/v7 -t dystonse/rust-test:latest --push .` to build and push the containers for both `linux/amd64` and `linux/arm/v7` architectures.
 
