@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::fs;
+use std::fs::DirBuilder;
+use std::path::{Path, PathBuf};
 #[macro_use] extern crate lazy_static;
 
 use gtfs_structures::Gtfs;
@@ -153,7 +155,7 @@ impl Main {
     fn run_as_manual(&self, args: &ArgMatches) -> FnResult<()> {
         let gtfs_schedule_filename = args.value_of("schedule").unwrap();
         let gtfs_realtime_filenames: Vec<String> = args.values_of("rt").unwrap().map(|s| String::from(s)).collect();
-        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames)?;
+        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames, None)?;
 
         Ok(())
     }
@@ -182,6 +184,12 @@ impl Main {
         let dir = args.value_of("dir").unwrap();
         let schedule_dir = format!("{}/schedule", dir);
         let rt_dir = format!("{}/rt", dir);
+        let target_dir = format!("{}/imported", dir);
+
+        // ensure that the directory exists
+        let mut builder = DirBuilder::new();
+        builder.recursive(true);
+        builder.create(&target_dir)?;
         
         // list files in both directories
         let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
@@ -202,8 +210,6 @@ impl Main {
         schedule_filenames.reverse();
 
         let mut current_schedule_file = String::new();
-
-
         let mut realtime_files_for_schedule:Vec<String> = Vec::new();
 
         // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
@@ -219,7 +225,7 @@ impl Main {
                 if rt_date > schedule_date {
                     if current_schedule_file != *schedule_filename {
                         if !realtime_files_for_schedule.is_empty() {
-                            self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule)?;
+                            self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule, Some(&target_dir))?;
                         }
 
                         current_schedule_file = schedule_filename.clone();
@@ -240,6 +246,7 @@ impl Main {
         &self,
         gtfs_schedule_filename: &str,
         gtfs_realtime_filenames: &Vec<String>,
+        target_dir: Option<&String>
     ) -> FnResult<()> {
         if self.verbose {
             println!("Parsing schedule…");
@@ -256,7 +263,7 @@ impl Main {
         gtfs_realtime_filenames
             .par_iter()
             .for_each(|gtfs_realtime_filename| {
-                match self.process_realtime(&gtfs_realtime_filename, &imp) {
+                match self.process_realtime(&gtfs_realtime_filename, &imp, target_dir) {
                     Ok(_) => (),
                     Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e),
                 }
@@ -268,12 +275,17 @@ impl Main {
     }
 
     /// Process a single realtime file on the given Importer
-    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer) -> FnResult<()> {
+    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer, target_dir: Option<&String>) -> FnResult<()> {
         imp.import_realtime_into_database(&gtfs_realtime_filename)?;
         if self.verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
         } else {
             println!("{}", &gtfs_realtime_filename);
+        }
+        if let Some(dir) = target_dir {
+            let mut target_path = PathBuf::from(dir);
+            target_path.push(Path::new(&gtfs_realtime_filename).file_name().unwrap());
+            std::fs::rename(gtfs_realtime_filename, target_path)?;
         }
         Ok(())
     }
