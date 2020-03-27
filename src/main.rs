@@ -2,6 +2,7 @@ use std::error::Error;
 use std::fs;
 use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
+use std::{thread, time};
 #[macro_use] extern crate lazy_static;
 
 use gtfs_structures::Gtfs;
@@ -18,6 +19,8 @@ use importer::Importer;
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
 type FnResult<R> = std::result::Result<R, Box<dyn Error>>;
+
+const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
 
 struct Main {
     verbose: bool,
@@ -176,9 +179,7 @@ impl Main {
 
     /// Handle automatic mode and batch mode, which are very similar to each other
     fn run_as_non_manual(&self, args: &ArgMatches, is_automatic: bool) -> FnResult<()> {
-        if is_automatic {
-            panic!("Sorry, automatic mode is not implemented yet. Try the batch mode instead :)");
-        }
+  
 
         // construct paths of directories
         let dir = args.value_of("dir").unwrap();
@@ -191,54 +192,62 @@ impl Main {
         builder.recursive(true);
         builder.create(&target_dir)?;
         
-        // list files in both directories
-        let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
-        let rt_filenames = Main::read_dir_simple(&rt_dir)?;
+        loop {
+            println!("Scan directory");
+            // list files in both directories
+            let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
+            let rt_filenames = Main::read_dir_simple(&rt_dir)?;
 
-        if rt_filenames.is_empty() {
-            println!("No realtime data, exiting.");
-            return Ok(());
-        }
-
-        if schedule_filenames.is_empty() {
-            println!("No scheulde data, but real time data is present. Exiting.");
-            return Ok(());
-        }
-
-        // get the date of the earliest schedule, then reverse the list to start searching with the latest schedule
-        let first_schedule_date = Main::date_from_filename(&schedule_filenames[0]);
-        schedule_filenames.reverse();
-
-        let mut current_schedule_file = String::new();
-        let mut realtime_files_for_schedule:Vec<String> = Vec::new();
-
-        // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
-        for rt_filename in rt_filenames {
-            let rt_date = Main::date_from_filename(&rt_filename);
-            if rt_date <= first_schedule_date {
-                println!("Realtime data {} is older than any schedule, skipping,", rt_filename);
-                continue;
+            if !is_automatic && rt_filenames.is_empty() {
+                println!("No realtime data, exiting.");
+                return Ok(());
             }
 
-            for schedule_filename in &schedule_filenames {
-                let schedule_date = Main::date_from_filename(&schedule_filename);
-                if rt_date > schedule_date {
-                    if current_schedule_file != *schedule_filename {
-                        if !realtime_files_for_schedule.is_empty() {
-                            self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule, Some(&target_dir))?;
-                        }
+            if !is_automatic && schedule_filenames.is_empty() {
+                println!("No scheulde data, but real time data is present. Exiting.");
+                return Ok(());
+            }
 
-                        current_schedule_file = schedule_filename.clone();
-                        realtime_files_for_schedule = Vec::new();
+            // get the date of the earliest schedule, then reverse the list to start searching with the latest schedule
+            let first_schedule_date = Main::date_from_filename(&schedule_filenames[0]);
+            schedule_filenames.reverse();
+
+            let mut current_schedule_file = String::new();
+            let mut realtime_files_for_schedule:Vec<String> = Vec::new();
+
+            // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
+            for rt_filename in rt_filenames {
+                let rt_date = Main::date_from_filename(&rt_filename);
+                if rt_date <= first_schedule_date {
+                    println!("Realtime data {} is older than any schedule, skipping,", rt_filename);
+                    continue;
+                }
+
+                for schedule_filename in &schedule_filenames {
+                    let schedule_date = Main::date_from_filename(&schedule_filename);
+                    if rt_date > schedule_date {
+                        if current_schedule_file != *schedule_filename {
+                            if !realtime_files_for_schedule.is_empty() {
+                                self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule, Some(&target_dir))?;
+                            }
+
+                            current_schedule_file = schedule_filename.clone();
+                            realtime_files_for_schedule = Vec::new();
+                        }
+                        realtime_files_for_schedule.push(rt_filename.clone());
+                        break;
                     }
-                    realtime_files_for_schedule.push(rt_filename.clone());
-                    break;
                 }
             }
-        }
 
-        println!("Finished.");
-        Ok(())
+            if !is_automatic {
+                println!("Finished.");
+                return Ok(());
+            }
+
+            println!("Finished one iteration. Sleeping until next directory scan.");
+            thread::sleep(TIME_BETWEEN_DIR_SCANS);
+        }
     }
 
     /// Perform the import of one or more realtime data sets relating to a single schedule
