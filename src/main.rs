@@ -1,13 +1,17 @@
-use gtfs_structures::Gtfs;
 use std::error::Error;
+use std::fs;
+#[macro_use] extern crate lazy_static;
 
+use gtfs_structures::Gtfs;
 use mysql::*;
 use rayon::prelude::*;
+use regex::Regex;
+use clap::{App, Arg, ArgMatches};
+use chrono::{NaiveDate};
 
 mod importer;
 use importer::Importer;
 
-use clap::{App, Arg, ArgMatches};
 
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
@@ -29,17 +33,19 @@ fn parse_args() -> ArgMatches {
     let matches = App::new("Dystonse GTFS Importer")
         .subcommand(App::new("automatic")
             .about("Runs forever, importing all files which are present or become present during the run.")
-            .arg(Arg::with_name("schedule")
+            .arg(Arg::with_name("dir")
                 .index(1)
                 .value_name("DIRECTORY")
+                .required_unless("help")
                 .help("The directory which contains schedules and realtime data")
             )
         )
         .subcommand(App::new("batch")
             .about("Imports all files which are present at the time it is started.")
-            .arg(Arg::with_name("schedule")
+            .arg(Arg::with_name("dir")
                 .index(1)
                 .value_name("DIRECTORY")
+                .required_unless("help")
                 .help("The directory which contains schedules and realtime data")
             )
         )
@@ -146,23 +152,94 @@ impl Main {
     /// Handle manual mode
     fn run_as_manual(&self, args: &ArgMatches) -> FnResult<()> {
         let gtfs_schedule_filename = args.value_of("schedule").unwrap();
-        let gtfs_realtime_filenames: Vec<&str> = args.values_of("rt").unwrap().collect();
+        let gtfs_realtime_filenames: Vec<String> = args.values_of("rt").unwrap().map(|s| String::from(s)).collect();
         self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames)?;
 
         Ok(())
     }
 
+    fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
+        let mut path_list: Vec<String> = fs::read_dir(path)?.filter_map(|r| r.ok()).map(|d| String::from(d.path().to_str().unwrap())).collect();
+        path_list.sort();
+        Ok(path_list)
+    }
+
+    fn date_from_filename(filename: &str) -> NaiveDate {
+        lazy_static! {
+            static ref FIND_DATE: Regex = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap();
+        }
+        let cap = FIND_DATE.captures(&filename).unwrap();
+        NaiveDate::from_ymd(cap[1].parse().expect(""), cap[2].parse().expect(""), cap[3].parse().expect(""))
+    }
+
     /// Handle automatic mode and batch mode, which are very similar to each other
-    fn run_as_non_manual(&self, _args: &ArgMatches, _is_automatic: bool) -> FnResult<()> {
-        // TODO implement
-        panic!("Non-manual modes are not yet implemented.");
+    fn run_as_non_manual(&self, args: &ArgMatches, is_automatic: bool) -> FnResult<()> {
+        if is_automatic {
+            panic!("Sorry, automatic mode is not implemented yet. Try the batch mode instead :)");
+        }
+
+        // construct paths of directories
+        let dir = args.value_of("dir").unwrap();
+        let schedule_dir = format!("{}/schedule", dir);
+        let rt_dir = format!("{}/rt", dir);
+        
+        // list files in both directories
+        let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
+        let rt_filenames = Main::read_dir_simple(&rt_dir)?;
+
+        if rt_filenames.is_empty() {
+            println!("No realtime data, exiting.");
+            return Ok(());
+        }
+
+        if schedule_filenames.is_empty() {
+            println!("No scheulde data, but real time data is present. Exiting.");
+            return Ok(());
+        }
+
+        // get the date of the earliest schedule, then reverse the list to start searching with the latest schedule
+        let first_schedule_date = Main::date_from_filename(&schedule_filenames[0]);
+        schedule_filenames.reverse();
+
+        let mut current_schedule_file = String::new();
+
+
+        let mut realtime_files_for_schedule:Vec<String> = Vec::new();
+
+        // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
+        for rt_filename in rt_filenames {
+            let rt_date = Main::date_from_filename(&rt_filename);
+            if rt_date <= first_schedule_date {
+                println!("Realtime data {} is older than any schedule, skipping,", rt_filename);
+                continue;
+            }
+
+            for schedule_filename in &schedule_filenames {
+                let schedule_date = Main::date_from_filename(&schedule_filename);
+                if rt_date > schedule_date {
+                    if current_schedule_file != *schedule_filename {
+                        if !realtime_files_for_schedule.is_empty() {
+                            self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule)?;
+                        }
+
+                        current_schedule_file = schedule_filename.clone();
+                        realtime_files_for_schedule = Vec::new();
+                    }
+                    realtime_files_for_schedule.push(rt_filename.clone());
+                    break;
+                }
+            }
+        }
+
+        println!("Finished.");
+        Ok(())
     }
 
     /// Perform the import of one or more realtime data sets relating to a single schedule
     fn process_schedule_and_realtimes(
         &self,
         gtfs_schedule_filename: &str,
-        gtfs_realtime_filenames: &Vec<&str>,
+        gtfs_realtime_filenames: &Vec<String>,
     ) -> FnResult<()> {
         if self.verbose {
             println!("Parsing schedule…");

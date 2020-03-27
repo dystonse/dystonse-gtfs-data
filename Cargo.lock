@@ -404,9 +404,11 @@ dependencies = [
  "clap",
  "gtfs-rt",
  "gtfs-structures",
+ "lazy_static",
  "mysql",
  "prost",
  "rayon",
+ "regex",
  "zip",
 ]
 
