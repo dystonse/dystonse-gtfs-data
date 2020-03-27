@@ -3,18 +3,18 @@ use std::fs;
 use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
-#[macro_use] extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 
+use chrono::NaiveDate;
+use clap::{App, Arg, ArgMatches};
 use gtfs_structures::Gtfs;
 use mysql::*;
 use rayon::prelude::*;
 use regex::Regex;
-use clap::{App, Arg, ArgMatches};
-use chrono::{NaiveDate};
 
 mod importer;
 use importer::Importer;
-
 
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
@@ -157,14 +157,25 @@ impl Main {
     /// Handle manual mode
     fn run_as_manual(&self, args: &ArgMatches) -> FnResult<()> {
         let gtfs_schedule_filename = args.value_of("schedule").unwrap();
-        let gtfs_realtime_filenames: Vec<String> = args.values_of("rt").unwrap().map(|s| String::from(s)).collect();
-        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames, None)?;
+        let gtfs_realtime_filenames: Vec<String> = args
+            .values_of("rt")
+            .unwrap()
+            .map(|s| String::from(s))
+            .collect();
+        self.process_schedule_and_realtimes(
+            &gtfs_schedule_filename,
+            &gtfs_realtime_filenames,
+            None,
+        )?;
 
         Ok(())
     }
 
     fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
-        let mut path_list: Vec<String> = fs::read_dir(path)?.filter_map(|r| r.ok()).map(|d| String::from(d.path().to_str().unwrap())).collect();
+        let mut path_list: Vec<String> = fs::read_dir(path)?
+            .filter_map(|r| r.ok())
+            .map(|d| String::from(d.path().to_str().unwrap()))
+            .collect();
         path_list.sort();
         Ok(path_list)
     }
@@ -174,13 +185,15 @@ impl Main {
             static ref FIND_DATE: Regex = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap();
         }
         let cap = FIND_DATE.captures(&filename).unwrap();
-        NaiveDate::from_ymd(cap[1].parse().expect(""), cap[2].parse().expect(""), cap[3].parse().expect(""))
+        NaiveDate::from_ymd(
+            cap[1].parse().expect(""),
+            cap[2].parse().expect(""),
+            cap[3].parse().expect(""),
+        )
     }
 
     /// Handle automatic mode and batch mode, which are very similar to each other
     fn run_as_non_manual(&self, args: &ArgMatches, is_automatic: bool) -> FnResult<()> {
-  
-
         // construct paths of directories
         let dir = args.value_of("dir").unwrap();
         let schedule_dir = format!("{}/schedule", dir);
@@ -191,7 +204,6 @@ impl Main {
         let mut builder = DirBuilder::new();
         builder.recursive(true);
         builder.create(&target_dir)?;
-        
         loop {
             println!("Scan directory");
             // list files in both directories
@@ -213,13 +225,16 @@ impl Main {
             schedule_filenames.reverse();
 
             let mut current_schedule_file = String::new();
-            let mut realtime_files_for_schedule:Vec<String> = Vec::new();
+            let mut realtime_files_for_schedule: Vec<String> = Vec::new();
 
             // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
             for rt_filename in rt_filenames {
                 let rt_date = Main::date_from_filename(&rt_filename);
                 if rt_date <= first_schedule_date {
-                    println!("Realtime data {} is older than any schedule, skipping,", rt_filename);
+                    println!(
+                        "Realtime data {} is older than any schedule, skipping,",
+                        rt_filename
+                    );
                     continue;
                 }
 
@@ -228,7 +243,11 @@ impl Main {
                     if rt_date > schedule_date {
                         if current_schedule_file != *schedule_filename {
                             if !realtime_files_for_schedule.is_empty() {
-                                self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_schedule, Some(&target_dir))?;
+                                self.process_schedule_and_realtimes(
+                                    &current_schedule_file,
+                                    &realtime_files_for_schedule,
+                                    Some(&target_dir),
+                                )?;
                             }
 
                             current_schedule_file = schedule_filename.clone();
@@ -255,7 +274,7 @@ impl Main {
         &self,
         gtfs_schedule_filename: &str,
         gtfs_realtime_filenames: &Vec<String>,
-        target_dir: Option<&String>
+        target_dir: Option<&String>,
     ) -> FnResult<()> {
         if self.verbose {
             println!("Parsing schedule…");
@@ -284,7 +303,12 @@ impl Main {
     }
 
     /// Process a single realtime file on the given Importer
-    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer, target_dir: Option<&String>) -> FnResult<()> {
+    fn process_realtime(
+        &self,
+        gtfs_realtime_filename: &str,
+        imp: &Importer,
+        target_dir: Option<&String>,
+    ) -> FnResult<()> {
         imp.import_realtime_into_database(&gtfs_realtime_filename)?;
         if self.verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
