@@ -7,31 +7,42 @@ use rayon::prelude::*;
 mod importer;
 use importer::Importer;
 
-use clap::{Arg, App, ArgMatches};
+use clap::{App, Arg, ArgMatches};
 
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
 type FnResult<R> = std::result::Result<R, Box<dyn Error>>;
 
-/// Opens a connection to a database and returns the resulting connection pool.
-/// Takes configuration values from DB_PASSWORD, DB_USER, DB_HOST, DB_PORT and DB_DATABASE
-/// environment variables. For all values except DB_PASSWORD a default is provided.
-fn open_db(args: &ArgMatches) -> FnResult<Pool> {
-    let url = format!(
-        "mysql://{}:{}@{}:{}/{}",
-        args.value_of("user").unwrap(),
-        args.value_of("password").unwrap(),
-        args.value_of("host").unwrap(),
-        args.value_of("port").unwrap(),
-        args.value_of("database").unwrap()
-    );
-    let pool = Pool::new(url)?;
-    Ok(pool)
+struct Main {
+    verbose: bool,
+    pool: Pool,
+    args: ArgMatches,
+}
+
+fn main() -> FnResult<()> {
+    let instance = Main::new()?;
+    instance.run()?;
+    Ok(())
 }
 
 fn parse_args() -> ArgMatches {
     let matches = App::new("Dystonse GTFS Importer")
-
+        .subcommand(App::new("automatic")
+            .about("Runs forever, importing all files which are present or become present during the run.")
+            .arg(Arg::with_name("schedule")
+                .index(1)
+                .value_name("DIRECTORY")
+                .help("The directory which contains schedules and realtime data")
+            )
+        )
+        .subcommand(App::new("batch")
+            .about("Imports all files which are present at the time it is started.")
+            .arg(Arg::with_name("schedule")
+                .index(1)
+                .value_name("DIRECTORY")
+                .help("The directory which contains schedules and realtime data")
+            )
+        )
         .subcommand(App::new("manual")
             .about("Imports all files which are present at the time it is started.")
                 .arg(Arg::with_name("schedule")
@@ -85,63 +96,108 @@ fn parse_args() -> ArgMatches {
             .help("Database name which will be selected.")
             .default_value("dystonse")
         )
-    .get_matches();   
-    return matches;    
+    .get_matches();
+    return matches;
 }
 
-/// Opens the database, reads schedule and transfers realtime data from
-/// protobuffer files into the database.
-/// gtfs is read from the first command line parameter (url or path to zip or directory)
-/// gtfsrt is read from all other command line parameters (path to pb file)
-fn main() -> FnResult<()> {
-    let matches = parse_args();
+impl Main {
+    /// Constructs a new instance of Main, with parsed arguments and a ready-to-use pool of database connections.
+    fn new() -> FnResult<Main> {
+        let args = parse_args();
+        let verbose = args.is_present("verbose");
 
-    match matches.subcommand() {
-        ("automatic", Some(sub_args)) => run_as_non_manual(sub_args, true),
-        _ => panic!("Invalid arguments.")
+        if verbose {
+            println!("Connecting to database…");
+        }
+        let pool = Main::open_db(&args)?;
+        Ok(Main {
+            args,
+            verbose,
+            pool,
+        })
     }
-}
 
-fn run_as_manual(args: &ArgMatches) -> FnResult<()> {
-    let gtfs_schedule_filename = args.value_of("schedule").unwrap();
-    let verbose: bool = args.is_present("verbose");
-    let gtfs_realtime_filenames: Vec<&str> = args.values_of("rt").unwrap().collect();
-
-    if verbose { println!("Connecting to database…"); }
-    let pool = open_db(args)?;
-
-    if verbose { println!("Parsing schedule…"); }
-    let gtfs = Gtfs::new(gtfs_schedule_filename).expect("Gtfs deserialisation");
-
-    if verbose { println!("Importing realtime data…"); }
-    // create importer and iterate over all realtime files
-    let imp = Importer::new(&gtfs, &pool, verbose).expect("Could not create importer");
-
-    gtfs_realtime_filenames
-        .par_iter()
-        .for_each(|gtfs_realtime_filename| {
-            match process_gtfs_realtime(&gtfs_realtime_filename, &imp, verbose) {
-                Ok(_) => (),
-                Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e)
-            }
-        });
-    
-    if verbose {
-        println!("Done!");
+    /// Opens a connection to a database and returns the resulting connection pool.
+    /// Takes configuration values from DB_PASSWORD, DB_USER, DB_HOST, DB_PORT and DB_DATABASE
+    /// environment variables. For all values except DB_PASSWORD a default is provided.
+    fn open_db(args: &ArgMatches) -> FnResult<Pool> {
+        let url = format!(
+            "mysql://{}:{}@{}:{}/{}",
+            args.value_of("user").unwrap(),
+            args.value_of("password").unwrap(),
+            args.value_of("host").unwrap(),
+            args.value_of("port").unwrap(),
+            args.value_of("database").unwrap()
+        );
+        let pool = Pool::new(url)?;
+        Ok(pool)
     }
-    Ok(())
-}
 
-fn process_gtfs_realtime(
-    gtfs_realtime_filename: &str,
-    imp: &Importer,
-    verbose: bool,
-) -> FnResult<()> {
-    imp.import_realtime_into_database(&gtfs_realtime_filename)?;
-    if verbose {
-        println!("Finished importing file: {}", &gtfs_realtime_filename);
-    } else {
-        println!("{}", &gtfs_realtime_filename);
+    /// Runs the actions that are selected via the command line args
+    fn run(&self) -> FnResult<()> {
+        match self.args.subcommand() {
+            ("automatic", Some(sub_args)) => self.run_as_non_manual(sub_args, true),
+            ("batch", Some(sub_args)) => self.run_as_non_manual(sub_args, false),
+            ("manual", Some(sub_args)) => self.run_as_manual(sub_args),
+            _ => panic!("Invalid arguments."),
+        }
     }
-    Ok(())
+
+    /// Handle manual mode
+    fn run_as_manual(&self, args: &ArgMatches) -> FnResult<()> {
+        let gtfs_schedule_filename = args.value_of("schedule").unwrap();
+        let gtfs_realtime_filenames: Vec<&str> = args.values_of("rt").unwrap().collect();
+        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames)?;
+
+        Ok(())
+    }
+
+    /// Handle automatic mode and batch mode, which are very similar to each other
+    fn run_as_non_manual(&self, _args: &ArgMatches, _is_automatic: bool) -> FnResult<()> {
+        // TODO implement
+        panic!("Non-manual modes are not yet implemented.");
+    }
+
+    /// Perform the import of one or more realtime data sets relating to a single schedule
+    fn process_schedule_and_realtimes(
+        &self,
+        gtfs_schedule_filename: &str,
+        gtfs_realtime_filenames: &Vec<&str>,
+    ) -> FnResult<()> {
+        if self.verbose {
+            println!("Parsing schedule…");
+        }
+        let gtfs = Gtfs::new(gtfs_schedule_filename).expect("Gtfs deserialisation");
+
+        if self.verbose {
+            println!("Importing realtime data…");
+        }
+        // create importer for this schedule and iterate over all given realtime files
+        let imp =
+            Importer::new(&gtfs, &self.pool, self.verbose).expect("Could not create importer");
+
+        gtfs_realtime_filenames
+            .par_iter()
+            .for_each(|gtfs_realtime_filename| {
+                match self.process_realtime(&gtfs_realtime_filename, &imp) {
+                    Ok(_) => (),
+                    Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e),
+                }
+            });
+        if self.verbose {
+            println!("Done!");
+        }
+        Ok(())
+    }
+
+    /// Process a single realtime file on the given Importer
+    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer) -> FnResult<()> {
+        imp.import_realtime_into_database(&gtfs_realtime_filename)?;
+        if self.verbose {
+            println!("Finished importing file: {}", &gtfs_realtime_filename);
+        } else {
+            println!("{}", &gtfs_realtime_filename);
+        }
+        Ok(())
+    }
 }
