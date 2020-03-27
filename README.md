@@ -4,7 +4,7 @@ This is a Rust crate that reads a static gtfs schedule file and any number of gt
 
 ## How to use this
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] <gtfs file path> <gfts-rt file path(s)>`
+`DB_PASSWORD=<password> cargo run [--release] -- manual [-v] <gtfs file path> <gfts-rt file path(s)>`
 
 A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this.
 Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`.
@@ -12,6 +12,20 @@ Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE
 `DB_PASSWORD` always has to be specified when running this.
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
+
+## Automatic mode (WIP)
+Currently, only `manual` mode is supported. Shortly, there should be `automatic` and `batch` as well.
+
+In automatic mode:
+
+1. The importer will search for all schedules in `<dir>/schedule` and all realtime files in `<dir>/rt` and compute for each schedule which rt-files belong to that schedule. In this context, each realtime file belongs to the newest schedule that is older then the realtime data, as indicated by the date within the filenames.
+2. Beginning with the oldest schedule, the importer will import each realtime file and move it to `<dir>/imported` on success or `<dir>/failed` if the import failed for reasons within the realtime file. _**TODO:** The exact criteria for failing are to be defined._
+3. When all known files are processed, the importer will look for new files that appeared duing its operation. If new files are found, it repeats from step 1.
+4. If no new files were found during step 3, the importer will wait for changes in `<dir>` and upon change, continue with step 3.
+
+In batch mode, it works exactly as in automatic mode, but the importer exits after step 2.
+
+_**TODO:** We need to avoid reading files that are currently being written too. Maybe we should ignore files that have been modified very recently, e.g. within the last 2 minutes._
 
 ## Docker integration
 

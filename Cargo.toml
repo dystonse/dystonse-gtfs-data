@@ -13,3 +13,4 @@ mysql = "18.0.0"
 chrono = "0.4.11"
 zip = "0.5"
 rayon = "1.1"
+clap = { git = "https://github.com/clap-rs/clap/" } # use unpublished version because a major update to 3.0 is coming very soon.
