@@ -26,6 +26,7 @@ struct Main {
     verbose: bool,
     pool: Pool,
     args: ArgMatches,
+    source: String
 }
 
 fn main() -> FnResult<()> {
@@ -117,8 +118,16 @@ fn parse_args() -> ArgMatches {
             .takes_value(true)
             .help("Database name which will be selected.")
             .default_value("dystonse")
+        ).arg(Arg::with_name("source")
+            .short('s')
+            .long("source")
+            .env("DB_SOURCE")
+            .takes_value(true)
+            .help("Source identifier for the data sets. Used to distinguis data sets with non-unique ids.")
+            .required_unless("help")
+            .takes_value(true)
         )
-    .get_matches();
+        .get_matches();
     return matches;
 }
 
@@ -127,6 +136,7 @@ impl Main {
     fn new() -> FnResult<Main> {
         let args = parse_args();
         let verbose = args.is_present("verbose");
+        let source = String::from(args.value_of("source").unwrap());
 
         if verbose {
             println!("Connecting to database…");
@@ -136,6 +146,7 @@ impl Main {
             args,
             verbose,
             pool,
+            source,
         })
     }
 
@@ -221,9 +232,15 @@ impl Main {
             let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
             let rt_filenames = Main::read_dir_simple(&rt_dir)?;
 
-            if !is_automatic && rt_filenames.is_empty() {
-                println!("No realtime data, exiting.");
-                return Ok(());
+            if rt_filenames.is_empty() {
+                if is_automatic {
+                    if self.verbose { println!("No realtime data. Going to sleep and checking again later.");}
+                    thread::sleep(TIME_BETWEEN_DIR_SCANS);
+                    continue;
+                } else {
+                    println!("No realtime data, exiting.");
+                    return Ok(());
+                }
             }
 
             if schedule_filenames.is_empty() {
@@ -282,11 +299,13 @@ impl Main {
             }
 
             // process last schedule's collection
-            self.process_schedule_and_realtimes(
-                &current_schedule_file,
-                &realtime_files_for_current_schedule,
-                Some(&target_dir),
-            )?;
+            if !realtime_files_for_current_schedule.is_empty() {
+                self.process_schedule_and_realtimes(
+                    &current_schedule_file,
+                    &realtime_files_for_current_schedule,
+                    Some(&target_dir),
+                )?;
+            }
 
             if !is_automatic {
                 println!("Finished.");
@@ -315,7 +334,7 @@ impl Main {
         }
         // create importer for this schedule and iterate over all given realtime files
         let imp =
-            Importer::new(&gtfs, &self.pool, self.verbose).expect("Could not create importer");
+            Importer::new(&gtfs, &self.pool, self.verbose, &self.source).expect("Could not create importer");
 
         gtfs_realtime_filenames
             .par_iter()

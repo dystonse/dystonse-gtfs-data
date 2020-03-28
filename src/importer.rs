@@ -16,6 +16,7 @@ pub struct Importer<'a> {
     pool: &'a Pool,
     gtfs_schedule: &'a Gtfs,
     verbose: bool,
+    source: &'a str
 }
 
 enum EventType {
@@ -46,11 +47,12 @@ struct BatchedInsertions<'a> {
 }
 
 impl<'a> Importer<'a> {
-    pub fn new(gtfs_schedule: &'a Gtfs, pool: &'a Pool, verbose: bool) -> FnResult<Importer<'a>> {
+    pub fn new(gtfs_schedule: &'a Gtfs, pool: &'a Pool, verbose: bool, source: &'a str) -> FnResult<Importer<'a>> {
         Ok(Importer {
             gtfs_schedule,
             pool,
             verbose,
+            source,
         })
     }
 
@@ -157,7 +159,8 @@ impl<'a> Importer<'a> {
                         "delay_arrival" => arrival.delay,
                         "time_departure_schedule" => departure.schedule,
                         "time_departure_estimate" => departure.estimate,
-                        "delay_departure" => departure.delay
+                        "delay_departure" => departure.delay,
+                        "source" => &self.source,
                     }))?;
 
                     count_success += 1;
@@ -215,10 +218,10 @@ impl<'a> BatchedInsertions<'a> {
     fn new(conn: &mut PooledConn) -> BatchedInsertions {
         let statement = conn.prep(r"INSERT INTO `realtime` 
                     (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `mode`, `delay_arrival`, `delay_departure`,
-                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`) 
+                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`, `source`) 
                     VALUES 
                     (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, :mode, :delay_arrival, :delay_departure, 
-                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate))")
+                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate), :source)")
                     .expect("Could not prepare statement");
 
         BatchedInsertions {

@@ -4,18 +4,18 @@ This is a Rust crate that reads a static gtfs schedule file and any number of gt
 
 ## How to use this
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] manual <gtfs file path> <gfts-rt file path(s)>`
+`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> manual <gtfs file path> <gfts-rt file path(s)>`
 
 A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this crate.
 
-The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` always has to be specified when running this.
+The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `DB_SOURCE` always have to be specified when running this, where `DB_SOURCE` is a string identifier that will be written as-is into the database for each entry.
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
 
 ## Automatic mode
 Instead of `manual` mode, you can use `automatic` or `batch` mode:
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] automatic <dir>`
+`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> automatic <dir>`
 
 In automatic mode:
 
