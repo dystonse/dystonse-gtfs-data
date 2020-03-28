@@ -43,6 +43,12 @@ fn parse_args() -> ArgMatches {
                 .value_name("DIRECTORY")
                 .required_unless("help")
                 .help("The directory which contains schedules and realtime data")
+                .long_help(
+                    "The directory that contains the schedules (located in a subdirectory named 'schedules') \
+                    and realtime data (located in a subdirectory named 'rt'). \
+                    Successfully processed files are moved to a subdirectory named 'imported'. \
+                    The 'imported' subdirectory will be created automatically if it doesn't already exist."
+                )
             )
         )
         .subcommand(App::new("batch")
@@ -52,14 +58,20 @@ fn parse_args() -> ArgMatches {
                 .value_name("DIRECTORY")
                 .required_unless("help")
                 .help("The directory which contains schedules and realtime data")
+                .long_help(
+                    "The directory that contains the schedules (located in a subdirectory named 'schedules') \
+                    and realtime data (located in a subdirectory named 'rt'). \
+                    Successfully processed files are moved to a subdirectory named 'imported'. \
+                    The 'imported' subdirectory will be created automatically if it doesn't already exist."
+                )
             )
         )
         .subcommand(App::new("manual")
-            .about("Imports all files which are present at the time it is started.")
-                .arg(Arg::with_name("schedule")
+            .about("Imports all specified realtime files using one specified schedule. Paths to schedule and realtime files have to be given as arguments.")
+            .arg(Arg::with_name("schedule")
                 .index(1)
                 .value_name("SCHEDULE")
-                .help("The  the static GTFS schedule, as directory or .zip")
+                .help("The static GTFS schedule, as directory or .zip")
                 .required_unless("help")
             ).arg(Arg::with_name("rt")
                 .index(2)
@@ -205,7 +217,7 @@ impl Main {
         builder.recursive(true);
         builder.create(&target_dir)?;
         loop {
-            println!("Scan directory");
+            if self.verbose { println!("Scan directory"); }
             // list files in both directories
             let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
             let rt_filenames = Main::read_dir_simple(&rt_dir)?;
@@ -215,56 +227,74 @@ impl Main {
                 return Ok(());
             }
 
-            if !is_automatic && schedule_filenames.is_empty() {
-                println!("No scheulde data, but real time data is present. Exiting.");
-                return Ok(());
+            if schedule_filenames.is_empty() {
+                if is_automatic {
+                    if self.verbose { println!("No schedule data. Going to sleep and checking again later.");}
+                    thread::sleep(TIME_BETWEEN_DIR_SCANS);
+                    continue;
+                } else {
+                    println!("No schedule data, but real time data is present. Exiting.");
+                    return Ok(());
+                }
             }
 
             // get the date of the earliest schedule, then reverse the list to start searching with the latest schedule
-            let first_schedule_date = Main::date_from_filename(&schedule_filenames[0]);
+            let oldest_schedule_date = Main::date_from_filename(&schedule_filenames[0]);
             schedule_filenames.reverse();
 
+            // data structures to collect the files to work on in the current iteration (one schedule and all its corresponding rt files)
             let mut current_schedule_file = String::new();
-            let mut realtime_files_for_schedule: Vec<String> = Vec::new();
+            let mut realtime_files_for_current_schedule: Vec<String> = Vec::new();
 
-            // Itereate over all rt files, collecting all rt files that belong to the same schedule to process them in batch.
+            // Iterate over all rt files (oldest first), collecting all rt files that belong to the same schedule to process them in batch.
             for rt_filename in rt_filenames {
                 let rt_date = Main::date_from_filename(&rt_filename);
-                if rt_date <= first_schedule_date {
-                    println!(
+                if rt_date <= oldest_schedule_date {
+                    eprintln!(
                         "Realtime data {} is older than any schedule, skipping,",
                         rt_filename
                     );
                     continue;
                 }
 
+                // Look at all schedules (newest first)
                 for schedule_filename in &schedule_filenames {
                     let schedule_date = Main::date_from_filename(&schedule_filename);
-                    if rt_date > schedule_date {
-                        if current_schedule_file != *schedule_filename {
-                            if !realtime_files_for_schedule.is_empty() {
+                    // Assume we found the right schedule if this is the newest schedule that is older than the realtime file:
+                    if rt_date > schedule_date { 
+                        // process the current schedule's collection before going to next schedule
+                        if *schedule_filename != current_schedule_file {
+                            if !realtime_files_for_current_schedule.is_empty() {
                                 self.process_schedule_and_realtimes(
                                     &current_schedule_file,
-                                    &realtime_files_for_schedule,
+                                    &realtime_files_for_current_schedule,
                                     Some(&target_dir),
                                 )?;
                             }
-
+                            // go on with the next schedule
                             current_schedule_file = schedule_filename.clone();
-                            realtime_files_for_schedule = Vec::new();
+                            realtime_files_for_current_schedule.clear();
                         }
-                        realtime_files_for_schedule.push(rt_filename.clone());
+                        realtime_files_for_current_schedule.push(rt_filename.clone());
+                        // Correct schedule found for this one, so continue with next realtime file
                         break;
                     }
                 }
             }
+
+            // process last schedule's collection
+            self.process_schedule_and_realtimes(
+                &current_schedule_file,
+                &realtime_files_for_current_schedule,
+                Some(&target_dir),
+            )?;
 
             if !is_automatic {
                 println!("Finished.");
                 return Ok(());
             }
 
-            println!("Finished one iteration. Sleeping until next directory scan.");
+            if self.verbose { println!("Finished one iteration. Sleeping until next directory scan."); }
             thread::sleep(TIME_BETWEEN_DIR_SCANS);
         }
     }
