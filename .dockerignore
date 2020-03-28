@@ -3,4 +3,4 @@
 .dockerignore
 Dockerfile
 target/
-data/gtfs/
+data/
