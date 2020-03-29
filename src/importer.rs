@@ -167,6 +167,9 @@ impl<'a> Importer<'a> {
                 }
             }
         }
+
+        batched.write_to_database()?;
+
         // TODO: Remove those statistics, they aren't accurate anyway
         if self.verbose {
             println!("Finished processing {} trip updates with {} stop time updates. Success: {}, No arrival: {}, No delay: {}", 
