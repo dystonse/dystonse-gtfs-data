@@ -13,7 +13,7 @@ use mysql::*;
 use rayon::prelude::*;
 use regex::Regex;
 use retry::retry;
-use retry::delay::Exponential;
+use retry::delay::Fibonacci;
 
 mod importer;
 use importer::Importer;
@@ -143,7 +143,7 @@ impl Main {
         if verbose {
             println!("Connecting to database…");
         }
-        let pool = retry(Exponential::from_millis(1000), || {
+        let pool = retry(Fibonacci::from_millis(1000), || {
             Main::open_db(&args)
         }).expect("DB connections should succeed eventually.");
         
