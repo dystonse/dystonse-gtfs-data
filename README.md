@@ -8,7 +8,7 @@ This is a Rust crate that reads a static gtfs schedule file and any number of gt
 
 A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this crate.
 
-The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `DB_SOURCE` always have to be specified when running this, where `DB_SOURCE` is a string identifier that will be written as-is into the database for each entry.
+The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry.
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
 
