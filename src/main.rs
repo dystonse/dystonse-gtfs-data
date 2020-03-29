@@ -12,6 +12,8 @@ use gtfs_structures::Gtfs;
 use mysql::*;
 use rayon::prelude::*;
 use regex::Regex;
+use retry::retry;
+use retry::delay::Exponential;
 
 mod importer;
 use importer::Importer;
@@ -141,7 +143,10 @@ impl Main {
         if verbose {
             println!("Connecting to database…");
         }
-        let pool = Main::open_db(&args)?;
+        let pool = retry(Exponential::from_millis(1000), || {
+            Main::open_db(&args)
+        }).expect("DB connections should succeed eventually.");
+        
         Ok(Main {
             args,
             verbose,

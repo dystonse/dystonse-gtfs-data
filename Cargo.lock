@@ -410,6 +410,7 @@ dependencies = [
  "prost",
  "rayon",
  "regex",
+ "retry",
  "zip",
 ]
 
@@ -1250,6 +1251,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a83fa3702a688b9359eccba92d153ac33fd2e8462f9e0e3fdf155239ea7792e"
 dependencies = [
  "winapi",
+]
+
+[[package]]
+name = "retry"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "789e7aad247a37b785401b4d82bbad03212bb516fe7c0c2cc42f37bccb00b9b2"
+dependencies = [
+ "rand 0.7.3",
 ]
 
 [[package]]

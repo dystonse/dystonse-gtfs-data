@@ -16,3 +16,4 @@ rayon = "1.1"
 clap = { git = "https://github.com/clap-rs/clap/" } # use unpublished version because a major update to 3.0 is coming very soon.
 regex = "1"
 lazy_static = "1.4.0"
+retry = "1.0.0"
