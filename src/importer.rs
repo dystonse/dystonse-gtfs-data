@@ -192,9 +192,22 @@ impl<'a> Importer<'a> {
         let stop_sequence = stop_time_update
             .stop_sequence
             .ok_or(SimpleError::new("no stop_sequence"))? as usize;
-        // There's an enum but conversion to u32 is not supported: gtfs.get_route(&route_id).expect("I've got no route!!!").route_type as u32;
-        // TODO add a method impl to RouteType to convert it back to u32
-        let mode = 99;
+
+        let mode = if let Ok(mode_enum) = self.gtfs_schedule.get_route(&route_id) {
+            match mode_enum.route_type {
+                gtfs_structures::RouteType::Tramway => 0,
+                gtfs_structures::RouteType::Subway => 1,
+                gtfs_structures::RouteType::Rail => 2,
+                gtfs_structures::RouteType::Bus => 3,
+                gtfs_structures::RouteType::Ferry => 4,
+                gtfs_structures::RouteType::CableCar => 5,
+                gtfs_structures::RouteType::Gondola => 6,
+                gtfs_structures::RouteType::Funicular => 7,
+                gtfs_structures::RouteType::Other(x) => x,
+            }
+        } else {
+            99
+        };
 
         let arrival = Importer::handle_stop_time_update(
             stop_time_update.arrival,
