@@ -19,14 +19,12 @@ Instead of `manual` mode, you can use `automatic` or `batch` mode:
 
 In automatic mode:
 
-1. The importer will search for all schedules in `<dir>/schedule` and all realtime files in `<dir>/rt` and compute for each schedule which rt-files belong to that schedule. In this context, each realtime file belongs to the newest schedule that is older then the realtime data, as indicated by the date within the filenames.
+1. The importer will search for all schedules in `<dir>/schedule` and all realtime files in `<dir>/rt` and compute for each schedule which rt-files belong to that schedule. In this context, each realtime file belongs to the newest schedule that is older than the realtime data, as indicated by the date within the filenames.
 2. Beginning with the oldest schedule, the importer will import each realtime file and move it to `<dir>/imported` on success or `<dir>/failed` if the import failed for reasons within the realtime file (if the filename is not suitable to extract a date, or if the file could not be parsed).
-3. When all known files are processed, the importer will look for new files that appeared duing its operation. If new files are found, it repeats from step 1.
+3. When all known files are processed, the importer will look for new files that appeared during its operation. If new files are found, it repeats from step 1.
 4. If no new files were found during step 3, the importer will wait for a minute and then continue with step 3.
 
 In batch mode, it works exactly as in automatic mode, but the importer exits after step 2.
-
-_**TODO:** We need to avoid reading files that are currently being written too. Maybe we should ignore files that have been modified very recently, e.g. within the last 2 minutes._
 
 ## Docker integration
 
