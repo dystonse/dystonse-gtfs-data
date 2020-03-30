@@ -15,4 +15,9 @@ FROM debian:buster-slim
 RUN apt-get update && apt-get install -y libssl1.1
 COPY --from=builder /usr/local/cargo/bin/dystonse-gtfs-importer /usr/local/bin/dystonse-gtfs-importer
 WORKDIR /
+
+# Set time zone. Taken from https://serverfault.com/a/683651
+ENV TZ=Europe/Berlin
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 CMD dystonse-gtfs-importer -v automatic /files/$GTFS_DATA_SOURCE_ID/
