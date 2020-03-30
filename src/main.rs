@@ -207,9 +207,43 @@ impl Main {
             .unwrap() // already validated by clap
             .map(|s| String::from(s))
             .collect();
-        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames)?;
+        let statistics = match 
+            self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames) {
+                Ok(tuple) => ((1, 1), tuple.0, tuple.1, tuple.2),
+                Err(e) => {
+                    eprintln!("Error while processing schedule and realtimes: {}.", e);
+                    ((1, 0), (0, 0), (0, 0), (0, 0))
+                }
+            };
+        self.output_statistics(statistics);
 
         Ok(())
+    }
+
+    fn output_statistics(&self, statistics: ((u32, u32), (u32, u32), (u32, u32), (u32, u32))) {
+        if self.verbose {
+            println!("Finished processing files.");
+            println!(
+                "Schedule files   : {} of {} successful.",
+                (statistics.0).1,
+                (statistics.0).0
+            );
+            println!(
+                "Realtime files   : {} of {} successful.",
+                (statistics.1).1,
+                (statistics.1).0
+            );
+            println!(
+                "Trip updates     : {} of {} successful.",
+                (statistics.2).1,
+                (statistics.2).0
+            );
+            println!(
+                "Stop time updates: {} of {} successful.",
+                (statistics.3).1,
+                (statistics.3).0
+            );
+        }
     }
 
     /// Reads contents of the given directory and returns an alphabetically sorted list of included files / subdirectories as Vector of Strings.
@@ -320,6 +354,15 @@ impl Main {
         let mut current_schedule_file = String::new();
         let mut realtime_files_for_current_schedule: Vec<String> = Vec::new();
 
+        let mut schedules_count = 0;
+        let mut schedules_success_count = 0;
+        let mut real_time_files_count = 0;
+        let mut real_time_files_success_count = 0;
+        let mut trip_updates_count = 0;
+        let mut trip_updates_success_count = 0;
+        let mut stop_time_updates_count = 0;
+        let mut stop_time_updates_success_count = 0;
+
         // Iterate over all rt files (oldest first), collecting all rt files that belong to the same schedule to process them in batch.
         for rt_filename in rt_filenames {
             let rt_date = match Main::date_from_filename(&rt_filename) {
@@ -335,6 +378,7 @@ impl Main {
                             rt_filename, e
                         ),
                     }
+                    real_time_files_count += 1;
                     continue;
                 }
             };
@@ -344,6 +388,10 @@ impl Main {
                     "Realtime data {} is older than any schedule, skipping.",
                     rt_filename
                 );
+                // Don't increment count because this is not really a problem, 
+                // and because we don't move those files into fail_dir,
+                // we would count them as an error over and over again.
+                // real_time_files_count += 1;
                 continue;
             }
 
@@ -370,11 +418,25 @@ impl Main {
                     // process the current schedule's collection before going to next schedule
                     if *schedule_filename != current_schedule_file {
                         if !realtime_files_for_current_schedule.is_empty() {
-                            self.process_schedule_and_realtimes(
+                            schedules_count += 1;
+                            match self.process_schedule_and_realtimes(
                                 &current_schedule_file,
                                 &realtime_files_for_current_schedule,
-                            )
-                            .ok(); // in case of error just go on
+                            ) {
+                                Ok(((rtc, rtsc), (tuc, tusc), (stuc, stusc))) => {
+                                    schedules_success_count += 1;
+                                    real_time_files_count += rtc;
+                                    real_time_files_success_count += rtsc;
+                                    trip_updates_count += tuc;
+                                    trip_updates_success_count += tusc;
+                                    stop_time_updates_count += stuc;
+                                    stop_time_updates_success_count += stusc;
+                                }
+                                Err(e) => eprintln!(
+                                    "Error in schedule file {}: {}",
+                                    current_schedule_file, e
+                                ),
+                            };
                         }
                         // go on with the next schedule
                         current_schedule_file = schedule_filename.clone();
@@ -389,13 +451,29 @@ impl Main {
 
         // process last schedule's collection
         if !realtime_files_for_current_schedule.is_empty() {
-            self.process_schedule_and_realtimes(
+            schedules_count += 1;
+            match self.process_schedule_and_realtimes(
                 &current_schedule_file,
                 &realtime_files_for_current_schedule,
-            )
-            .ok(); // in case of error just go on
+            ) {
+                Ok(((rtc, rtsc), (tuc, tusc), (stuc, stusc))) => {
+                    schedules_success_count += 1;
+                    real_time_files_count += rtc;
+                    real_time_files_success_count += rtsc;
+                    trip_updates_count += tuc;
+                    trip_updates_success_count += tusc;
+                    stop_time_updates_count += stuc;
+                    stop_time_updates_success_count += stusc;
+                }
+                Err(e) => eprintln!("Error in schedule file {}: {}", current_schedule_file, e),
+            };
         }
-
+        self.output_statistics((
+            (schedules_count, schedules_success_count),
+            (real_time_files_count, real_time_files_success_count),
+            (trip_updates_count, trip_updates_success_count),
+            (stop_time_updates_count, stop_time_updates_success_count),
+        ));
         Ok(())
     }
 
@@ -404,7 +482,7 @@ impl Main {
         &self,
         gtfs_schedule_filename: &str,
         gtfs_realtime_filenames: &Vec<String>,
-    ) -> FnResult<()> {
+    ) -> FnResult<((u32, u32), (u32, u32), (u32, u32))> {
         if self.verbose {
             println!("Parsing schedule…");
         }
@@ -434,23 +512,40 @@ impl Main {
         // create importer for this schedule and iterate over all given realtime files
         let imp = Importer::new(&schedule, &self.pool, self.verbose, &self.source);
 
-        gtfs_realtime_filenames
+        let (rt, tu, stu) = gtfs_realtime_filenames
             .par_iter()
-            .for_each(|gtfs_realtime_filename| {
+            .map(|gtfs_realtime_filename| {
                 match self.process_realtime(&gtfs_realtime_filename, &imp) {
-                    Ok(_) => (),
-                    Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e),
+                    Ok(tuple) => ((1,1), tuple.0, tuple.1),
+                    Err(e) => {
+                        eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e);
+                        ((1, 0), (0, 0), (0, 0))
+                    }
                 }
-            });
+            })
+            .reduce(
+                || ((0, 0), (0, 0), (0, 0)),
+                |a, b| {
+                    (
+                        ((a.0).0 + (b.0).0, (a.0).1 + (b.0).1),
+                        ((a.1).0 + (b.1).0, (a.1).1 + (b.1).1),
+                        ((a.2).0 + (b.2).0, (a.2).1 + (b.2).1),
+                    )
+                },
+            );
         if self.verbose {
             println!("Done!");
         }
-        Ok(())
+        Ok((rt, tu, stu))
     }
 
     /// Process a single realtime file on the given Importer
-    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer) -> FnResult<()> {
-        imp.import_realtime_into_database(&gtfs_realtime_filename)?; // assume that the error is temporary, so that we can retry this import in the next iteration
+    fn process_realtime(
+        &self,
+        gtfs_realtime_filename: &str,
+        imp: &Importer,
+    ) -> FnResult<((u32, u32), (u32, u32))> {
+        let statistics = imp.import_realtime_into_database(&gtfs_realtime_filename)?; // assume that the error is temporary, so that we can retry this import in the next iteration
         if self.verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
         } else {
@@ -460,7 +555,7 @@ impl Main {
         if let Some(dir) = &self.target_dir {
             Main::move_file_to_dir(gtfs_realtime_filename, &dir)?;
         }
-        Ok(())
+        Ok(statistics)
     }
 
     fn move_file_to_dir(filename: &str, dir: &String) -> FnResult<()> {
