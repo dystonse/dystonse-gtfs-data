@@ -155,7 +155,7 @@ impl<'a> Importer<'a> {
 
         let schedule_start_time = schedule_trip.stop_times[0].departure_time;
         let time_difference =
-            realtime_schedule_start_time.num_seconds_from_midnight() - schedule_start_time.unwrap();
+            realtime_schedule_start_time.num_seconds_from_midnight() as i32 - schedule_start_time.unwrap() as i32;
         if time_difference != 0 {
             eprintln!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
         }
