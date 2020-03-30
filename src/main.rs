@@ -30,10 +30,14 @@ struct Main {
     pool: Pool,
     args: ArgMatches,
     source: String,
+    schedule_dir: Option<String>,
+    rt_dir: Option<String>,
+    target_dir: Option<String>,
+    fail_dir: Option<String>,
 }
 
 fn main() -> FnResult<()> {
-    let instance = Main::new()?;
+    let mut instance = Main::new()?;
     instance.run()?;
     Ok(())
 }
@@ -144,13 +148,19 @@ impl Main {
         if verbose {
             println!("Connecting to database…");
         }
-        let pool = retry(Fibonacci::from_millis(1000), || Main::open_db(&args, verbose))
-            .expect("DB connections should succeed eventually.");
+        let pool = retry(Fibonacci::from_millis(1000), || {
+            Main::open_db(&args, verbose)
+        })
+        .expect("DB connections should succeed eventually.");
         Ok(Main {
             args,
             verbose,
             pool,
             source,
+            schedule_dir: None,
+            rt_dir: None,
+            target_dir: None,
+            fail_dir: None,
         })
     }
 
@@ -158,7 +168,9 @@ impl Main {
     /// Takes configuration values from DB_PASSWORD, DB_USER, DB_HOST, DB_PORT and DB_DATABASE
     /// environment variables. For all values except DB_PASSWORD a default is provided.
     fn open_db(args: &ArgMatches, verbose: bool) -> FnResult<Pool> {
-        if verbose { println!("Trying to connect to the database."); }
+        if verbose {
+            println!("Trying to connect to the database.");
+        }
         let url = format!(
             "mysql://{}:{}@{}:{}/{}",
             args.value_of("user").unwrap(), // already validated by clap
@@ -172,10 +184,16 @@ impl Main {
     }
 
     /// Runs the actions that are selected via the command line args
-    fn run(&self) -> FnResult<()> {
-        match self.args.subcommand() {
-            ("automatic", Some(sub_args)) => self.run_as_non_manual(sub_args, true),
-            ("batch", Some(sub_args)) => self.run_as_non_manual(sub_args, false),
+    fn run(&mut self) -> FnResult<()> {
+        match self.args.clone().subcommand() {
+            ("automatic", Some(sub_args)) => {
+                self.set_dir_paths(sub_args)?;
+                self.run_as_non_manual(true)
+            }
+            ("batch", Some(sub_args)) => {
+                self.set_dir_paths(sub_args)?;
+                self.run_as_non_manual(false)
+            }
             ("manual", Some(sub_args)) => self.run_as_manual(sub_args),
             _ => panic!("Invalid arguments."),
         }
@@ -189,12 +207,7 @@ impl Main {
             .unwrap() // already validated by clap
             .map(|s| String::from(s))
             .collect();
-        self.process_schedule_and_realtimes(
-            &gtfs_schedule_filename,
-            &gtfs_realtime_filenames,
-            None,
-            None,
-        )?;
+        self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames)?;
 
         Ok(())
     }
@@ -233,23 +246,28 @@ impl Main {
         Ok (date_option.ok_or(SimpleError::new(format!("File name does not contain a valid date (format looks ok, but values are out of bounds): {}", filename)))?)
     }
 
-    /// Handle automatic mode and batch mode, which are very similar to each other
-    fn run_as_non_manual(&self, args: &ArgMatches, is_automatic: bool) -> FnResult<()> {
+    /// Construct the full directory paths used for storing input files and processed files
+    /// needs the dir argument, this means it can only be used when running in non manual modes
+    fn set_dir_paths(&mut self, args: &ArgMatches) -> FnResult<()> {
         // construct paths of directories
         let dir = args.value_of("dir").unwrap(); // already validated by clap
-        let schedule_dir = format!("{}/schedule", dir);
-        let rt_dir = format!("{}/rt", dir);
-        let target_dir = format!("{}/imported", dir);
-        let fail_dir = format!("{}/failed", dir);
+        self.schedule_dir = Some(format!("{}/schedule", dir));
+        self.rt_dir = Some(format!("{}/rt", dir));
+        self.target_dir = Some(format!("{}/imported", dir));
+        self.fail_dir = Some(format!("{}/failed", dir));
+        Ok(())
+    }
 
+    /// Handle automatic mode and batch mode, which are very similar to each other
+    fn run_as_non_manual(&self, is_automatic: bool) -> FnResult<()> {
         // ensure that the directory exists
         let mut builder = DirBuilder::new();
         builder.recursive(true);
-        builder.create(&target_dir)?; // if target dir can't be created, there's no good way to continue execution
-        builder.create(&fail_dir)?; // if fail dir can't be created, there's no good way to continue execution
+        builder.create(self.target_dir.as_ref().unwrap())?; // if target dir can't be created, there's no good way to continue execution
+        builder.create(self.fail_dir.as_ref().unwrap())?; // if fail dir can't be created, there's no good way to continue execution
         if is_automatic {
             loop {
-                match self.process_all_files(&schedule_dir, &rt_dir, &target_dir, Some(&fail_dir)) {
+                match self.process_all_files() {
                     Ok(_) => {
                         if self.verbose {
                             println!("Finished one iteration. Sleeping until next directory scan.");
@@ -263,7 +281,7 @@ impl Main {
                 thread::sleep(TIME_BETWEEN_DIR_SCANS);
             }
         } else {
-            match self.process_all_files(&schedule_dir, &rt_dir, &target_dir, Some(&fail_dir)) {
+            match self.process_all_files() {
                 Ok(_) => {
                     if self.verbose {
                         println!("Finished.");
@@ -276,19 +294,13 @@ impl Main {
         }
     }
 
-    fn process_all_files(
-        &self,
-        schedule_dir: &String,
-        rt_dir: &String,
-        target_dir: &String,
-        fail_dir: Option<&String>,
-    ) -> FnResult<()> {
+    fn process_all_files(&self) -> FnResult<()> {
         if self.verbose {
             println!("Scan directory");
         }
         // list files in both directories
-        let mut schedule_filenames = Main::read_dir_simple(&schedule_dir)?;
-        let rt_filenames = Main::read_dir_simple(&rt_dir)?;
+        let mut schedule_filenames = Main::read_dir_simple(&self.schedule_dir.as_ref().unwrap())?;
+        let rt_filenames = Main::read_dir_simple(&self.rt_dir.as_ref().unwrap())?;
 
         if rt_filenames.is_empty() {
             return Err(Box::from(SimpleError::new("No realtime data.")));
@@ -313,9 +325,9 @@ impl Main {
             let rt_date = match Main::date_from_filename(&rt_filename) {
                 Ok(date) => date,
                 Err(e) => {
-                    match fail_dir {
+                    match &self.fail_dir {
                         Some(d) => {
-                            Main::move_file_to_dir(&rt_filename, d)?;
+                            Main::move_file_to_dir(&rt_filename, &d)?;
                             eprintln!("Rt file {} does not contain a valid date and was moved to {}. (Error was {})", rt_filename, d, e);
                         }
                         None => eprintln!(
@@ -340,9 +352,9 @@ impl Main {
                 let schedule_date = match Main::date_from_filename(&schedule_filename) {
                     Ok(date) => date,
                     Err(e) => {
-                        match fail_dir {
+                        match &self.fail_dir {
                             Some(d) => {
-                                Main::move_file_to_dir(schedule_filename, d)?;
+                                Main::move_file_to_dir(schedule_filename, &d)?;
                                 eprintln!("Schedule file {} does not contain a valid date and was moved to {}. (Error was {})", schedule_filename, d, e);
                             }
                             None => eprintln!(
@@ -361,8 +373,6 @@ impl Main {
                             self.process_schedule_and_realtimes(
                                 &current_schedule_file,
                                 &realtime_files_for_current_schedule,
-                                Some(target_dir),
-                                fail_dir,
                             )
                             .ok(); // in case of error just go on
                         }
@@ -382,8 +392,6 @@ impl Main {
             self.process_schedule_and_realtimes(
                 &current_schedule_file,
                 &realtime_files_for_current_schedule,
-                Some(target_dir),
-                fail_dir,
             )
             .ok(); // in case of error just go on
         }
@@ -396,8 +404,6 @@ impl Main {
         &self,
         gtfs_schedule_filename: &str,
         gtfs_realtime_filenames: &Vec<String>,
-        target_dir: Option<&String>,
-        fail_dir: Option<&String>,
     ) -> FnResult<()> {
         if self.verbose {
             println!("Parsing schedule…");
@@ -406,9 +412,9 @@ impl Main {
         let schedule = match Gtfs::new(gtfs_schedule_filename) {
             Ok(schedule) => schedule,
             Err(e) => {
-                match fail_dir {
+                match &self.fail_dir {
                     Some(d) => {
-                        Main::move_file_to_dir(gtfs_schedule_filename, d)?;
+                        Main::move_file_to_dir(gtfs_schedule_filename, &d)?;
                         eprintln!("Schedule file {} could not be parsed and was moved to {}. (Error was {})", gtfs_schedule_filename, d, e);
                     }
                     None => eprintln!(
@@ -431,7 +437,7 @@ impl Main {
         gtfs_realtime_filenames
             .par_iter()
             .for_each(|gtfs_realtime_filename| {
-                match self.process_realtime(&gtfs_realtime_filename, &imp, target_dir) {
+                match self.process_realtime(&gtfs_realtime_filename, &imp) {
                     Ok(_) => (),
                     Err(e) => eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e),
                 }
@@ -443,12 +449,7 @@ impl Main {
     }
 
     /// Process a single realtime file on the given Importer
-    fn process_realtime(
-        &self,
-        gtfs_realtime_filename: &str,
-        imp: &Importer,
-        target_dir: Option<&String>,
-    ) -> FnResult<()> {
+    fn process_realtime(&self, gtfs_realtime_filename: &str, imp: &Importer) -> FnResult<()> {
         imp.import_realtime_into_database(&gtfs_realtime_filename)?; // assume that the error is temporary, so that we can retry this import in the next iteration
         if self.verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
@@ -456,8 +457,8 @@ impl Main {
             println!("{}", &gtfs_realtime_filename);
         }
         // move file into target_dir if target_dir is defined
-        if let Some(dir) = target_dir {
-            Main::move_file_to_dir(gtfs_realtime_filename, dir)?;
+        if let Some(dir) = &self.target_dir {
+            Main::move_file_to_dir(gtfs_realtime_filename, &dir)?;
         }
         Ok(())
     }
