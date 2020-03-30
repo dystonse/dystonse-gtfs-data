@@ -47,13 +47,13 @@ struct BatchedInsertions<'a> {
 }
 
 impl<'a> Importer<'a> {
-    pub fn new(gtfs_schedule: &'a Gtfs, pool: &'a Pool, verbose: bool, source: &'a str) -> FnResult<Importer<'a>> {
-        Ok(Importer {
+    pub fn new(gtfs_schedule: &'a Gtfs, pool: &'a Pool, verbose: bool, source: &'a str) -> Importer<'a> {
+        Importer {
             gtfs_schedule,
             pool,
             verbose,
             source,
-        })
+        }
     }
 
     pub fn import_realtime_into_database(&self, path: &str) -> FnResult<()> {
