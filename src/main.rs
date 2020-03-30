@@ -57,6 +57,11 @@ fn parse_args() -> ArgMatches {
                     Successfully processed files are moved to a subdirectory named 'imported'. \
                     The 'imported' subdirectory will be created automatically if it doesn't already exist."
                 )
+            ).arg(Arg::with_name("pingurl")
+                .long("pingurl")
+                .env("PING_URL")
+                .takes_value(true)
+                .help("An URL that will be pinged (using HTTP GET) after each iteration.")
             )
         )
         .subcommand(App::new("batch")
@@ -132,7 +137,6 @@ fn parse_args() -> ArgMatches {
             .takes_value(true)
             .help("Source identifier for the data sets. Used to distinguish data sets with non-unique ids.")
             .required_unless("help")
-            .takes_value(true)
         )
         .get_matches();
     return matches;
@@ -292,6 +296,24 @@ impl Main {
         Ok(())
     }
 
+    fn ping_url(&self) {
+        lazy_static! {
+            static ref HTTP_CLIENT: reqwest::blocking::Client = reqwest::blocking::Client::builder()
+            .timeout(time::Duration::from_secs(10))
+            .build().expect("Error while initializing http client.");
+        }
+
+        
+        if let Some(url) = self.args.subcommand_matches("automatic").unwrap().value_of("pingurl") {
+            if self.verbose {
+                println!("Pinging URL {}", url);
+            }
+            if let Err(e) = HTTP_CLIENT.get(url).send() {
+                eprintln!("Error while pinging url {}: {}", url, e);
+            }
+        }
+    }
+
     /// Handle automatic mode and batch mode, which are very similar to each other
     fn run_as_non_manual(&self, is_automatic: bool) -> FnResult<()> {
         // ensure that the directory exists
@@ -312,6 +334,8 @@ impl Main {
                         e
                     ),
                 }
+                self.ping_url();
+
                 thread::sleep(TIME_BETWEEN_DIR_SCANS);
             }
         } else {
