@@ -569,7 +569,17 @@ impl Main {
         gtfs_realtime_filename: &str,
         imp: &Importer,
     ) -> FnResult<((u32, u32), (u32, u32))> {
-        let statistics = imp.import_realtime_into_database(&gtfs_realtime_filename)?; // assume that the error is temporary, so that we can retry this import in the next iteration
+        let statistics = match imp.import_realtime_into_database(&gtfs_realtime_filename) {
+            Ok(s) => s,
+            Err(e) => {
+                // Don't print the error, because it will be handled by the calling function
+                if let Some(dir) = &self.fail_dir {
+                    Main::move_file_to_dir(gtfs_realtime_filename, &dir)?;
+                }
+                return Err(e);
+            }
+        };
+        // TODO possibly make an error file per failed file to capture the error in place
         if self.verbose {
             println!("Finished importing file: {}", &gtfs_realtime_filename);
         } else {
