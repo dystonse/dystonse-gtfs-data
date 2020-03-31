@@ -573,6 +573,7 @@ impl Main {
             Ok(s) => s,
             Err(e) => {
                 // Don't print the error, because it will be handled by the calling function
+                eprintln!("Error in realtime file, moving to fail_dir…");
                 if let Some(dir) = &self.fail_dir {
                     Main::move_file_to_dir(gtfs_realtime_filename, &dir)?;
                 }
