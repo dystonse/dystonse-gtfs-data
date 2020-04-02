@@ -39,6 +39,10 @@ impl EventTimes {
             delay: None,
         }
     }
+
+    fn is_empty(&self) -> bool {
+        return self.schedule.is_none() && self.estimate.is_none() && self.delay.is_none();
+    }
 }
 
 struct BatchedInsertions<'a> {
@@ -81,7 +85,6 @@ impl<'a> Importer<'a> {
             "No global timestamp in realtime data, skipping.",
         ))?;
 
-        // TODO: Remove those statistics, they aren't accurate anyway
         let mut trip_updates_count = 0;
         let mut trip_updates_success_count = 0;
         let mut stop_time_updates_count = 0;
@@ -224,6 +227,10 @@ impl<'a> Importer<'a> {
             stop_sequence,
         );
 
+        if arrival.is_empty() && departure.is_empty() {
+            return Ok(0);
+        }
+
         batched.add_insertion(Params::from(params! {
             "trip_id" => &trip_id,
             stop_id,
@@ -267,9 +274,15 @@ impl<'a> Importer<'a> {
             return EventTimes::empty();
         };
 
-        let event_time = match event_type {
-            EventType::Arrival => schedule_trip.stop_times[stop_sequence].arrival_time,
-            EventType::Departure => schedule_trip.stop_times[stop_sequence].departure_time,
+        let event_time = if stop_sequence < schedule_trip.stop_times.len() {
+            match event_type {
+                EventType::Arrival => schedule_trip.stop_times[stop_sequence].arrival_time,
+                EventType::Departure => schedule_trip.stop_times[stop_sequence].departure_time,
+            }
+        } else {
+            eprintln!("Realtime data references stop_sequence {} in trip {} which only has {} items.", stop_sequence, schedule_trip.id, schedule_trip.stop_times.len());
+            // TODO return Error or something
+            return EventTimes::empty();
         };
         let schedule = start_date.timestamp() + event_time.expect("no arrival time") as i64;
         let estimate = schedule + delay;

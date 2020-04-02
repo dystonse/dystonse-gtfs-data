@@ -9,7 +9,7 @@ RUN rm src/main.rs
 COPY . .
 RUN touch src/main.rs
 RUN cargo build --release
-RUN cargo install --path .
+RUN cargo install --offline --path .
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y libssl1.1
