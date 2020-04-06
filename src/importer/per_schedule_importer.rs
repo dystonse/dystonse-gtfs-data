@@ -13,7 +13,8 @@ use crate::FnResult;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
-pub struct Importer<'a> {
+
+pub struct PerScheduleImporter<'a> {
     pool: &'a Pool,
     gtfs_schedule: &'a Gtfs,
     verbose: bool,
@@ -51,14 +52,14 @@ struct BatchedInsertions<'a> {
     statement: Statement,
 }
 
-impl<'a> Importer<'a> {
+impl<'a> PerScheduleImporter<'a> {
     pub fn new(
         gtfs_schedule: &'a Gtfs,
         pool: &'a Pool,
         verbose: bool,
         source: &'a str,
-    ) -> Importer<'a> {
-        Importer {
+    ) -> PerScheduleImporter<'a> {
+        PerScheduleImporter {
             gtfs_schedule,
             pool,
             verbose,
@@ -212,14 +213,14 @@ impl<'a> Importer<'a> {
             99
         };
 
-        let arrival = Importer::handle_stop_time_update(
+        let arrival = PerScheduleImporter::handle_stop_time_update(
             stop_time_update.arrival,
             start_date,
             EventType::Arrival,
             &schedule_trip,
             stop_sequence,
         );
-        let departure = Importer::handle_stop_time_update(
+        let departure = PerScheduleImporter::handle_stop_time_update(
             stop_time_update.departure,
             start_date,
             EventType::Departure,

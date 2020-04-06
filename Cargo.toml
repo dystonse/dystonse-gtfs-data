@@ -1,5 +1,5 @@
 [package]
-name = "dystonse-gtfs-importer"
+name = "dystonse-gtfs-tool"
 version = "1.0.0"
 authors = ["Lena Schimmel <mail@lenaschimmel.de>", "Kirstin Rohwer <mail@metakiki.net>"]
 edition = "2018"
