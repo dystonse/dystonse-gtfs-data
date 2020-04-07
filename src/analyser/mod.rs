@@ -1,8 +1,9 @@
-use clap::{App, Arg, ArgMatches};
+use clap::{App, ArgMatches};
 use crate::FnResult;
 use crate::Main;
 
 pub struct Analyser<'a> {
+    #[allow(dead_code)]
     main: &'a Main,
     args: &'a ArgMatches,
 }

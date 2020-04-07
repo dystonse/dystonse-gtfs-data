@@ -1,21 +1,30 @@
-# dystonse-gtfs-importer
+# dystonse-gtfs-tool
 
-This is a Rust crate that reads a static gtfs schedule file and any number of gtfs-realtime .pb or .zip files (given as command line arguments), matches the realtime data to the schedule data and writes everything into a mysql database.
+This is a Rust crate that works with a static gtfs schedules (as zip or directory), gtfs-realtime data (as .pb or .zip files) and a mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) to read, import or anaylse the data.
+
+In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
+
+In **analyse** mode, it does nothing yet, but lots of interesting features are yet to come.
 
 ## How to use this
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> manual <gtfs file path> <gfts-rt file path(s)>`
+Basic syntax is `dystonse-gtfs-tool [global options] <command> <subcommand> [args]`, or if you run it via cargo, `cargo run [--release] -- [global options] <command> <subcommand> [args]`.
 
-A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this crate.
+There are a lot of database parameters to be defined globally. Those `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry. In the syntax examples below, we use a mix of env vars and command line parameters.
 
-The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry.
+You can also use `dystonse-gtfs-tool [command [subcommand]] --help` to get information about the command syntax.
+
+## Importing data
+### `import manual` mode
+
+`DB_PASSWORD=<password> dystonse-gtfs-tool [-v] --source <source> import manual <gtfs file path> <gfts-rt file path(s)>`
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
 
-## Automatic mode
+### `import automatic` and `import batch` mode
 Instead of `manual` mode, you can use `automatic` or `batch` mode:
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> automatic <dir>`
+`DB_PASSWORD=<password> dystonse-gtfs-tool -- [-v] --source <source> import automatic <dir>`
 
 In automatic mode:
 
@@ -24,7 +33,10 @@ In automatic mode:
 3. When all known files are processed, the importer will look for new files that appeared during its operation. If new files are found, it repeats from step 1.
 4. If no new files were found during step 3, the importer will wait for a minute and then continue with step 3.
 
-In batch mode, it works exactly as in automatic mode, but the importer exits after step 2.
+In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
+
+## Analysing data
+Nothing to see yet.
 
 ## Docker integration
 
