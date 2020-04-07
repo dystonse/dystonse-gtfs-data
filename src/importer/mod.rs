@@ -22,7 +22,8 @@ const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
 pub struct Importer<'a>  {
     main: &'a Main,
     args: &'a ArgMatches,
-    target_dir: Option<String>,
+    rt_dir: Option<String>,
+    schedule_dir: Option<String>,    target_dir: Option<String>,
     fail_dir: Option<String>,
     verbose: bool
 }
@@ -90,6 +91,8 @@ impl<'a> Importer<'a>  {
             args,
             target_dir: None,
             fail_dir: None,
+            schedule_dir: None,
+            rt_dir: None,
             verbose: main.verbose
         }
     }
@@ -158,7 +161,7 @@ impl<'a> Importer<'a>  {
     }
 
     /// Reads contents of the given directory and returns an alphabetically sorted list of included files / subdirectories as Vector of Strings.
-    fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
+    pub fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
         let mut path_list: Vec<String> = fs::read_dir(path)?
             .filter_map(|r| r.ok()) // unwraps Options and ignores any None values
             .map(|d| {
@@ -172,7 +175,7 @@ impl<'a> Importer<'a>  {
         Ok(path_list)
     }
 
-    fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
+    pub fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
         lazy_static! {
             static ref FIND_DATE: Regex = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap(); // can't fail because our hard-coded regex is known to be ok
         }
@@ -198,6 +201,8 @@ impl<'a> Importer<'a>  {
         let dir = args.value_of("dir").unwrap(); // already validated by clap
         self.target_dir = Some(format!("{}/imported", dir));
         self.fail_dir = Some(format!("{}/failed", dir));
+        self.rt_dir = Some(format!("{}/rt", dir));
+        self.schedule_dir = Some(format!("{}/schedule", dir));
         Ok(())
     }
 
@@ -262,8 +267,8 @@ impl<'a> Importer<'a>  {
             println!("Scan directory");
         }
         // list files in both directories
-        let mut schedule_filenames = Importer::read_dir_simple(&self.main.schedule_dir.as_ref().unwrap())?;
-        let rt_filenames = Importer::read_dir_simple(&self.main.rt_dir.as_ref().unwrap())?;
+        let mut schedule_filenames = Importer::read_dir_simple(&self.schedule_dir.as_ref().unwrap())?;
+        let rt_filenames = Importer::read_dir_simple(&self.rt_dir.as_ref().unwrap())?;
 
         if rt_filenames.is_empty() {
             return Err(Box::from(SimpleError::new("No realtime data.")));

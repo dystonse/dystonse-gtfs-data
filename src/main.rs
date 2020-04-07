@@ -22,8 +22,6 @@ pub struct Main {
     pool: Pool,
     args: ArgMatches,
     source: String,
-    schedule_dir: Option<String>,
-    rt_dir: Option<String>,
 }
 
 fn main() -> FnResult<()> {
@@ -104,8 +102,6 @@ impl Main {
             verbose,
             pool,
             source,
-            schedule_dir: None,
-            rt_dir: None,
         })
     }
 
