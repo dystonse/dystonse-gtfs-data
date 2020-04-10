@@ -23,7 +23,8 @@ pub struct Importer<'a>  {
     main: &'a Main,
     args: &'a ArgMatches,
     rt_dir: Option<String>,
-    schedule_dir: Option<String>,    target_dir: Option<String>,
+    schedule_dir: Option<String>,
+    target_dir: Option<String>,
     fail_dir: Option<String>,
     verbose: bool
 }

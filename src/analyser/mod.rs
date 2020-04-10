@@ -28,9 +28,7 @@ impl<'a> Analyser<'a> {
                 .help("The directory which contains schedules and realtime data")
                 .long_help(
                     "The directory that contains the schedules (located in a subdirectory named 'schedules') \
-                    and realtime data (located in a subdirectory named 'rt'). \
-                    Successfully processed files are moved to a subdirectory named 'imported'. \
-                    The 'imported' subdirectory will be created automatically if it doesn't already exist."
+                    and realtime data (located in a subdirectory named 'rt')."
                 )
             )
     }

@@ -31,7 +31,7 @@ fn main() -> FnResult<()> {
 }
 
 fn parse_args() -> ArgMatches {
-    let matches = App::new("Dystonse GTFS Tool")
+    let matches = App::new("dystonse-gtfs-data")
         .subcommand(Importer::get_subcommand())
         .subcommand(Analyser::get_subcommand())
         .arg(Arg::with_name("verbose")
