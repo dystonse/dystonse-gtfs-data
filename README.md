@@ -4,7 +4,7 @@ This is a Rust crate that works with static gtfs schedules (as zip or directory)
 
 In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
 
-In **analyse** mode, it does nothing yet, but lots of interesting features are yet to come.
+In **analyse** mode, it can count the data entries per time and output some simple statistics. More features are yet to come.
 
 ## How to use this
 
@@ -36,7 +36,17 @@ In automatic mode:
 In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
 
 ## Analysing data
-Nothing to see yet.
+This has currently only one subcommand: `count`.
+
+### `count` mode
+For a given source id, this will count the number of valid real time entries for each time interval. An entry is consideres valid if its `delay_arrival` is between -10 hours and +10 hours. The whole time span for which there is real time data will be split into parts of length corresponding  to the `interval` parameter, which has a default value of `1h` (one hour).
+
+Simple statistics are output to sdtout as CSV like this (space padding added for clarity, they won't be present in the real output):
+
+```
+time_min;            time_max;            trip update count; average delay; rt file count; rt file size
+2020-03-16 00:41:02; 2020-03-16 04:41:02;                72;       11.6111;            12;        18279
+```
 
 ## Docker integration
 
