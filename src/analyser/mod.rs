@@ -4,11 +4,11 @@ use crate::Main;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use mysql::prelude::*;
-use mysql::time::Duration;
 use regex::Regex;
 use simple_error::SimpleError;
 use std::fs;
 use std::str::FromStr;
+use parse_duration::parse;
 
 pub struct Analyser<'a> {
     #[allow(dead_code)]
@@ -20,7 +20,15 @@ pub struct Analyser<'a> {
 impl<'a> Analyser<'a> {
     pub fn get_subcommand() -> App<'a> {
         App::new("analyse")
-            .subcommand(App::new("count"))
+            .subcommand(App::new("count")
+                .arg(Arg::new("interval")
+                    .short('i')
+                    .long("interval")
+                    .default_value("1h")
+                    .help("Sets the step size for counting entries. The value will be parsed by the `parse_duration` crate, which acceps a superset of the `systemd.time` syntax.")
+                    .value_name("INTERVAL")
+                )
+            )
         .arg(Arg::with_name("dir")
                 .index(1)
                 .value_name("DIRECTORY")
@@ -84,7 +92,8 @@ impl<'a> Analyser<'a> {
             .query_first("SELECT MIN(time_of_recording), MAX(time_of_recording) from realtime")?
             .unwrap();
 
-        let step = Duration::hours(1);
+        let std_date = parse(self.args.subcommand_matches("count").unwrap().value_of("interval").unwrap())?;
+        let step : chrono::Duration = chrono::Duration::from_std(std_date)?;
         let mut time_min = start;
         let mut time_max = start + step;
         println!(
