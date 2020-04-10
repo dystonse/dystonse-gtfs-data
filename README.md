@@ -1,21 +1,30 @@
-# dystonse-gtfs-importer
+# dystonse-gtfs-data
 
-This is a Rust crate that reads a static gtfs schedule file and any number of gtfs-realtime .pb or .zip files (given as command line arguments), matches the realtime data to the schedule data and writes everything into a mysql database.
+This is a Rust crate that works with static gtfs schedules (as zip or directory), gtfs-realtime data (as .pb or .zip files) and a mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) to read, import or anaylse the data.
+
+In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
+
+In **analyse** mode, it can count the data entries per time and output some simple statistics. More features are yet to come.
 
 ## How to use this
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> manual <gtfs file path> <gfts-rt file path(s)>`
+Basic syntax is `dystonse-gtfs-data [global options] <command> <subcommand> [args]`, or if you run it via cargo, `cargo run [--release] -- [global options] <command> <subcommand> [args]`.
 
-A mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) needs to be running before you can use this crate.
+There are a lot of database parameters to be defined globally. Those `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry. In the syntax examples below, we use a mix of env vars and command line parameters.
 
-The `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry.
+You can also use `dystonse-gtfs-data [command [subcommand]] --help` to get information about the command syntax.
+
+## Importing data
+### `import manual` mode
+
+`DB_PASSWORD=<password> dystonse-gtfs-data [-v] --source <source> import manual <gtfs file path> <gfts-rt file path(s)>`
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
 
-## Automatic mode
+### `import automatic` and `import batch` mode
 Instead of `manual` mode, you can use `automatic` or `batch` mode:
 
-`DB_PASSWORD=<password> cargo run [--release] -- [-v] --source <source> automatic <dir>`
+`DB_PASSWORD=<password> dystonse-gtfs-data -- [-v] --source <source> import automatic <dir>`
 
 In automatic mode:
 
@@ -24,7 +33,21 @@ In automatic mode:
 3. When all known files are processed, the importer will look for new files that appeared during its operation. If new files are found, it repeats from step 1.
 4. If no new files were found during step 3, the importer will wait for a minute and then continue with step 3.
 
-In batch mode, it works exactly as in automatic mode, but the importer exits after step 2.
+In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
+
+## Analysing data
+This has currently only one subcommand: `count`.
+
+### `count` mode
+For a given source id, this will count the number of valid real time entries for each time interval. An entry is considered valid if its `delay_arrival` is between -10 hours and +10 hours. The whole time span for which there is real time data will be split into parts of length corresponding  to the `interval` parameter, which has a default value of `1h` (one hour).
+
+Simple statistics are output to `stdout` as CSV like this (space padding added for clarity, they won't be present in the real output):
+
+```
+time_min;            time_max;            stop_time update count; average delay; rt file count; rt file size
+2020-03-16 00:41:02; 2020-03-16 04:41:02;                     72;       11.6111;            12;        18279
+[...]
+```
 
 ## Docker integration
 
