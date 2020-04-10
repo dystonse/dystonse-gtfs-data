@@ -1,5 +1,5 @@
 [package]
-name = "dystonse-gtfs-importer"
+name = "dystonse-gtfs-data"
 version = "1.0.0"
 authors = ["Lena Schimmel <mail@lenaschimmel.de>", "Kirstin Rohwer <mail@metakiki.net>"]
 edition = "2018"
@@ -19,3 +19,4 @@ lazy_static = "1.4.0"
 retry = "1.0.0"
 simple-error = "0.2.1"
 reqwest = { version = "0.10.4", features = ["blocking"] }
+parse_duration = "2.1.0"

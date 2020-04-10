@@ -13,7 +13,8 @@ use crate::FnResult;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
-pub struct Importer<'a> {
+
+pub struct PerScheduleImporter<'a> {
     pool: &'a Pool,
     gtfs_schedule: &'a Gtfs,
     verbose: bool,
@@ -51,14 +52,14 @@ struct BatchedInsertions<'a> {
     statement: Statement,
 }
 
-impl<'a> Importer<'a> {
+impl<'a> PerScheduleImporter<'a> {
     pub fn new(
         gtfs_schedule: &'a Gtfs,
         pool: &'a Pool,
         verbose: bool,
         source: &'a str,
-    ) -> Importer<'a> {
-        Importer {
+    ) -> PerScheduleImporter<'a> {
+        PerScheduleImporter {
             gtfs_schedule,
             pool,
             verbose,
@@ -194,7 +195,7 @@ impl<'a> Importer<'a> {
             .ok_or(SimpleError::new("no stop_id"))?;
         let stop_sequence = stop_time_update
             .stop_sequence
-            .ok_or(SimpleError::new("no stop_sequence"))? as usize;
+            .ok_or(SimpleError::new("no stop_sequence"))?;
 
         let mode = if let Ok(mode_enum) = self.gtfs_schedule.get_route(&route_id) {
             match mode_enum.route_type {
@@ -212,14 +213,14 @@ impl<'a> Importer<'a> {
             99
         };
 
-        let arrival = Importer::handle_stop_time_update(
+        let arrival = PerScheduleImporter::handle_stop_time_update(
             stop_time_update.arrival,
             start_date,
             EventType::Arrival,
             &schedule_trip,
             stop_sequence,
         );
-        let departure = Importer::handle_stop_time_update(
+        let departure = PerScheduleImporter::handle_stop_time_update(
             stop_time_update.departure,
             start_date,
             EventType::Departure,
@@ -255,7 +256,7 @@ impl<'a> Importer<'a> {
         start_date: NaiveDateTime,
         event_type: EventType,
         schedule_trip: &ScheduleTrip,
-        stop_sequence: usize,
+        stop_sequence: u32,
     ) -> EventTimes {
         let delay = if let Some(event) = event {
             if let Some(delay) = event.delay {
@@ -274,13 +275,14 @@ impl<'a> Importer<'a> {
             return EventTimes::empty();
         };
 
-        let event_time = if stop_sequence < schedule_trip.stop_times.len() {
+        let potential_stop_time = schedule_trip.stop_times.iter().filter(|st| st.stop_sequence == stop_sequence as u16).nth(0);
+        let event_time = if let Some(stop_time) = potential_stop_time {
             match event_type {
-                EventType::Arrival => schedule_trip.stop_times[stop_sequence].arrival_time,
-                EventType::Departure => schedule_trip.stop_times[stop_sequence].departure_time,
+                EventType::Arrival => stop_time.arrival_time,
+                EventType::Departure => stop_time.departure_time,
             }
         } else {
-            eprintln!("Realtime data references stop_sequence {} in trip {} which only has {} items.", stop_sequence, schedule_trip.id, schedule_trip.stop_times.len());
+            eprintln!("Realtime data references stop_sequence {}, which does not exist in trip {}.", stop_sequence, schedule_trip.id);
             // TODO return Error or something
             return EventTimes::empty();
         };
