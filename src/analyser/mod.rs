@@ -4,11 +4,11 @@ use crate::Main;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use mysql::prelude::*;
+use parse_duration::parse;
 use regex::Regex;
 use simple_error::SimpleError;
 use std::fs;
 use std::str::FromStr;
-use parse_duration::parse;
 
 pub struct Analyser<'a> {
     #[allow(dead_code)]
@@ -45,10 +45,7 @@ impl<'a> Analyser<'a> {
         Analyser {
             main,
             args,
-            data_dir: Some(String::from(
-                args.value_of("dir")
-                    .unwrap(),
-            )),
+            data_dir: Some(String::from(args.value_of("dir").unwrap())),
         }
     }
 
@@ -92,8 +89,14 @@ impl<'a> Analyser<'a> {
             .query_first("SELECT MIN(time_of_recording), MAX(time_of_recording) from realtime")?
             .unwrap();
 
-        let std_date = parse(self.args.subcommand_matches("count").unwrap().value_of("interval").unwrap())?;
-        let step : chrono::Duration = chrono::Duration::from_std(std_date)?;
+        let std_date = parse(
+            self.args
+                .subcommand_matches("count")
+                .unwrap()
+                .value_of("interval")
+                .unwrap(),
+        )?;
+        let step: chrono::Duration = chrono::Duration::from_std(std_date)?;
         let mut time_min = start;
         let mut time_max = start + step;
         println!(
@@ -102,13 +105,16 @@ impl<'a> Analyser<'a> {
         loop {
             let mut rt_file_count = 0;
             let mut rt_file_size = 0;
-            let row : mysql::Row = con.exec_first(
-                "SELECT COUNT(*), AVG(delay_arrival) 
+            let row: mysql::Row = con
+                .exec_first(
+                    "SELECT COUNT(*), AVG(delay_arrival) 
                 FROM realtime 
                 WHERE (`time_of_recording` BETWEEN ? AND ?) 
                 AND (delay_arrival BETWEEN - 36000 AND 36000) 
-                AND source = ?", 
-                (time_min, time_max, &self.main.source))?.unwrap();
+                AND source = ?",
+                    (time_min, time_max, &self.main.source),
+                )?
+                .unwrap();
             let count: i32 = row.get(0).unwrap();
             let delay: f32 = row.get_opt(1).unwrap().unwrap_or(-1.0);
             // println!("Between {} and {} there are {} delay values, average is {} seconds.", time_min, time_max, count, delay);
