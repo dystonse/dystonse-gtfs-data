@@ -20,3 +20,7 @@ retry = "1.0.0"
 simple-error = "0.2.1"
 reqwest = { version = "0.10.4", features = ["blocking"] }
 parse_duration = "2.1.0"
+plotters = "0.2.12"
+rand = "0.7.3"
+rand_xorshift = "0.2.0"
+rand_distr = "0.2.2"
