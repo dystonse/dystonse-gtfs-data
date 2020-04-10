@@ -97,7 +97,7 @@ impl<'a> Analyser<'a> {
         let mut time_min = start;
         let mut time_max = start + step;
         println!(
-            "time_min; time_max; trip update count; average delay; rt file count; rt file size"
+            "time_min; time_max; stop time update count; average delay; rt file count; rt file size"
         );
         loop {
             let mut rt_file_count = 0;
