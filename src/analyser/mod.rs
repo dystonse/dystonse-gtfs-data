@@ -342,6 +342,32 @@ impl<'a> Analyser<'a> {
             .filter_map(|trip| trip.route_variant.clone())
             .collect();
 
+        // for each distinct route_variant_id, find a trip, and from there, the list of stop_ids
+        let mut stop_ids_by_route_variant_id: Vec<(&String, Vec<String>)> = route_variant_ids
+            .iter()
+            .map(|route_variant_id| {
+                let trip = trips_of_route
+                    .iter()
+                    .filter(move |trip| trip.route_variant.as_ref().unwrap() == route_variant_id)
+                    .next()
+                    .unwrap();
+
+                (route_variant_id, trip)
+            })
+            .map(|(route_variant_id, trip)| {
+                let stop_ids: Vec<String> = trip
+                    .stop_times
+                    .iter()
+                    .map(|stop_time| stop_time.stop.id.clone())
+                    .collect();
+                (route_variant_id, stop_ids)
+            })
+            .collect();
+
+        // sort those tuples by length, descending
+        stop_ids_by_route_variant_id
+            .sort_by_key(|(route_variant_id, stop_ids)| -(stop_ids.len() as i32));
+
         println!(
             "Handling {} route variant ids for route id {}…",
             route_variant_ids.len(),
@@ -364,17 +390,47 @@ impl<'a> Analyser<'a> {
 
         // now create the actual images, one for each variant
         // TODO group variants into combined images
-        for route_variant_id in route_variant_ids {
+
+        loop {
+            let (primary_route_variant_id, primary_stop_ids) =
+                stop_ids_by_route_variant_id.first().unwrap();
+            let mut reverse_primary_stop_ids = primary_stop_ids.clone();
+            reverse_primary_stop_ids.reverse();
+
+            let matching_route_variant_ids : Vec<&String> = stop_ids_by_route_variant_id
+                .iter()
+                .filter(|(_route_variant_id, stop_ids)| {
+                    self.is_sub_trip(primary_stop_ids, stop_ids)
+                        || self.is_sub_trip(&reverse_primary_stop_ids, stop_ids)
+                })
+                .map(|(route_variant_id, _stop_ids)| route_variant_id.clone())
+                .collect();
+
             self.create_visual_schedule_for_route_variants(
-                &route_variant_id,
-                vec![&route_variant_id],
+                primary_route_variant_id,
+                matching_route_variant_ids.clone(),
                 &db_tuples,
                 &agency_name,
                 &route_name,
             )?;
-        }
 
+            stop_ids_by_route_variant_id.retain(|(route_variant_id, _stop_ids)| {
+                !matching_route_variant_ids.contains(route_variant_id)
+            });
+
+            if stop_ids_by_route_variant_id.is_empty() {
+                break;
+            }
+        }
         Ok(())
+    }
+
+    fn is_sub_trip(&self, super_stop_ids: &Vec<String>, sub_stop_ids: &Vec<String>) -> bool {
+        // from https://stackoverflow.com/a/35907071
+        super_stop_ids
+            .windows(sub_stop_ids.len())
+            .position(|window| *window == sub_stop_ids[..])
+            .is_some()
     }
 
     fn create_visual_schedule_for_route_variants(
@@ -415,10 +471,17 @@ impl<'a> Analyser<'a> {
 
         let path = &format!("data/img/agency_{}/route_{}", agency_name, route_name);
         fs::create_dir_all(path)?;
+
+        let filename = if route_variant_ids.len() > 1 {
+            format!("{}/variant_{}_and_{}_others.png", path, primary_route_variant_id, route_variant_ids.len() - 1)
+        } else {
+            format!("{}/variant_{}.png", path, primary_route_variant_id)
+        };
+
         self.create_visual_schedule_for_trips(
             primary_trip,
             trips,
-            &format!("{}/variant_{}.png", path, primary_route_variant_id),
+            &filename,
             db_tuples,
         )
     }
@@ -437,7 +500,8 @@ impl<'a> Analyser<'a> {
         let primary_trip: &Trip = all_trips
             .values()
             .filter(|trip| trip.shape_id.as_ref().unwrap_or(&empty_string) == primary_shape_id)
-            .next().unwrap();
+            .next()
+            .unwrap();
 
         let trips: Vec<&Trip> = all_trips
             .values()
@@ -606,7 +670,7 @@ impl<'a> GraphCreator<'a> {
         let invisible = ShapeStyle::from(&transparent);
 
         let mut root =
-            BitMapBackend::new(&self.name, (stop_count as u32 * 30 + 40, 2048)).into_drawing_area();
+            BitMapBackend::new(&self.name, (stop_count as u32 * 30 + 40, 4096)).into_drawing_area();
 
         root.fill(&WHITE)?;
         root = root.margin(20, 200, 20, 20);
