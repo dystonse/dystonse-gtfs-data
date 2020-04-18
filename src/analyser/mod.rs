@@ -220,10 +220,11 @@ impl<'a> Analyser<'a> {
             }
         }
         if let Some(shape_ids) = args.values_of("shape-ids") {
-            println!("PHandling {} shape ids…", shape_ids.len());
+            println!("Handling {} shape ids…", shape_ids.len());
             for shape_id in shape_ids {
-                self.create_visual_schedule_for_shape(
+                self.create_visual_schedule_for_shapes(
                     &String::from(shape_id),
+                    vec![&String::from(shape_id)],
                     &Vec::new(),
                     "unknown",
                     "unknown",
@@ -236,10 +237,7 @@ impl<'a> Analyser<'a> {
             let mut con = self.main.pool.get_conn()?;
 
             let stmt = con.prep(r"SELECT DISTINCT route_id FROM realtime LIMIT 200")?;
-            let result = con.exec_iter(
-                &stmt,
-                {}
-            )?;
+            let result = con.exec_iter(&stmt, {})?;
             let route_ids: Vec<String> = result
                 .map(|row| {
                     let id: String = from_row(row.unwrap());
@@ -256,10 +254,7 @@ impl<'a> Analyser<'a> {
             );
             let (count, success) = route_ids
                 .iter()
-                .map(|id| {
-                    self.create_visual_schedule_for_route(&id)
-                        .is_ok()
-                })
+                .map(|id| self.create_visual_schedule_for_route(&id).is_ok())
                 .fold((0, 0), |a, b| (a.0 + 1, a.1 + (if b { 1 } else { 0 })));
             println!(
                 "Tried to create graphs for {} routes, had success with {} of them.",
@@ -333,24 +328,31 @@ impl<'a> Analyser<'a> {
             return Ok(());
         }
 
+        // collect trips and trip variants for this route
         let schedule = &self.schedule.as_ref().unwrap();
         let all_trips = &schedule.trips;
-        let trips: Vec<&Trip> = all_trips
+
+        let trips_of_route: Vec<&Trip> = all_trips
             .values()
             .filter(|trip| trip.route_id == *route_id)
             .collect();
-        let shape_ids: HashSet<String> = trips
+
+        let route_variant_ids: HashSet<String> = trips_of_route
             .iter()
-            .filter_map(|trip| trip.shape_id.clone())
+            .filter_map(|trip| trip.route_variant.clone())
             .collect();
+
         println!(
-            "Handling {} shape ids for route id {}…",
-            shape_ids.len(),
+            "Handling {} route variant ids for route id {}…",
+            route_variant_ids.len(),
             route_id
         );
-        let route = schedule.get_route(route_id).unwrap(); // TODO: This unwrap actually fails, after there had been 0 shape ids.
+
+        // collect some meta data about the route, which will be used for naming the output files
+        let route = schedule.get_route(route_id)?;
         let route_name = route.short_name.clone();
         let agency_id = route.agency_id.as_ref().unwrap().clone();
+
         let agency_name = schedule
             .agencies
             .iter()
@@ -359,20 +361,26 @@ impl<'a> Analyser<'a> {
             .unwrap()
             .name
             .clone();
-        for shape_id in shape_ids {
-            self.create_visual_schedule_for_shape(
-                &shape_id,
+
+        // now create the actual images, one for each variant
+        // TODO group variants into combined images
+        for route_variant_id in route_variant_ids {
+            self.create_visual_schedule_for_route_variants(
+                &route_variant_id,
+                vec![&route_variant_id],
                 &db_tuples,
                 &agency_name,
                 &route_name,
             )?;
         }
+
         Ok(())
     }
 
-    fn create_visual_schedule_for_shape(
+    fn create_visual_schedule_for_route_variants(
         &self,
-        shape_id: &String,
+        primary_route_variant_id: &String,
+        route_variant_ids: Vec<&String>,
         db_tuples: &Vec<DbTuple>,
         agency_name: &str,
         route_name: &str,
@@ -380,34 +388,88 @@ impl<'a> Analyser<'a> {
         let schedule = &self.schedule.as_ref().unwrap();
         let all_trips = &schedule.trips;
         let empty_string = String::from("");
+
+        // select any trip with the primary route variant as the primary trip
+        let primary_trip = all_trips
+            .values()
+            .filter(|trip| {
+                trip.route_variant.as_ref().unwrap_or(&empty_string) == primary_route_variant_id
+            })
+            .next()
+            .unwrap();
+
+        // gather trips for all route variants
         let trips: Vec<&Trip> = all_trips
             .values()
-            .filter(|trip| trip.shape_id.as_ref().unwrap_or(&empty_string) == shape_id)
+            .filter(|trip| {
+                route_variant_ids.contains(&trip.route_variant.as_ref().unwrap_or(&empty_string))
+            })
             .collect();
+
         println!(
-            "Filtered {} trips and fround {} trips with shape_id {}.",
+            "Filtered {} trips and fround {} trips with route_variant_id {}.",
             all_trips.len(),
             trips.len(),
-            shape_id
+            primary_route_variant_id
         );
 
         let path = &format!("data/img/agency_{}/route_{}", agency_name, route_name);
         fs::create_dir_all(path)?;
         self.create_visual_schedule_for_trips(
+            primary_trip,
             trips,
-            &format!("{}/shape_{}.png", path, shape_id),
+            &format!("{}/variant_{}.png", path, primary_route_variant_id),
+            db_tuples,
+        )
+    }
+
+    fn create_visual_schedule_for_shapes(
+        &self,
+        primary_shape_id: &String,
+        shape_ids: Vec<&String>,
+        db_tuples: &Vec<DbTuple>,
+        agency_name: &str,
+        route_name: &str,
+    ) -> FnResult<()> {
+        let schedule = &self.schedule.as_ref().unwrap();
+        let all_trips = &schedule.trips;
+        let empty_string = String::from("");
+        let primary_trip: &Trip = all_trips
+            .values()
+            .filter(|trip| trip.shape_id.as_ref().unwrap_or(&empty_string) == primary_shape_id)
+            .next().unwrap();
+
+        let trips: Vec<&Trip> = all_trips
+            .values()
+            .filter(|trip| shape_ids.contains(&trip.shape_id.as_ref().unwrap_or(&empty_string)))
+            .collect();
+        println!(
+            "Filtered {} trips and fround {} trips with shape_id {}.",
+            all_trips.len(),
+            trips.len(),
+            primary_shape_id
+        );
+
+        let path = &format!("data/img/agency_{}/route_{}", agency_name, route_name);
+        fs::create_dir_all(path)?;
+        self.create_visual_schedule_for_trips(
+            primary_trip,
+            trips,
+            &format!("{}/shape_{}.png", path, primary_shape_id),
             db_tuples,
         )
     }
 
     fn create_visual_schedule_for_trips(
         &self,
+        primary_trip: &Trip,
         trips: Vec<&Trip>,
         name: &str,
         db_tuples: &Vec<DbTuple>,
     ) -> FnResult<()> {
         let mut creator = GraphCreator::new(
             String::from(name),
+            primary_trip,
             trips,
             &self.schedule.as_ref().unwrap(),
             self.main,
@@ -422,6 +484,7 @@ impl<'a> Analyser<'a> {
 
 struct GraphCreator<'a> {
     name: String,
+    primary_trip: &'a Trip,
     trips: Vec<&'a Trip>,
     schedule: &'a Gtfs,
     main: &'a Main,
@@ -433,12 +496,14 @@ struct GraphCreator<'a> {
 impl<'a> GraphCreator<'a> {
     fn new(
         name: String,
+        primary_trip: &'a Trip,
         trips: Vec<&'a Trip>,
         schedule: &'a Gtfs,
         main: &'a Main,
         db_tuples: &'a Vec<DbTuple>,
     ) -> GraphCreator<'a> {
         GraphCreator {
+            primary_trip,
             trips,
             name,
             main,
@@ -455,13 +520,15 @@ impl<'a> GraphCreator<'a> {
             self.trips.len(),
             self.name
         );
-        let first_trip = self.trips.first().expect("No matching trip");
-        self.relevant_stop_ids = first_trip
+
+        self.relevant_stop_ids = self
+            .primary_trip
             .stop_times
             .iter()
             .map(|stop_time| stop_time.stop.id.clone())
             .collect();
-        self.relevant_stop_names = first_trip
+        self.relevant_stop_names = self
+            .primary_trip
             .stop_times
             .iter()
             .map(|stop_time| stop_time.stop.name.clone())
@@ -526,9 +593,11 @@ impl<'a> GraphCreator<'a> {
             }
         }
 
-
-        println!("Found {} data points for those trips spread over {} dates.", data_for_current_trips.len(), date_count);
-
+        println!(
+            "Found {} data points for those trips spread over {} dates.",
+            data_for_current_trips.len(),
+            date_count
+        );
 
         let rotated = TextStyle::from(("sans-serif", 20).into_font())
             .pos(Pos::new(HPos::Center, VPos::Center))
