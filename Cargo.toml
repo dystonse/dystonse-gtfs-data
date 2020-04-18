@@ -8,7 +8,7 @@ edition = "2018"
 gtfs-rt = "0.1.0"
 prost = "0.4"
 bytes = "0.5.4"
-gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "accelerate", default-features = false, version = "0.19.1" }
+gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "accelerate", default-features = false, version = "0.20.0" }
 mysql = "18.0.0"
 chrono = "0.4.11"
 zip = "0.5"
@@ -24,3 +24,4 @@ plotters = "0.2.12"
 rand = "0.7.3"
 rand_xorshift = "0.2.0"
 rand_distr = "0.2.2"
+itertools = "0.9.0"
