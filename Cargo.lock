@@ -627,8 +627,8 @@ dependencies = [
 
 [[package]]
 name = "gtfs-structures"
-version = "0.19.1"
-source = "git+https://github.com/dystonse/gtfs-structure.git?branch=accelerate#209c527b5840eba2356992e37c33e08625bbad7e"
+version = "0.20.0"
+source = "git+https://github.com/dystonse/gtfs-structure.git?branch=route_variant#362943dfe6a2680a07795dca43fef13976cff158"
 dependencies = [
  "bytes 0.4.12",
  "chrono",

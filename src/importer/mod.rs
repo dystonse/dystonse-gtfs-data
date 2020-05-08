@@ -444,8 +444,11 @@ impl<'a> Importer<'a>  {
         if self.verbose {
             println!("Importing realtime data…");
         }
+
+        let short_filename = &gtfs_schedule_filename[gtfs_schedule_filename.rfind('/').unwrap() + 1 ..];
+
         // create importer for this schedule and iterate over all given realtime files
-        let imp = PerScheduleImporter::new(&schedule, &self.main.pool, self.verbose, &self.main.source);
+        let imp = PerScheduleImporter::new(&schedule, &self.main.pool, self.verbose, &self.main.source, short_filename);
 
         let (rt, tu, stu) = gtfs_realtime_filenames
             .par_iter()
