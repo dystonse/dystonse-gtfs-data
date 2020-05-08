@@ -9,11 +9,10 @@ RUN rm src/main.rs
 COPY . .
 RUN touch src/main.rs
 RUN cargo build --release
-RUN cargo install --offline --path .
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y libssl1.1 libfontconfig
-COPY --from=builder /usr/local/cargo/bin/dystonse-gtfs-data /usr/local/bin/dystonse-gtfs-data
+COPY --from=builder /usr/src/myapp/target/release/dystonse-gtfs-data /usr/local/bin/dystonse-gtfs-data
 WORKDIR /
 
 # Set time zone. Taken from https://serverfault.com/a/683651
