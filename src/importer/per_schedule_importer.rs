@@ -19,6 +19,7 @@ pub struct PerScheduleImporter<'a> {
     gtfs_schedule: &'a Gtfs,
     verbose: bool,
     source: &'a str,
+    filename: &'a str,
 }
 
 enum EventType {
@@ -49,7 +50,8 @@ impl EventTimes {
 struct BatchedInsertions<'a> {
     params_vec: Vec<Params>,
     conn: &'a mut PooledConn,
-    statement: Statement,
+    update_statement: Statement,
+    insert_statement: Statement,
 }
 
 impl<'a> PerScheduleImporter<'a> {
@@ -58,12 +60,14 @@ impl<'a> PerScheduleImporter<'a> {
         pool: &'a Pool,
         verbose: bool,
         source: &'a str,
+        filename: &'a str,
     ) -> PerScheduleImporter<'a> {
         PerScheduleImporter {
             gtfs_schedule,
             pool,
             verbose,
             source,
+            filename,
         }
     }
 
@@ -197,21 +201,21 @@ impl<'a> PerScheduleImporter<'a> {
             .stop_sequence
             .ok_or(SimpleError::new("no stop_sequence"))?;
 
-        let mode = if let Ok(mode_enum) = self.gtfs_schedule.get_route(&route_id) {
-            match mode_enum.route_type {
-                gtfs_structures::RouteType::Tramway => 0,
-                gtfs_structures::RouteType::Subway => 1,
-                gtfs_structures::RouteType::Rail => 2,
-                gtfs_structures::RouteType::Bus => 3,
-                gtfs_structures::RouteType::Ferry => 4,
-                gtfs_structures::RouteType::CableCar => 5,
-                gtfs_structures::RouteType::Gondola => 6,
-                gtfs_structures::RouteType::Funicular => 7,
-                gtfs_structures::RouteType::Other(x) => x,
-            }
-        } else {
-            99
-        };
+        // let mode = if let Ok(mode_enum) = self.gtfs_schedule.get_route(&route_id) {
+        //     match mode_enum.route_type {
+        //         gtfs_structures::RouteType::Tramway => 0,
+        //         gtfs_structures::RouteType::Subway => 1,
+        //         gtfs_structures::RouteType::Rail => 2,
+        //         gtfs_structures::RouteType::Bus => 3,
+        //         gtfs_structures::RouteType::Ferry => 4,
+        //         gtfs_structures::RouteType::CableCar => 5,
+        //         gtfs_structures::RouteType::Gondola => 6,
+        //         gtfs_structures::RouteType::Funicular => 7,
+        //         gtfs_structures::RouteType::Other(x) => x,
+        //     }
+        // } else {
+        //     99
+        // };
 
         let arrival = PerScheduleImporter::handle_stop_time_update(
             stop_time_update.arrival,
@@ -233,19 +237,17 @@ impl<'a> PerScheduleImporter<'a> {
         }
 
         batched.add_insertion(Params::from(params! {
-            "trip_id" => &trip_id,
-            stop_id,
-            "route_id" => &route_id,
-            stop_sequence,
-            time_of_recording,
-            mode,
-            "time_arrival_schedule" => arrival.schedule,
-            "time_arrival_estimate" => arrival.estimate,
-            "delay_arrival" => arrival.delay,
-            "time_departure_schedule" => departure.schedule,
-            "time_departure_estimate" => departure.estimate,
-            "delay_departure" => departure.delay,
             "source" => &self.source,
+            "route_id" => &route_id,
+            "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
+            "trip_id" => &trip_id,
+            "date" => start_date,
+            stop_sequence,
+            stop_id,
+            time_of_recording,
+            "delay_arrival" => arrival.delay,
+            "delay_departure" => departure.delay,
+            "schedule_file_name" => self.filename
         }))?;
 
         Ok(1)
@@ -299,18 +301,57 @@ impl<'a> PerScheduleImporter<'a> {
 
 impl<'a> BatchedInsertions<'a> {
     fn new(conn: &mut PooledConn) -> BatchedInsertions {
-        let statement = conn.prep(r"INSERT INTO `realtime` 
-                    (`id`, `trip_id`, `stop_id`, `route_id`, `stop_sequence`, `mode`, `delay_arrival`, `delay_departure`,
-                    `time_of_recording`, `time_arrival_schedule`, `time_arrival_estimate`, `time_departure_schedule`, `time_departure_estimate`, `source`) 
-                    VALUES 
-                    (NULL, :trip_id, :stop_id, :route_id, :stop_sequence, :mode, :delay_arrival, :delay_departure, 
-                    FROM_UNIXTIME(:time_of_recording), FROM_UNIXTIME(:time_arrival_schedule), FROM_UNIXTIME(:time_arrival_estimate), FROM_UNIXTIME(:time_departure_schedule), FROM_UNIXTIME(:time_departure_estimate), :source)")
-                    .expect("Could not prepare statement"); // Should never happen because of hard-coded statement string
+        let update_statement = conn.prep(r"UPDATE `realtime`
+        SET 
+            `stop_id` = :stop_id,
+            `time_of_recording` = FROM_UNIXTIME(:time_of_recording),
+            `delay_arrival` = :delay_arrival,
+            `delay_departure` = :delay_departure,
+            `schedule_file_name` = :schedule_file_name
+        WHERE 
+            `source` = :source AND
+            `route_id` = :route_id AND
+            `route_variant` = :route_variant AND
+            `trip_id` = :trip_id AND
+            `date` = :date AND
+            `stop_sequence` = :stop_sequence AND
+            `time_of_recording` < FROM_UNIXTIME(:time_of_recording);").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
+
+        
+        let insert_statement = conn.prep(r"INSERT IGNORE INTO `realtime` (
+            `source`, 
+            `route_id`,
+            `route_variant`,
+            `trip_id`,
+            `date`,
+            `stop_sequence`,
+            `stop_id`,
+            `time_of_recording`,
+            `delay_arrival`,
+            `delay_departure`,
+            `schedule_file_name`
+        ) VALUES ( 
+            :source,
+            :route_id,
+            :route_variant,
+            :trip_id,
+            :date,
+            :stop_sequence,
+            :stop_id,
+            FROM_UNIXTIME(:time_of_recording),
+            :delay_arrival,
+            :delay_departure, 
+            :schedule_file_name
+        );")
+        .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
+
+        // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
 
         BatchedInsertions {
             params_vec: Vec::with_capacity(MAX_BATCH_SIZE),
             conn,
-            statement,
+            update_statement,
+            insert_statement
         }
     }
 
@@ -324,7 +365,8 @@ impl<'a> BatchedInsertions<'a> {
 
     fn write_to_database(&mut self) -> FnResult<()> {
         let mut tx = self.conn.start_transaction(TxOpts::default())?;
-        tx.exec_batch(&self.statement, &self.params_vec)?;
+        tx.exec_batch(&self.update_statement, &self.params_vec)?;
+        tx.exec_batch(&self.insert_statement, &self.params_vec)?;
         self.params_vec.clear();
         tx.commit()?;
         Ok(())
