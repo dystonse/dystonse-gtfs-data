@@ -1,11 +1,12 @@
 use crate::importer::Importer;
 use crate::FnResult;
 use crate::Main;
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Weekday};
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::Gtfs;
 use gtfs_structures::Trip;
 use mysql::prelude::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use itertools::Itertools;
 use mysql::*;
@@ -253,11 +254,30 @@ impl<'a> Analyser<'a> {
                 route_ids.len(),
                 schedule.routes.len()
             );
+
+            let success_counter = AtomicUsize::new(0);
+            let error_counter = AtomicUsize::new(0);
+            let total_count = route_ids.len();
+
             let (count, success) = route_ids
                 .par_iter()
                 .map(|id| match self.create_visual_schedule_for_route(&id) {
-                    Ok(()) => (1, 1),
+                    Ok(()) => {
+                        let curr_suc = 1 + success_counter.fetch_add(1, Ordering::SeqCst);
+                        let curr_err = error_counter.load(Ordering::SeqCst);
+                        println!(
+                            "Status: {} of {} ({} succeeded, {} errors)",
+                            curr_suc + curr_err, total_count, curr_suc, curr_err
+                        );
+                        (1, 1)
+                    },
                     Err(e) => {
+                        let curr_err = 1 + error_counter.fetch_add(1, Ordering::SeqCst);
+                        let curr_suc = error_counter.load(Ordering::SeqCst);
+                        println!(
+                            "Status: {} of {} ({} succeeded, {} errors)",
+                            curr_suc + curr_err, total_count, curr_suc, curr_err
+                        );
                         eprintln!("Error while processing route {}: {}", &id, e);
                         (1, 0)
                     }
@@ -730,7 +750,16 @@ impl<'a> GraphCreator<'a> {
         }
 
         let trip = self.schedule.get_trip(&tuple.3).unwrap();
-        let start_time = trip.stop_times.iter().filter(|stop_time| stop_time.stop.id == tuple.4).next().unwrap().departure_time.unwrap();
+        // TODO there must be a prettier way to handle those cases:
+        let a = trip.stop_times.iter().filter(|stop_time| stop_time.stop.id == tuple.4).next();
+        if a.is_none() {
+            return None;
+        }
+        let b = a.unwrap().departure_time;
+        if b.is_none() {
+            return None;
+        }
+        let start_time = b.unwrap();
 
         self.make_coordinate(
             &tuple.4,
