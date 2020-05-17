@@ -30,11 +30,11 @@ pub struct Analyser<'a> {
 }
 
 type DbTuple = (
-    Option<i32>,
-    Option<NaiveTime>,
-    Option<NaiveDate>,
-    String,
-    String,
+    Option<i32>, // 0 - delay_arrival
+    Option<i32>, // 1 - delay_departure
+    Option<NaiveDate>, // 2 - date
+    String, // 3 - trip_id
+    String, // 4 - stop_id
 );
 
 impl<'a> Analyser<'a> {
@@ -267,39 +267,21 @@ impl<'a> Analyser<'a> {
 
     fn create_visual_schedule_for_route(&self, route_id: &String) -> FnResult<()> {
         let mut con = self.main.pool.get_conn()?;
-        // TODO we need to find each trip for each day, and then sort the rows according to the stop_ids as they occur in the schedules route variant. Oof.
         let stmt = con.prep(
             r"SELECT 
                 delay_arrival,
-                TIME(time_arrival_estimate) as time,
-                DATE(DATE_SUB(time_of_recording, INTERVAL 3 HOUR)) as date, 
-                trip_id, 
-                stop_id 
+                delay_departure,
+                date,
+                trip_id,
+                stop_id
             FROM 
                 realtime 
             WHERE 
                 source=:source AND 
-                route_id=:routeid AND
-                (time_of_recording, trip_id, stop_id) IN 
-                ( 
-                    SELECT 
-                        MAX(time_of_recording), 
-                        trip_id, 
-                        stop_id 
-                    FROM 
-                        realtime
-                    WHERE
-                        source=:source AND
-                        route_id=:routeid
-                    GROUP BY 
-                        trip_id, 
-                        DATE(DATE_SUB(time_of_recording, INTERVAL 3 HOUR)), 
-                        stop_id
-                ) 
+                route_id=:routeid
             ORDER BY 
                 date,
-                trip_id,
-                time;",
+                trip_id",
         )?;
 
         let mut result = con.exec_iter(
@@ -737,9 +719,12 @@ impl<'a> GraphCreator<'a> {
             return None;
         }
 
+        let trip = self.schedule.get_trip(&tuple.3).unwrap();
+        let start_time = trip.stop_times.iter().filter(|stop_time| stop_time.stop.id == tuple.4).next().unwrap().departure_time.unwrap();
+
         self.make_coordinate(
             &tuple.4,
-            Some((tuple.1.unwrap().num_seconds_from_midnight() as i32) as u32),
+            Some((tuple.1.unwrap() + start_time as i32) as u32),
         )
     }
 
