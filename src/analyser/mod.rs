@@ -12,6 +12,7 @@ use mysql::*;
 use parse_duration::parse;
 use plotters::prelude::*;
 use rand::Rng;
+use rayon::prelude::*;
 use regex::Regex;
 use simple_error::SimpleError;
 use std::collections::HashSet;
@@ -253,9 +254,18 @@ impl<'a> Analyser<'a> {
                 schedule.routes.len()
             );
             let (count, success) = route_ids
-                .iter()
-                .map(|id| self.create_visual_schedule_for_route(&id).is_ok())
-                .fold((0, 0), |a, b| (a.0 + 1, a.1 + (if b { 1 } else { 0 })));
+                .par_iter()
+                .map(|id| match self.create_visual_schedule_for_route(&id) {
+                    Ok(()) => (1, 1),
+                    Err(e) => {
+                        eprintln!("Error while processing route {}: {}", &id, e);
+                        (1, 0)
+                    }
+                 })
+                .reduce( 
+                    || (0, 0), 
+                    |a, b| (a.0 + b.0, a.1 + b.1)
+                );
             println!(
                 "Tried to create graphs for {} routes, had success with {} of them.",
                 count, success
