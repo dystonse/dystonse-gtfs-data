@@ -139,7 +139,7 @@ impl<'a> Analyser<'a> {
 
         let mut con = self.main.pool.get_conn()?;
         let (start, end): (mysql::chrono::NaiveDateTime, mysql::chrono::NaiveDateTime) = con
-            .query_first("SELECT MIN(time_of_recording), MAX(time_of_recording) from realtime")?
+            .exec_first("SELECT MIN(time_of_recording), MAX(time_of_recording) FROM realtime WHERE `source` = ?", (&self.main.source,))?
             .unwrap();
 
         let std_date = parse(
@@ -161,10 +161,10 @@ impl<'a> Analyser<'a> {
             let row: mysql::Row = con
                 .exec_first(
                     "SELECT COUNT(*), AVG(delay_arrival) 
-                FROM realtime 
-                WHERE (`time_of_recording` BETWEEN ? AND ?) 
-                AND (delay_arrival BETWEEN - 36000 AND 36000) 
-                AND source = ?",
+                    FROM realtime 
+                    WHERE (`time_of_recording` BETWEEN ? AND ?) 
+                    AND (delay_arrival BETWEEN - 36000 AND 36000) 
+                    AND source = ?",
                     (time_min, time_max, &self.main.source),
                 )?
                 .unwrap();
@@ -237,8 +237,8 @@ impl<'a> Analyser<'a> {
 
             let mut con = self.main.pool.get_conn()?;
 
-            let stmt = con.prep(r"SELECT DISTINCT route_id FROM realtime LIMIT 200")?;
-            let result = con.exec_iter(&stmt, {})?;
+            let stmt = con.prep(r"SELECT DISTINCT route_id FROM realtime WHERE `source`=?")?;
+            let result = con.exec_iter(&stmt, (&self.main.source,))?;
             let route_ids: Vec<String> = result
                 .map(|row| {
                     let id: String = from_row(row.unwrap());
@@ -358,7 +358,7 @@ impl<'a> Analyser<'a> {
 
         // sort those tuples by length, descending
         stop_ids_by_route_variant_id
-            .sort_by_key(|(route_variant_id, stop_ids)| -(stop_ids.len() as i32));
+            .sort_by_key(|(_route_variant_id, stop_ids)| -(stop_ids.len() as i32));
 
         println!(
             "Handling {} route variant ids for route id {}…",
