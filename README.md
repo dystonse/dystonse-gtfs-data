@@ -1,5 +1,7 @@
 # dystonse-gtfs-data
 
+**This repository is a part of the multi-repository project `dystonse`. See the [main repository](https://github.com/dystonse/dystonse) for more information.**
+
 This is a Rust crate that works with static gtfs schedules (as zip or directory), gtfs-realtime data (as .pb or .zip files) and a mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) to read, import or anaylse the data.
 
 In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
