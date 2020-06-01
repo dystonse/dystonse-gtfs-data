@@ -18,13 +18,26 @@ use std::collections::HashSet;
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-type DbTuple = (
-    Option<i32>, // 0 - delay_arrival
-    Option<i32>, // 1 - delay_departure
-    Option<NaiveDate>, // 2 - date
-    String, // 3 - trip_id
-    String, // 4 - stop_id
-);
+struct DbItem {
+    delay_arrival: Option<i32>,
+    delay_departure: Option<i32>,
+    date: Option<NaiveDate>,
+    trip_id: String,
+    stop_id: String
+}
+
+impl FromRow for DbItem {
+    fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
+        Ok(DbItem{
+            delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
+            delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
+            date: row.get_opt(2).unwrap().ok(),
+            trip_id: row.get::<String, _>(3).unwrap().clone(),
+            stop_id: row.get::<String, _>(4).unwrap().clone()
+        })
+    }
+}
+
 
 pub struct VisualScheduleCreator<'a> {
     pub main: &'a Main,
@@ -149,23 +162,23 @@ impl<'a> VisualScheduleCreator<'a> {
 
         let result_set = result.next_set().unwrap()?;
 
-        let db_tuples: Vec<_> = result_set
+        let db_items: Vec<_> = result_set
             .map(|row| {
-                let tuple: DbTuple = from_row(row.unwrap());
-                tuple
+                let item: DbItem = from_row(row.unwrap());
+                item
             })
             .collect();
 
-        if db_tuples.len() < 10 {
+        if db_items.len() < 10 {
             println!(
                 "Skipping route id {} because there are only {} data points.",
                 route_id,
-                db_tuples.len()
+                db_items.len()
             );
             return Ok(());
         }
 
-        // collect trips and trip variants for this route
+        // collect trips and route variants for this route
         let schedule = &self.schedule.as_ref().unwrap();
         let all_trips = &schedule.trips;
 
@@ -201,7 +214,7 @@ impl<'a> VisualScheduleCreator<'a> {
             })
             .collect();
 
-        // sort those tuples by length, descending
+        // sort those items by length, descending
         stop_ids_by_route_variant_id
             .sort_by_key(|(_route_variant_id, stop_ids)| -(stop_ids.len() as i32));
 
@@ -226,8 +239,6 @@ impl<'a> VisualScheduleCreator<'a> {
             .clone();
 
         // now create the actual images, one for each variant
-        // TODO group variants into combined images
-
         loop {
             let (primary_route_variant_id, primary_stop_ids) =
                 stop_ids_by_route_variant_id.first().unwrap();
@@ -246,7 +257,7 @@ impl<'a> VisualScheduleCreator<'a> {
             self.create_visual_schedule_for_route_variants(
                 primary_route_variant_id,
                 matching_route_variant_ids.clone(),
-                &db_tuples,
+                &db_items,
                 &agency_name,
                 &route_name,
             )?;
@@ -274,7 +285,7 @@ impl<'a> VisualScheduleCreator<'a> {
         &self,
         primary_route_variant_id: &String,
         route_variant_ids: Vec<&String>,
-        db_tuples: &Vec<DbTuple>,
+        db_items: &Vec<DbItem>,
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
@@ -282,7 +293,7 @@ impl<'a> VisualScheduleCreator<'a> {
         let all_trips = &schedule.trips;
         let empty_string = String::from("");
 
-        // select any trip with the primary route variant as the primary trip
+        // select any trip with the primary route variant as the primary trip (the one that covers all stations in the output image)
         let primary_trip = all_trips
             .values()
             .filter(|trip| {
@@ -291,7 +302,7 @@ impl<'a> VisualScheduleCreator<'a> {
             .next()
             .unwrap();
 
-        // gather trips for all route variants
+        // gather trips for all selected route variants
         let trips: Vec<&Trip> = all_trips
             .values()
             .filter(|trip| {
@@ -319,7 +330,7 @@ impl<'a> VisualScheduleCreator<'a> {
             primary_trip,
             trips,
             &filename,
-            db_tuples,
+            db_items,
         )
     }
 
@@ -327,7 +338,7 @@ impl<'a> VisualScheduleCreator<'a> {
         &self,
         primary_shape_id: &String,
         shape_ids: Vec<&String>,
-        db_tuples: &Vec<DbTuple>,
+        db_items: &Vec<DbItem>,
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
@@ -357,7 +368,7 @@ impl<'a> VisualScheduleCreator<'a> {
             primary_trip,
             trips,
             &format!("{}/shape_{}.png", path, primary_shape_id),
-            db_tuples,
+            db_items,
         )
     }
 
@@ -366,7 +377,7 @@ impl<'a> VisualScheduleCreator<'a> {
         primary_trip: &Trip,
         trips: Vec<&Trip>,
         name: &str,
-        db_tuples: &Vec<DbTuple>,
+        db_items: &Vec<DbItem>,
     ) -> FnResult<()> {
         let mut creator = GraphCreator::new(
             String::from(name),
@@ -374,7 +385,7 @@ impl<'a> VisualScheduleCreator<'a> {
             trips,
             &self.schedule.as_ref().unwrap(),
             self.main,
-            db_tuples,
+            db_items,
         );
 
         creator.create()?;
@@ -391,7 +402,7 @@ struct GraphCreator<'a> {
     main: &'a Main,
     relevant_stop_ids: Vec<String>,
     relevant_stop_names: Vec<String>,
-    db_tuples: &'a Vec<DbTuple>,
+    db_items: &'a Vec<DbItem>,
 }
 
 impl<'a> GraphCreator<'a> {
@@ -401,7 +412,7 @@ impl<'a> GraphCreator<'a> {
         trips: Vec<&'a Trip>,
         schedule: &'a Gtfs,
         main: &'a Main,
-        db_tuples: &'a Vec<DbTuple>,
+        db_items: &'a Vec<DbItem>,
     ) -> GraphCreator<'a> {
         GraphCreator {
             primary_trip,
@@ -411,7 +422,7 @@ impl<'a> GraphCreator<'a> {
             schedule,
             relevant_stop_ids: Vec::new(),
             relevant_stop_names: Vec::new(),
-            db_tuples,
+            db_items,
         }
     }
 
@@ -436,10 +447,10 @@ impl<'a> GraphCreator<'a> {
             .collect();
         let stop_count = self.relevant_stop_ids.len();
 
-        let data_for_current_trips: Vec<&DbTuple> = self
-            .db_tuples
+        let data_for_current_trips: Vec<&DbItem> = self
+            .db_items
             .iter()
-            .filter(|tup| self.trips.iter().any(|trip| trip.id == tup.3))
+            .filter(|it| self.trips.iter().any(|trip| trip.id == it.trip_id))
             .collect();
 
         if data_for_current_trips.len() < 10 {
@@ -453,7 +464,7 @@ impl<'a> GraphCreator<'a> {
         // get all dates for which we have data
         let dates = data_for_current_trips
             .iter()
-            .filter_map(|tup| tup.2)
+            .filter_map(|it| it.date)
             .unique();
 
         let mut actual_trip_shapes = Vec::new();
@@ -475,17 +486,17 @@ impl<'a> GraphCreator<'a> {
             // get all data that belongs to this date
             let data_of_the_day = data_for_current_trips
                 .iter()
-                .filter(|tup| tup.2 == Some(date));
+                .filter(|it| it.date == Some(date));
 
-            // group the data by tup.3 (= trip_id)
-            for (_trip_id, tuples) in &data_of_the_day.group_by(|tup| tup.3.clone()) {
-                // for each trip_id, sort by the tup.4's (= stop_id) position in the list of relevant_stop_ids
-                let sorted_tuples = tuples
-                    .sorted_by_key(|tup| self.relevant_stop_ids.iter().position(|id| *id == tup.4));
+            // group the data by trip_id
+            for (_trip_id, items) in &data_of_the_day.group_by(|it| it.trip_id.clone()) {
+                // for each trip_id, sort by the stop_id's position in the list of relevant_stop_ids
+                let sorted_items = items
+                    .sorted_by_key(|it| self.relevant_stop_ids.iter().position(|id| *id == it.stop_id));
 
                 let path_for_trip = PathElement::new(
-                    sorted_tuples
-                        .filter_map(|tup| self.make_coordinate_from_tuple(tup))
+                    sorted_items
+                        .filter_map(|it| self.make_coordinate_from_item(it))
                         .collect::<Vec<(f64, f64)>>(),
                     ShapeStyle::from(&color).stroke_width(2),
                 );
@@ -564,19 +575,19 @@ impl<'a> GraphCreator<'a> {
         None
     }
 
-    fn make_coordinate_from_tuple(&self, tuple: &DbTuple) -> Option<(f64, f64)> {
-        if tuple.0.is_none() || tuple.1.is_none() {
+    fn make_coordinate_from_item(&self, item: &DbItem) -> Option<(f64, f64)> {
+        if item.delay_arrival.is_none() || item.delay_departure.is_none() {
             return None;
         }
 
         // Some providers seem to set the delay to 0 instead of Null when they have no data.
-        if tuple.0.unwrap() == 0 {
+        if item.delay_arrival.unwrap() == 0 { // THIS IS THE LINE (see comment at the end of the function)
             return None;
         }
 
-        let trip = self.schedule.get_trip(&tuple.3).unwrap();
+        let trip = self.schedule.get_trip(&item.trip_id).unwrap();
         // TODO there must be a prettier way to handle those cases:
-        let a = trip.stop_times.iter().filter(|stop_time| stop_time.stop.id == tuple.4).next();
+        let a = trip.stop_times.iter().filter(|stop_time| stop_time.stop.id == item.stop_id).next();
         if a.is_none() {
             return None;
         }
@@ -587,8 +598,10 @@ impl<'a> GraphCreator<'a> {
         let start_time = b.unwrap();
 
         self.make_coordinate(
-            &tuple.4,
-            Some((tuple.1.unwrap() + start_time as i32) as u32),
+            &item.stop_id,
+            Some((item.delay_departure.unwrap() + start_time as i32) as u32), 
+            // TODO this was delay_departure when we used items, but 
+            // shouldn't it be the same as in "THIS IS THE LINE", i.e. delay_arrival?
         )
     }
 
