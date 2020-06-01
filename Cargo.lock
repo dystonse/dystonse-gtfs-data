@@ -64,6 +64,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 
 [[package]]
+name = "assert_approx_eq"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c07dab4369547dbe5114677b33fbbf724971019f3818172d59a97a61c774ffd"
+
+[[package]]
 name = "atty"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -534,12 +540,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "dystonse-curves"
+version = "0.1.0"
+dependencies = [
+ "assert_approx_eq",
+ "fixed",
+ "gnuplot",
+ "half",
+ "itertools 0.9.0",
+ "num",
+ "rand 0.7.3",
+]
+
+[[package]]
 name = "dystonse-gtfs-data"
 version = "1.0.0"
 dependencies = [
  "bytes 0.5.4",
  "chrono",
  "clap",
+ "dystonse-curves",
  "gtfs-rt",
  "gtfs-structures",
  "itertools 0.9.0",
@@ -632,6 +652,15 @@ name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
+
+[[package]]
+name = "fixed"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f32ca1abdbb21d63a3e02a658a9e3001b172f13c8b46724299e21190c5ee5041"
+dependencies = [
+ "typenum",
+]
 
 [[package]]
 name = "fixedbitset"
@@ -814,6 +843,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gnuplot"
+version = "0.0.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0722fa20b2b0e81cb287aadfb8d64e0ecde274281238ea16c61804324bd88c1"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
 name = "gtfs-rt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -861,6 +899,12 @@ dependencies = [
  "tokio",
  "tokio-util",
 ]
+
+[[package]]
+name = "half"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d36fab90f82edc3c747f9d438e06cf0a491055896f2a279638bb5beed6c40177"
 
 [[package]]
 name = "hashbrown"

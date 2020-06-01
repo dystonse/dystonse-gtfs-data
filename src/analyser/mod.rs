@@ -10,7 +10,7 @@ use regex::Regex;
 use simple_error::SimpleError;
 
 use count::*;
-use curves::*;
+use curves::CurveCreator;
 use visual_schedule::*;
 
 use crate::FnResult;
@@ -68,7 +68,7 @@ impl<'a> Analyser<'a> {
                     .conflicts_with("route-ids")
                 )
             )
-            .subcommand(App::new("curve")
+            .subcommand(App::new("curves")
                 .about("Generates curves just because")
                 .arg(Arg::with_name("schedule")
                     .short('s')
@@ -125,12 +125,21 @@ impl<'a> Analyser<'a> {
             ("graph", Some(sub_args)) => {
                 let mut vsc = VisualScheduleCreator { 
                     main: self.main, 
-                    analyser: self,            
+                    analyser: self,
+                    args: sub_args,    
                     schedule: self.read_schedule(sub_args)?
                 };
                 vsc.run_visual_schedule()
             }
-            ("curves", Some(_sub_args)) => run_curves(self),
+            ("curves", Some(sub_args)) => {
+                let cc = CurveCreator {
+                    main: self.main,
+                    analyser: self,
+                    args: sub_args, 
+                    schedule: self.read_schedule(sub_args)?
+                };
+                cc.run_curves()
+            },
             _ => panic!("Invalid arguments."),
         }
     }

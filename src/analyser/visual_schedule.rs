@@ -1,3 +1,4 @@
+use clap::ArgMatches;
 use chrono::{Datelike, NaiveDate, Weekday};
 use gtfs_structures::{Gtfs, Trip};
 use itertools::Itertools;
@@ -32,8 +33,8 @@ impl FromRow for DbItem {
             delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
             delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
             date: row.get_opt(2).unwrap().ok(),
-            trip_id: row.get::<String, _>(3).unwrap().clone(),
-            stop_id: row.get::<String, _>(4).unwrap().clone()
+            trip_id: row.get::<String, _>(3).unwrap(),
+            stop_id: row.get::<String, _>(4).unwrap()
         })
     }
 }
@@ -43,19 +44,18 @@ pub struct VisualScheduleCreator<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
     pub schedule: Gtfs,
+    pub args: &'a ArgMatches
 }
 
 impl<'a> VisualScheduleCreator<'a> {
     pub fn run_visual_schedule(&mut self) -> FnResult<()> {
-        let args = self.analyser.args.subcommand_matches("graph").unwrap();
-
-        if let Some(route_ids) = args.values_of("route-ids") {
+        if let Some(route_ids) = self.args.values_of("route-ids") {
             println!("Handling {} route ids…", route_ids.len());
             for route_id in route_ids {
                 self.create_visual_schedule_for_route(&String::from(route_id))?;
             }
         }
-        if let Some(shape_ids) = args.values_of("shape-ids") {
+        if let Some(shape_ids) = self.args.values_of("shape-ids") {
             println!("Handling {} shape ids…", shape_ids.len());
             for shape_id in shape_ids {
                 self.create_visual_schedule_for_shapes(
@@ -67,7 +67,7 @@ impl<'a> VisualScheduleCreator<'a> {
                 )?;
             }
         }
-        if args.is_present("all") {
+        if self.args.is_present("all") {
             println!("Creating graphs for all routes. First, selecting route_ids for which we actually have data…");
 
             let mut con = self.main.pool.get_conn()?;
