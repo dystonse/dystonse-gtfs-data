@@ -581,7 +581,7 @@ impl<'a> GraphCreator<'a> {
         }
 
         // Some providers seem to set the delay to 0 instead of Null when they have no data.
-        if item.delay_arrival.unwrap() == 0 { // THIS IS THE LINE (see comment at the end of the function)
+        if item.delay_arrival.unwrap() == 0 {
             return None;
         }
 
@@ -599,9 +599,7 @@ impl<'a> GraphCreator<'a> {
 
         self.make_coordinate(
             &item.stop_id,
-            Some((item.delay_departure.unwrap() + start_time as i32) as u32), 
-            // TODO this was delay_departure when we used items, but 
-            // shouldn't it be the same as in "THIS IS THE LINE", i.e. delay_arrival?
+            Some((item.delay_arrival.unwrap() + start_time as i32) as u32), 
         )
     }
 
