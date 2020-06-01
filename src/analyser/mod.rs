@@ -122,17 +122,24 @@ impl<'a> Analyser<'a> {
     pub fn run(&mut self) -> FnResult<()> {
         match self.args.clone().subcommand() {
             ("count", Some(_sub_args)) => run_count(&self),
-            ("graph", Some(_sub_args)) => {
+            ("graph", Some(sub_args)) => {
                 let mut vsc = VisualScheduleCreator { 
                     main: self.main, 
                     analyser: self,            
-                    schedule: None 
+                    schedule: self.read_schedule(sub_args)?
                 };
                 vsc.run_visual_schedule()
             }
             ("curves", Some(_sub_args)) => run_curves(self),
             _ => panic!("Invalid arguments."),
         }
+    }
+
+    fn read_schedule(&self, sub_args: &ArgMatches) -> FnResult<Gtfs> {
+        println!("Parsing schedule…");
+        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?; // TODO proper error message if this fails
+        println!("Done with parsing schedule.");
+        Ok(schedule)
     }
 
     pub fn date_time_from_filename(filename: &str) -> FnResult<NaiveDateTime> {

@@ -42,16 +42,12 @@ impl FromRow for DbItem {
 pub struct VisualScheduleCreator<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
-    pub schedule: Option<Gtfs>,
+    pub schedule: Gtfs,
 }
 
 impl<'a> VisualScheduleCreator<'a> {
     pub fn run_visual_schedule(&mut self) -> FnResult<()> {
         let args = self.analyser.args.subcommand_matches("graph").unwrap();
-
-        println!("Parsing schedule…");
-        self.schedule = Some(Gtfs::new(args.value_of("schedule").unwrap())?);
-        println!("Done with parsing schedule.");
 
         if let Some(route_ids) = args.values_of("route-ids") {
             println!("Handling {} route ids…", route_ids.len());
@@ -85,12 +81,10 @@ impl<'a> VisualScheduleCreator<'a> {
                 })
                 .collect();
 
-            let schedule = self.schedule.as_ref().unwrap();
-
             println!(
                 "Found data for {} of {} route_ids.",
                 route_ids.len(),
-                schedule.routes.len()
+                self.schedule.routes.len()
             );
 
             let success_counter = AtomicUsize::new(0);
@@ -179,8 +173,7 @@ impl<'a> VisualScheduleCreator<'a> {
         }
 
         // collect trips and route variants for this route
-        let schedule = &self.schedule.as_ref().unwrap();
-        let all_trips = &schedule.trips;
+        let all_trips = &self.schedule.trips;
 
         let trips_of_route: Vec<&Trip> = all_trips
             .values()
@@ -225,11 +218,11 @@ impl<'a> VisualScheduleCreator<'a> {
         );
 
         // collect some meta data about the route, which will be used for naming the output files
-        let route = schedule.get_route(route_id)?;
+        let route = self.schedule.get_route(route_id)?;
         let route_name = route.short_name.clone();
         let agency_id = route.agency_id.as_ref().unwrap().clone();
 
-        let agency_name = schedule
+        let agency_name = self.schedule
             .agencies
             .iter()
             .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
@@ -289,8 +282,7 @@ impl<'a> VisualScheduleCreator<'a> {
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
-        let schedule = &self.schedule.as_ref().unwrap();
-        let all_trips = &schedule.trips;
+        let all_trips = &self.schedule.trips;
         let empty_string = String::from("");
 
         // select any trip with the primary route variant as the primary trip (the one that covers all stations in the output image)
@@ -342,8 +334,7 @@ impl<'a> VisualScheduleCreator<'a> {
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
-        let schedule = &self.schedule.as_ref().unwrap();
-        let all_trips = &schedule.trips;
+        let all_trips = &self.schedule.trips;
         let empty_string = String::from("");
         let primary_trip: &Trip = all_trips
             .values()
@@ -383,7 +374,7 @@ impl<'a> VisualScheduleCreator<'a> {
             String::from(name),
             primary_trip,
             trips,
-            &self.schedule.as_ref().unwrap(),
+            &self.schedule,
             self.main,
             db_items,
         );
