@@ -542,6 +542,7 @@ dependencies = [
 [[package]]
 name = "dystonse-curves"
 version = "0.1.0"
+source = "git+https://github.com/dystonse/dystonse-curves.git#32b3a8b2887c0fabce0b797a014b7f341aef60d9"
 dependencies = [
  "assert_approx_eq",
  "fixed",
@@ -560,6 +561,7 @@ dependencies = [
  "chrono",
  "clap",
  "dystonse-curves",
+ "gnuplot",
  "gtfs-rt",
  "gtfs-structures",
  "itertools 0.9.0",
