@@ -164,24 +164,18 @@ impl<'a> CurveCreator<'a> {
         let mut fg = Figure::new();
         let axes = fg.axes2d();
 
-        let count = pairs.len();
-        if count > 199 {
-            // draw several curves
-            let mut buckets : usize = count / 100;
-            if buckets > 8 {
-                buckets = 8;
-            }
-            let bucket_size = count / buckets;
-            pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            for b in 0..buckets {
-                let slice = pairs[bucket_size * b .. bucket_size * b + (bucket_size - 1)].to_vec();
-                println!("Doing slice {} of {} with {} pairs.", b, buckets, slice.len());
-                self.other(axes, slice)?;
-            }
-        } else {
-            println!("Doing single slice with {} pairs.", pairs.len());
-            // draw only one curve
-            self.other(axes, pairs)?;
+        pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+        let mut markers : Vec::<usize> = vec!{0};
+        self.recurse(&pairs, &mut markers, 0, pairs.len() - 1);
+        markers.push(pairs.len() - 1);
+
+        self.other(axes, pairs.clone())?;
+
+        for (lower, upper) in markers.iter().tuple_windows() {
+            let slice = pairs[*lower .. *upper].to_vec();
+            println!("Doing slice from {} to {}.", lower, upper);
+            self.other(axes, slice)?;
         }
 
         fg.save_to_svg(filename, 1024, 768)?;
@@ -189,14 +183,24 @@ impl<'a> CurveCreator<'a> {
         Ok(())
     }
 
+    fn recurse(&self, pairs: &Vec<(f32, f32)>, markers: &mut Vec<usize>, lower: usize, upper: usize) {
+        if upper - lower > 100 {
+            let mid = (upper + lower) / 2; // TODO find better split point
+            self.recurse(pairs, markers, lower, mid);
+            markers.push(mid);
+            self.recurse(pairs, markers, mid, upper);
+        }
+    }
+
     fn other(&self, axes: &mut gnuplot::Axes2D, mut pairs: Vec<(f32, f32)>) -> FnResult<()> {
+        let min_delay = pairs.first().unwrap().0;
+        let max_delay = pairs.last().unwrap().0;
+
         pairs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         let max_i = (pairs.len() - 1) as f32;
         let mut tups = Vec::<Tup<f32, f32>>::with_capacity(pairs.len());
         let mut last_x = 0.0;
-        let mut initial_delay_sum = 0.0;
         for (i, pair) in pairs.iter().enumerate() {
-            initial_delay_sum += pair.0;
             let x = pair.1;
             if x != last_x {
                 tups.push(Tup {x, y: (i as f32) / max_i});
@@ -211,7 +215,7 @@ impl<'a> CurveCreator<'a> {
         tups.first_mut().unwrap().y = 0.0;
         tups.last_mut().unwrap().y = 1.0;
 
-        let cap = format!("Anfangs ca. {}s zu spät", (initial_delay_sum / pairs.len() as f32) as i32);
+        let cap = format!("{}s to {}s ({} P.)", min_delay, max_delay, pairs.len());
 
         let mut curve = IrregularDynamicCurve::new(tups);
         curve.simplify(0.001);
