@@ -27,3 +27,4 @@ rand_distr = "0.2.2"
 itertools = "0.9.0"
 dystonse-curves = { git = "https://github.com/dystonse/dystonse-curves.git" }
 gnuplot = "0.0.36"
+colorous = "1.0.2"
