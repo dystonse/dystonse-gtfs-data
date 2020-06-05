@@ -2,7 +2,7 @@ use std::fs;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route};
+use gtfs_structures::{Gtfs, Route, RouteType};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -132,6 +132,8 @@ impl<'a> CurveCreator<'a> {
             Some(trip) => {
                 println!("Matching rows for route variant {} of route {}: {}", route_variant, route.short_name, rows_matching_variant.len());
 
+                let end_stop_name = trip.stop_times.last().unwrap().stop.name.clone();
+
                 // threshold of delay secends that will be considered. 
                 // Every stop with more than t or less then -t delay will be ignored.
                 // TODO This is for testing / visualizing only!
@@ -186,7 +188,14 @@ impl<'a> CurveCreator<'a> {
                                 let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
                                 fs::create_dir_all(&dirname)?;
                                 let filename = format!("{}/curve_{}_to_{}.svg", &dirname, i_s, i_e);
-                                let title = &format!("{} Linie {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, route.short_name, i_s, st_s.stop.name, i_e, st_e.stop.name);
+                                let mode = match route.route_type {
+                                    RouteType::Tramway => "Straßenbahn",
+                                    RouteType::Bus => "Bus",
+                                    RouteType::Rail => "Zug",
+                                    RouteType::Subway => "U-Bahn",
+                                    _ => ""
+                                };
+                                let title = &format!("{} - {} Linie {} nach {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, mode, route.short_name, end_stop_name,  i_s, st_s.stop.name, i_e, st_e.stop.name);
                                 self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
                             }
                         }
@@ -217,41 +226,47 @@ impl<'a> CurveCreator<'a> {
 
         // Try to make a curve out of initial delays. This curve is different from the actual
         // output curve(s), but is needed as a intermediate result to compute the markers.
-        if let Some(initial_curve) = self.make_curve_from_pairs(&own_pairs, true) {
+        if let Some((initial_curve, sum)) = self.make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
             // We build a list of "markers", which are x-coordinates / initial delays for which we 
             // will build a curve. That curve will consist of rows with "similar" delays.
-            // We add the minimal marker, next all markers in between, and the the maximal marker.
-            let mut markers : Vec::<f32> = vec!{initial_curve.min_x()};
+            // All the "middle" will be inserted in-order by the recurse function. 
+            // We need to add the absolute min and absolute max markers manually before and afer that,
+            // and we add them twice because this simplifies the curve generation later on.
+            let mut markers = Vec::<f32>::new();
+            markers.push(initial_curve.min_x());
+            markers.push(initial_curve.min_x());
             self.recurse(&initial_curve, &mut markers, initial_curve.min_x(), initial_curve.max_x(), count as f32);
             markers.push(initial_curve.max_x());
-
+            markers.push(initial_curve.max_x());
             
             // draw the initial delay curve, which is just for debugging purposes and might be a bit confusing.
             let (x, y) = initial_curve.get_values_as_vectors();
-            let caption_all_initial = format!("Anfangs - alle Daten ({})", own_pairs.len());
+            let caption_all_initial = format!("Anfangs - alle Daten ({})", sum as i32);
             axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_initial), Color("#129245")]);
             
             // draw the overall destination delay
-            if let Some(mut curve) = self.make_curve_from_pairs(&own_pairs, false) {
+            if let Some((mut curve, sum)) = self.make_curve(&own_pairs.iter().map(|(_s,e)| *e).collect(), None) {
                 curve.simplify(0.001);
                 let (x, y) = curve.get_values_as_vectors();
-                let caption_all_end = format!("Ende - alle Daten ({})", own_pairs.len());
+                let caption_all_end = format!("Ende - alle Daten ({})", sum as i32);
                 axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
             }
 
-            axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung:"), Color("white")]);
+            // Add an invisible curve to display an additonal line in the legend
+            axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
 
-            // now generate and draw one or more actual result curves.
-            // TODO the following is just a quick and dirty implementation which does not use
-            // the computed markers as we intended.
-            for (i,(lower, upper)) in markers.iter().tuple_windows().enumerate() {
+            // Now generate and draw one or more actual result curves.
+            // Each cuve will focus on the mid marker, and include all the data points from
+            // the min to the max marker.
+            // Remember that we added the absolute min and absolute max markers twice.
+            for (i,(lower, mid, upper)) in markers.iter().tuple_windows().enumerate() {
                 let min_index = (count as f32 * initial_curve.y_at_x(*lower)) as usize;
                 let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
-                let slice = own_pairs[min_index .. max_index].to_vec();
+                let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
                 if slice.len() > 1 {
-                    println!("Doing slice from {}:{} to {}:{}.", min_index, lower, max_index, upper);
+                    println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
                     let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
-                    self.draw_to_figure(axes, &slice, &color)?;
+                    self.draw_to_figure(axes, &slice, &color, Some(*mid))?;
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
@@ -296,14 +311,21 @@ impl<'a> CurveCreator<'a> {
         }
     }
 
-    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<(f32, f32)>, color: &str) -> FnResult<()> {
-        let min_delay = pairs.first().unwrap().0;
-        let max_delay = pairs.last().unwrap().0;
+    /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
+    /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
+    /// will be weighted close to zero. Otherwise, all points will be weighted equally.
+    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>) -> FnResult<()> {
+        let min_delay = pairs.first().unwrap();
+        let max_delay = pairs.last().unwrap();
 
-        let cap = format!("{}s bis {}s ({})", min_delay, max_delay, pairs.len());
+        if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
+            let cap = if let Some(focus) = focus { 
+                format!("ca. {}s ({:.2})", focus as i32, sum)
+            } else {
+                format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+            };
 
-        if let Some(mut curve) = self.make_curve_from_pairs(&pairs, false) {
-            //curve.simplify(0.001);
+            curve.simplify(0.001);
             let (x, y) = curve.get_values_as_vectors();
             let width = if color == "black" { 2.0 } else { 1.0 };
             axes.lines_points(&x, &y, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
@@ -311,22 +333,46 @@ impl<'a> CurveCreator<'a> {
     
         Ok(())
     }
- 
-    fn make_curve_from_pairs(&self, pairs: &Vec<(f32, f32)>, use_initial_delay: bool) -> Option<IrregularDynamicCurve<f32, f32>> {
-        let mut own_pairs = pairs.clone();
-        if use_initial_delay {
-            own_pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        } else {
-            own_pairs.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+
+    fn get_weight(delay: f32, focus: Option<f32>, min_delay: f32, max_delay: f32) -> f32 {
+        // handling delay values outside of given bounds: always 0.
+        if delay < min_delay || delay > max_delay {
+            return 0.0;
         }
-        let max_i = (own_pairs.len() - 1) as f32;
-        let mut tups = Vec::<Tup<f32, f32>>::with_capacity(own_pairs.len());
-        let mut last_x = 0.0;
-        for (i, pair) in own_pairs.iter().enumerate() {
-            let x = if use_initial_delay { pair.0 } else { pair.1 };
-            if x != last_x {
-                tups.push(Tup {x, y: (i as f32) / max_i});
-                last_x = x;
+
+        if let Some(focus) = focus {
+            // if focus is given, weight is 1 at the focus and goes down to zero 
+            // towards the bounds given by min_delay and max_delay
+            if delay == focus {
+                1.0
+            } else if delay < focus {
+                (delay - min_delay) / (focus - min_delay)
+            } else {
+                1.0 - ((delay - focus) / (max_delay - focus))
+            }
+        } else {
+            1.0
+        }
+    }
+
+    fn make_curve(&self, values: &Vec<f32>, focus: Option<f32>) -> Option<(IrregularDynamicCurve<f32, f32>, f32)> {
+        let mut own_values = values.clone(); // TODO maybe we don't need to clone this
+        own_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let min_delay = *own_values.first().unwrap();
+        let max_delay = *own_values.last().unwrap();
+      
+        let pairs: Vec<(f32,f32)> = own_values.iter().map(|v| (*v, Self::get_weight(*v, focus, min_delay, max_delay))).collect();
+
+        let sum_of_weights: f32 = pairs.iter().map(|(_v, w)| *w).sum();
+
+        let mut tups = Vec::<Tup<f32, f32>>::with_capacity(own_values.len());
+        let mut last_x :f32 = 0.0;
+        let mut i = 0.0;
+        for (x, w) in pairs.iter() {
+            i += w;
+            if *x != last_x {
+                tups.push(Tup {x: *x, y: (i as f32) / sum_of_weights});
+                last_x = *x;
             }
         }
 
@@ -338,6 +384,6 @@ impl<'a> CurveCreator<'a> {
         tups.first_mut().unwrap().y = 0.0;
         tups.last_mut().unwrap().y = 1.0;
 
-        Some(IrregularDynamicCurve::new(tups))
+        Some((IrregularDynamicCurve::new(tups), sum_of_weights))
     }
 }
