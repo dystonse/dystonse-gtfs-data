@@ -156,9 +156,9 @@ impl<'a> CurveCreator<'a> {
                             for row_s in &rows_matching_start {
                                 for row_e in &rows_matching_end {
                                     if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
-                                        // Only use rows where delay_arrival is not None
+                                        // Only use rows where delay is not None
                                         // TODO filter those out at the DB level or in the above filter expressions
-                                        if let Some(d_s) = row_s.delay_arrival {
+                                        if let Some(d_s) = row_s.delay_departure {
                                             if let Some(d_e) = row_e.delay_arrival {
                                                 // Filter out rows with too much positive or negative delay
                                                 if d_s < t && d_s > -t && d_e < t && d_e > -t {
@@ -203,9 +203,9 @@ impl<'a> CurveCreator<'a> {
         fg.set_title(title);
         let axes = fg.axes2d();
         axes.set_legend(
-            Graph(0.0), 
-            Graph(0.95), 
-            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignLeft, AlignTop)], 
+            Graph(0.97), 
+            Graph(0.03), 
+            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
             &[]
         );
 
@@ -238,6 +238,8 @@ impl<'a> CurveCreator<'a> {
                 let caption_all_end = format!("Ende - alle Daten ({})", own_pairs.len());
                 axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
             }
+
+            axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung:"), Color("white")]);
 
             // now generate and draw one or more actual result curves.
             // TODO the following is just a quick and dirty implementation which does not use
@@ -301,7 +303,7 @@ impl<'a> CurveCreator<'a> {
         let cap = format!("{}s bis {}s ({})", min_delay, max_delay, pairs.len());
 
         if let Some(mut curve) = self.make_curve_from_pairs(&pairs, false) {
-            curve.simplify(0.001);
+            //curve.simplify(0.001);
             let (x, y) = curve.get_values_as_vectors();
             let width = if color == "black" { 2.0 } else { 1.0 };
             axes.lines_points(&x, &y, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
