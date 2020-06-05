@@ -2,7 +2,7 @@ use std::fs;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
-use gtfs_structures::Gtfs;
+use gtfs_structures::{Gtfs, Route};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -60,6 +60,19 @@ impl<'a> CurveCreator<'a> {
     }
 
     fn create_curves_for_route(&self, route_id: &String)  -> FnResult<()> {
+        let route = self.schedule.get_route(route_id)?;
+        let agency_id = route.agency_id.as_ref().unwrap().clone();
+        let agency_name = self.schedule
+            .agencies
+            .iter()
+            .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
+            .next()
+            .unwrap()
+            .name
+            .clone();
+
+        println!("Working on route {} of agency {}.", route.short_name, agency_name);
+
         let mut con = self.main.pool.get_conn()?;
         let stmt = con.prep(
             r"SELECT 
@@ -100,17 +113,17 @@ impl<'a> CurveCreator<'a> {
         println!("For route {} there are {} variants: {:?}", route_id, route_variants.len(), route_variants);
 
         for route_variant in route_variants {
-            self.create_curves_for_route_variant(route_id, *route_variant, &db_items)?;
+            self.create_curves_for_route_variant(&route, *route_variant, &agency_name, &db_items)?;
         }
 
         Ok(())
     }
 
-    fn create_curves_for_route_variant(&self, route_id: &String, route_variant: u64, db_items: &Vec<DbItem>) -> FnResult<()> {
+    fn create_curves_for_route_variant(&self, route: &Route, route_variant: u64, agency_name: &str, db_items: &Vec<DbItem>) -> FnResult<()> {
         let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == route_variant).collect();
-        let route = self.schedule.get_route(route_id)?;
+
         let variant_as_string = Some(format!("{}", route_variant));
-        let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route_id && trip.route_variant == variant_as_string).next();
+        let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
         match trip {
             None => {
                 println!("Could not find trip {}.", rows_matching_variant[0].trip_id);
@@ -170,10 +183,11 @@ impl<'a> CurveCreator<'a> {
                             
                             // Don't generate a graphic if we have too few pairs.
                             if matching_pairs.len() > 20 {
-                                let dirname = format!("data/curve_img/Bremen_1/{}", route_variant);
+                                let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
                                 fs::create_dir_all(&dirname)?;
                                 let filename = format!("{}/curve_{}_to_{}.svg", &dirname, i_s, i_e);
-                                self.generate_curves_for_stop_pair(matching_pairs, &filename)?;
+                                let title = &format!("{} Linie {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, route.short_name, i_s, st_s.stop.name, i_e, st_e.stop.name);
+                                self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
                             }
                         }
                     }
@@ -184,9 +198,16 @@ impl<'a> CurveCreator<'a> {
         }
     }
 
-    fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>, filename: &str) -> FnResult<()> {
+    fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>, filename: &str, title: &str) -> FnResult<()> {
         let mut fg = Figure::new();
+        fg.set_title(title);
         let axes = fg.axes2d();
+        axes.set_legend(
+            Graph(0.0), 
+            Graph(0.95), 
+            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignLeft, AlignTop)], 
+            &[]
+        );
 
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
         // because we wukk group them by that criterion.
@@ -207,8 +228,16 @@ impl<'a> CurveCreator<'a> {
             
             // draw the initial delay curve, which is just for debugging purposes and might be a bit confusing.
             let (x, y) = initial_curve.get_values_as_vectors();
-            axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption("Anfangsverspätung")]);
-            self.draw_to_figure(axes, &own_pairs, "black")?;
+            let caption_all_initial = format!("Anfangs - alle Daten ({})", own_pairs.len());
+            axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_initial), Color("#129245")]);
+            
+            // draw the overall destination delay
+            if let Some(mut curve) = self.make_curve_from_pairs(&own_pairs, false) {
+                curve.simplify(0.001);
+                let (x, y) = curve.get_values_as_vectors();
+                let caption_all_end = format!("Ende - alle Daten ({})", own_pairs.len());
+                axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
+            }
 
             // now generate and draw one or more actual result curves.
             // TODO the following is just a quick and dirty implementation which does not use
@@ -219,7 +248,7 @@ impl<'a> CurveCreator<'a> {
                 let slice = own_pairs[min_index .. max_index].to_vec();
                 if slice.len() > 1 {
                     println!("Doing slice from {}:{} to {}:{}.", min_index, lower, max_index, upper);
-                    let color = format!("#{:x}", colorous::TURBO.eval_rational(i, markers.len()));
+                    let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
                     self.draw_to_figure(axes, &slice, &color)?;
                 }
             }
@@ -269,7 +298,7 @@ impl<'a> CurveCreator<'a> {
         let min_delay = pairs.first().unwrap().0;
         let max_delay = pairs.last().unwrap().0;
 
-        let cap = format!("{}s to {}s ({} P.)", min_delay, max_delay, pairs.len());
+        let cap = format!("{}s bis {}s ({})", min_delay, max_delay, pairs.len());
 
         if let Some(mut curve) = self.make_curve_from_pairs(&pairs, false) {
             curve.simplify(0.001);
