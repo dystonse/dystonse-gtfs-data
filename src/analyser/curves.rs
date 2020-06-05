@@ -122,6 +122,14 @@ impl<'a> CurveCreator<'a> {
     fn create_curves_for_route_variant(&self, route: &Route, route_variant: u64, agency_name: &str, db_items: &Vec<DbItem>) -> FnResult<()> {
         let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == route_variant).collect();
 
+        let mode = match route.route_type {
+            RouteType::Tramway => "Straßenbahn",
+            RouteType::Bus => "Bus",
+            RouteType::Rail => "Zug",
+            RouteType::Subway => "U-Bahn",
+            _ => ""
+        };
+
         let variant_as_string = Some(format!("{}", route_variant));
         let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
         match trip {
@@ -132,7 +140,11 @@ impl<'a> CurveCreator<'a> {
             Some(trip) => {
                 println!("Matching rows for route variant {} of route {}: {}", route_variant, route.short_name, rows_matching_variant.len());
 
+                let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
+                fs::create_dir_all(&dirname)?;                
+
                 let end_stop_name = trip.stop_times.last().unwrap().stop.name.clone();
+                let stop_count = trip.stop_times.len();
 
                 // threshold of delay secends that will be considered. 
                 // Every stop with more than t or less then -t delay will be ignored.
@@ -142,10 +154,23 @@ impl<'a> CurveCreator<'a> {
                 // We need to make an image for each pair of start and end station along the route where
                 // the end station comes after the start station.AccessMode
 
+                // Also we will make a figure with departure delays at every stop:
+                let mut fg_all_stops = Figure::new();
+                let title = &format!("{} - {} Linie {} nach {} - Verspätung je Halt", agency_name, mode, route.short_name, end_stop_name);
+                fg_all_stops.set_title(title);
+                let axes_all_stops = fg_all_stops.axes2d();
+
                 // Iterate over all start stations
                 for (i_s, st_s) in trip.stop_times.iter().enumerate() {
                     // Locally select the rows which match the start station
                     let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_s.stop.id).collect();
+
+                    let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
+                    if departues.len() > 5 {
+                        let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
+                        self.draw_to_figure(axes_all_stops, &departues, &color, None)?;
+                    }
+
                     // Iterate over end stations, and only use the ones after the start station
                     for (i_e, st_e) in trip.stop_times.iter().enumerate() {
                         if i_e > i_s {
@@ -185,22 +210,16 @@ impl<'a> CurveCreator<'a> {
                             
                             // Don't generate a graphic if we have too few pairs.
                             if matching_pairs.len() > 20 {
-                                let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
-                                fs::create_dir_all(&dirname)?;
                                 let filename = format!("{}/curve_{}_to_{}.svg", &dirname, i_s, i_e);
-                                let mode = match route.route_type {
-                                    RouteType::Tramway => "Straßenbahn",
-                                    RouteType::Bus => "Bus",
-                                    RouteType::Rail => "Zug",
-                                    RouteType::Subway => "U-Bahn",
-                                    _ => ""
-                                };
                                 let title = &format!("{} - {} Linie {} nach {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, mode, route.short_name, end_stop_name,  i_s, st_s.stop.name, i_e, st_e.stop.name);
                                 self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
                             }
                         }
                     }
                 }
+
+                let filename = format!("{}/all_stops.svg", &dirname);
+                fg_all_stops.save_to_svg(filename, 1024, 768)?;
         
                 Ok(())
             }
