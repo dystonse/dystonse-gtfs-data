@@ -40,8 +40,8 @@ impl<'a> Importer<'a>  {
                     .index(1)
                     .value_name("DIRECTORY")
                     .required_unless("help")
-                    .help("The directory which contains schedules and realtime data")
-                    .long_help(
+                    .about("The directory which contains schedules and realtime data")
+                    .long_about(
                         "The directory that contains the schedules (located in a subdirectory named 'schedules') \
                         and realtime data (located in a subdirectory named 'rt'). \
                         Successfully processed files are moved to a subdirectory named 'imported'. \
@@ -51,7 +51,7 @@ impl<'a> Importer<'a>  {
                     .long("pingurl")
                     .env("PING_URL")
                     .takes_value(true)
-                    .help("An URL that will be pinged (using HTTP GET) after each iteration.")
+                    .about("An URL that will be pinged (using HTTP GET) after each iteration.")
                 )
             )
             .subcommand(App::new("batch")
@@ -60,8 +60,8 @@ impl<'a> Importer<'a>  {
                     .index(1)
                     .value_name("DIRECTORY")
                     .required_unless("help")
-                    .help("The directory which contains schedules and realtime data")
-                    .long_help(
+                    .about("The directory which contains schedules and realtime data")
+                    .long_about(
                         "The directory that contains the schedules (located in a subdirectory named 'schedules') \
                         and realtime data (located in a subdirectory named 'rt'). \
                         Successfully processed files are moved to a subdirectory named 'imported'. \
@@ -74,13 +74,13 @@ impl<'a> Importer<'a>  {
                 .arg(Arg::new("schedule")
                     .index(1)
                     .value_name("SCHEDULE")
-                    .help("The static GTFS schedule, as directory or .zip")
+                    .about("The static GTFS schedule, as directory or .zip")
                     .required_unless("help")
                 ).arg(Arg::new("rt")
                     .index(2)
                     .multiple(true)
                     .value_name("PBs")
-                    .help("One or more files with real time data, as .pb or .zip")
+                    .about("One or more files with real time data, as .pb or .zip")
                     .required_unless("help")
                 )
             )
