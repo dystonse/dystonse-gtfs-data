@@ -149,7 +149,7 @@ impl<'a> CurveCreator<'a> {
                 // threshold of delay secends that will be considered. 
                 // Every stop with more than t or less then -t delay will be ignored.
                 // TODO This is for testing / visualizing only!
-                let t = 500; 
+                let t = 3000; 
 
                 // We need to make an image for each pair of start and end station along the route where
                 // the end station comes after the start station.AccessMode
@@ -159,6 +159,13 @@ impl<'a> CurveCreator<'a> {
                 let title = &format!("{} - {} Linie {} nach {} - Verspätung je Halt", agency_name, mode, route.short_name, headsign);
                 fg_all_stops.set_title(title);
                 let axes_all_stops = fg_all_stops.axes2d();
+                axes_all_stops.set_x_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
+                axes_all_stops.set_legend(
+                    Graph(0.97), 
+                    Graph(0.03), 
+                    &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
+                    &[]
+                );
 
                 // Iterate over all start stations
                 for (i_s, st_s) in trip.stop_times.iter().enumerate() {
@@ -168,7 +175,7 @@ impl<'a> CurveCreator<'a> {
                     let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
                     if departues.len() > 5 {
                         let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
-                        self.draw_to_figure(axes_all_stops, &departues, &color, None)?;
+                        self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name))?;
                     }
 
                     // Iterate over end stations, and only use the ones after the start station
@@ -230,6 +237,7 @@ impl<'a> CurveCreator<'a> {
         let mut fg = Figure::new();
         fg.set_title(title);
         let axes = fg.axes2d();
+        axes.set_x_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
         axes.set_legend(
             Graph(0.97), 
             Graph(0.03), 
@@ -285,7 +293,7 @@ impl<'a> CurveCreator<'a> {
                 if slice.len() > 1 {
                     println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
                     let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
-                    self.draw_to_figure(axes, &slice, &color, Some(*mid))?;
+                    self.draw_to_figure(axes, &slice, &color, Some(*mid), None)?;
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
@@ -333,15 +341,20 @@ impl<'a> CurveCreator<'a> {
     /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
     /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
     /// will be weighted close to zero. Otherwise, all points will be weighted equally.
-    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>) -> FnResult<()> {
+    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>, caption: Option<&String>) -> FnResult<()> {
         let min_delay = pairs.first().unwrap();
         let max_delay = pairs.last().unwrap();
 
         if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
-            let cap = if let Some(focus) = focus { 
-                format!("ca. {}s ({:.2})", focus as i32, sum)
-            } else {
-                format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+            let cap = match caption {     
+                Some(c) => c.clone(),
+                None => {       
+                    if let Some(focus) = focus { 
+                        format!("ca. {}s ({:.2})", focus as i32, sum)
+                    } else {
+                        format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+                    }
+                }
             };
 
             curve.simplify(0.001);
