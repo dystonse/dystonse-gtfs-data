@@ -165,7 +165,7 @@ impl<'a> CurveCreator<'a> {
         axes.set_legend(
             Graph(0.97), 
             Graph(0.03), 
-            &[Title("Verspätung in Sekunden"), Placement(AlignRight, AlignBottom)], 
+            &[Title("Verspätung in Sekunden"), Placement(AlignRight, AlignBottom), Invert], 
             &[]
         );
         axes.set_x_ticks_custom(
@@ -173,6 +173,9 @@ impl<'a> CurveCreator<'a> {
 			&[MajorScale(1.0), OnAxis(false)],
 			&[Rotate(-90.0), TextAlign(AlignRight)],
         );
+        axes.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_y_grid(true);
+        axes.set_y_ticks(Some((Fix(10.0), 1)), &[MinorScale(0.5), MajorScale(1.0), Format("%.0f %%")], &[]);
+
 
         let stop_count = trip.stop_times.len();
 
@@ -206,7 +209,7 @@ impl<'a> CurveCreator<'a> {
                 match potential_curve {
                     Some(curve) => {
                         x_coords.push(i as f32);
-                        y_coords.push(curve.y_at_x(*delay as f32));
+                        y_coords.push(curve.y_at_x(*delay as f32) * 100.0);
                     },
                     None => {
                         
@@ -242,7 +245,7 @@ impl<'a> CurveCreator<'a> {
         axes.set_legend(
             Graph(0.97), 
             Graph(0.03), 
-            &[Title("Perzentile"), Placement(AlignRight, AlignBottom)], 
+            &[Title("Perzentile"), Placement(AlignRight, AlignBottom), Invert], 
             &[]
         );
         axes.set_x_ticks_custom(
@@ -250,6 +253,8 @@ impl<'a> CurveCreator<'a> {
 			&[MajorScale(1.0), OnAxis(false)],
 			&[Rotate(-90.0), TextAlign(AlignRight)],
         );
+        axes.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_y_grid(true);
+        axes.set_y_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
 
         let stop_count = trip.stop_times.len();
 
@@ -324,9 +329,12 @@ impl<'a> CurveCreator<'a> {
         axes_all_stops.set_legend(
             Graph(0.97), 
             Graph(0.03), 
-            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
+            &[Placement(AlignRight, AlignBottom)], 
             &[]
         );
+        axes_all_stops.set_x_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
+        axes_all_stops.set_y_ticks(Some((Fix(10.0), 1)), &[MinorScale(0.5), MajorScale(1.0), Format("%.0f %%")], &[]);
+        axes_all_stops.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true).set_y_grid(true);
 
         // Iterate over all start stations
         for (i_s, st_s) in trip.stop_times.iter().enumerate() {
@@ -336,7 +344,8 @@ impl<'a> CurveCreator<'a> {
             let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
             if departues.len() > 5 {
                 let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
-                self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name), false)?;
+                let mut options = vec!{Color(color.as_str()), Caption(st_s.stop.name.as_str()), PointSize(0.6)};
+                self.draw_to_figure(axes_all_stops, &departues, &mut options, None, false, true)?;
             }
 
             // Iterate over end stations, and only use the ones after the start station
@@ -374,7 +383,7 @@ impl<'a> CurveCreator<'a> {
                     // pairs of observations, i.e. each pair means:
                     // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
 
-                    println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
+                    // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
                     
                     // Don't generate a graphic if we have too few pairs.
                     if matching_pairs.len() > 20 {
@@ -403,16 +412,23 @@ impl<'a> CurveCreator<'a> {
             &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
             &[]
         );
+        axes.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true).set_y_grid(true);
+        axes.set_x_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
+        axes.set_y_ticks(Some((Fix(10.0), 1)), &[MinorScale(0.5), MajorScale(1.0), Format("%.0f %%")], &[]);
 
         let mut fg_na = Figure::new();
         fg_na.set_title(title);
         let axes_na = fg_na.axes2d();
+        axes_na.set_x_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
         axes_na.set_legend(
             Graph(0.97), 
             Graph(0.97), 
             &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignTop)], 
             &[]
         );
+        axes_na.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true);
+        axes_na.set_x_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
+        axes_na.set_y_ticks(Some((Fix(1.0), 1)), &[MinorScale(0.5), MajorScale(1.0), Format("%.0f %%")], &[]);
 
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
         // because we wukk group them by that criterion.
@@ -436,23 +452,31 @@ impl<'a> CurveCreator<'a> {
             markers.push(initial_curve.max_x());
             
             // draw the initial delay curve, which is just for debugging purposes and might be a bit confusing.
-            let (x, y) = initial_curve.get_values_as_vectors();
+            let (x, mut y) = initial_curve.get_values_as_vectors();
+            y = y.iter().map(|y| y*100.0).collect();
             let caption_all_initial = format!("Anfangs - alle Daten ({})", sum as i32);
             axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_initial), Color("#129245")]);
-            axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
-            
+            //axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
+            let start_delays: Vec<f32> = own_pairs.iter().map(|(s,_e)| *s).collect();
+            let mut options = vec!{ Color("#129245"), Caption(&caption_all_initial), LineStyle(Dot), LineWidth(3.0), PointSize(0.6)};
+            self.draw_to_figure(axes_na, &start_delays, &mut options, None, true, false)?;
+                
             // draw the overall destination delay
             if let Some((mut curve, sum)) = self.make_curve(&own_pairs.iter().map(|(_s,e)| *e).collect(), None) {
                 curve.simplify(0.001);
-                let (x, y) = curve.get_values_as_vectors();
+                let (x, mut y) = curve.get_values_as_vectors();
+                y = y.iter().map(|y| y*100.0).collect();
                 let caption_all_end = format!("Ende - alle Daten ({})", sum as i32);
-                axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
-                axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
+                axes.lines_points(&x, &y, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
+                let end_delays: Vec<f32> = own_pairs.iter().map(|(_s,e)| *e).collect();
+                let mut options = vec!{ Color("#08421F"), Caption(&caption_all_end), LineStyle(Dash), LineWidth(3.0), PointSize(0.6)};
+                self.draw_to_figure(axes_na, &end_delays, &mut options, None, true, false)?;
+                //axes_na.lines_points(&x, &dy, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
             }
 
             // Add an invisible curve to display an additonal line in the legend
             axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
-            axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
+            axes_na.lines_points(&[-100], &[0.005], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
 
             // Now generate and draw one or more actual result curves.
             // Each cuve will focus on the mid marker, and include all the data points from
@@ -463,15 +487,16 @@ impl<'a> CurveCreator<'a> {
                 let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
                 let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
                 if slice.len() > 1 {
-                    println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
+                    // println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
                     let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
 
-                    self.draw_to_figure(axes, &slice, &color, Some(*mid), None, false)?;
-                    self.draw_to_figure(axes_na, &slice, &color, Some(*mid), None, true)?;
+                    let mut options = vec!{ Color(color.as_str()), PointSize(0.6)};
+                    self.draw_to_figure(axes, &slice, &mut options, Some(*mid), false, false)?;
+                    self.draw_to_figure(axes_na, &slice, &mut options, Some(*mid), true, false)?; // histogram mode
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
-            fg_na.save_to_svg(filename.replace(".svg", "_na.svg"), 1024, 768)?;
+            fg_na.save_to_svg(filename.replace(".svg", "_na.svg"), 1024, 400)?;
         }
 
         Ok(())
@@ -516,23 +541,23 @@ impl<'a> CurveCreator<'a> {
     /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
     /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
     /// will be weighted close to zero. Otherwise, all points will be weighted equally.
-    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>, caption: Option<&String>, non_accumulated: bool) -> FnResult<()> {
+    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<()> {
         let min_delay = pairs.first().unwrap();
         let max_delay = pairs.last().unwrap();
 
-        if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
-            let cap = match caption {     
-                Some(c) => c.clone(),
-                None => {       
-                    if let Some(focus) = focus { 
-                        format!("ca. {}s ({:.2})", focus as i32, sum)
-                    } else {
-                        format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
-                    }
-                }
-            };
+        let mut own_options = plot_options.clone();
 
-            // curve.simplify(0.001);
+        if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
+            let cap = if let Some(focus) = focus { 
+                format!("ca. {}s ({:.2})", focus as i32, sum)
+            } else {
+                format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+            };
+            if !own_options.iter().any(|opt| match opt { Caption(_) => true, _ => false}) {
+                own_options.push(Caption(&cap));
+            }
+
+            curve.simplify(0.001);
             if curve.max_x() <  curve.min_x() + 13.0 {
                 println!("Curve too short.");
                 return Ok(());
@@ -544,14 +569,21 @@ impl<'a> CurveCreator<'a> {
                 for x in (curve.min_x() as i32 .. curve.max_x() as i32).step_by(12) {
                     let y = curve.y_at_x(x as f32 + 0.5) - curve.y_at_x(x as f32 - 0.5);
                     x_coords.push(x as f32);
-                    y_coords.push(y);
+                    y_coords.push(y * 100.0);
                 }
-                let width = if color == "black" { 2.0 } else { 1.0 };
-                axes.lines_points(&x_coords, &y_coords, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
+                if no_points {
+                    axes.lines(&x_coords, &y_coords, &own_options);
+                } else {
+                    axes.lines_points(&x_coords, &y_coords, &own_options);
+                }
             } else {
-                let (x_coords, y_coords) = curve.get_values_as_vectors();
-                let width = if color == "black" { 2.0 } else { 1.0 };
-                axes.lines_points(&x_coords, &y_coords, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
+                let (x_coords, mut y_coords) = curve.get_values_as_vectors();
+                y_coords = y_coords.iter().map(|y| y*100.0).collect();
+                if no_points {
+                    axes.lines(&x_coords, &y_coords, &own_options);
+                } else {
+                    axes.lines_points(&x_coords, &y_coords, &own_options);
+                }
             }
         }
     
