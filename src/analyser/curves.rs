@@ -336,7 +336,7 @@ impl<'a> CurveCreator<'a> {
             let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
             if departues.len() > 5 {
                 let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
-                self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name))?;
+                self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name), false)?;
             }
 
             // Iterate over end stations, and only use the ones after the start station
@@ -404,6 +404,16 @@ impl<'a> CurveCreator<'a> {
             &[]
         );
 
+        let mut fg_na = Figure::new();
+        fg_na.set_title(title);
+        let axes_na = fg_na.axes2d();
+        axes_na.set_legend(
+            Graph(0.97), 
+            Graph(0.97), 
+            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignTop)], 
+            &[]
+        );
+
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
         // because we wukk group them by that criterion.
         let mut own_pairs = pairs.clone();
@@ -429,6 +439,7 @@ impl<'a> CurveCreator<'a> {
             let (x, y) = initial_curve.get_values_as_vectors();
             let caption_all_initial = format!("Anfangs - alle Daten ({})", sum as i32);
             axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_initial), Color("#129245")]);
+            axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
             
             // draw the overall destination delay
             if let Some((mut curve, sum)) = self.make_curve(&own_pairs.iter().map(|(_s,e)| *e).collect(), None) {
@@ -436,10 +447,12 @@ impl<'a> CurveCreator<'a> {
                 let (x, y) = curve.get_values_as_vectors();
                 let caption_all_end = format!("Ende - alle Daten ({})", sum as i32);
                 axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
+                axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
             }
 
             // Add an invisible curve to display an additonal line in the legend
             axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
+            axes_na.lines_points(&[-100], &[0.005], &[Caption(""), Color("white")]);
 
             // Now generate and draw one or more actual result curves.
             // Each cuve will focus on the mid marker, and include all the data points from
@@ -452,10 +465,13 @@ impl<'a> CurveCreator<'a> {
                 if slice.len() > 1 {
                     println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
                     let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
-                    self.draw_to_figure(axes, &slice, &color, Some(*mid), None)?;
+
+                    self.draw_to_figure(axes, &slice, &color, Some(*mid), None, false)?;
+                    self.draw_to_figure(axes_na, &slice, &color, Some(*mid), None, true)?;
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
+            fg_na.save_to_svg(filename.replace(".svg", "_na.svg"), 1024, 768)?;
         }
 
         Ok(())
@@ -500,7 +516,7 @@ impl<'a> CurveCreator<'a> {
     /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
     /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
     /// will be weighted close to zero. Otherwise, all points will be weighted equally.
-    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>, caption: Option<&String>) -> FnResult<()> {
+    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, color: &str, focus: Option<f32>, caption: Option<&String>, non_accumulated: bool) -> FnResult<()> {
         let min_delay = pairs.first().unwrap();
         let max_delay = pairs.last().unwrap();
 
@@ -516,10 +532,27 @@ impl<'a> CurveCreator<'a> {
                 }
             };
 
-            curve.simplify(0.001);
-            let (x, y) = curve.get_values_as_vectors();
-            let width = if color == "black" { 2.0 } else { 1.0 };
-            axes.lines_points(&x, &y, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
+            // curve.simplify(0.001);
+            if curve.max_x() <  curve.min_x() + 13.0 {
+                println!("Curve too short.");
+                return Ok(());
+            }
+
+            if non_accumulated {
+                let mut x_coords = Vec::<f32>::new();
+                let mut y_coords = Vec::<f32>::new();
+                for x in (curve.min_x() as i32 .. curve.max_x() as i32).step_by(12) {
+                    let y = curve.y_at_x(x as f32 + 0.5) - curve.y_at_x(x as f32 - 0.5);
+                    x_coords.push(x as f32);
+                    y_coords.push(y);
+                }
+                let width = if color == "black" { 2.0 } else { 1.0 };
+                axes.lines_points(&x_coords, &y_coords, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
+            } else {
+                let (x_coords, y_coords) = curve.get_values_as_vectors();
+                let width = if color == "black" { 2.0 } else { 1.0 };
+                axes.lines_points(&x_coords, &y_coords, &[Caption(&cap), PointSize(0.6), Color(color), LineWidth(width)]);
+            }
         }
     
         Ok(())
