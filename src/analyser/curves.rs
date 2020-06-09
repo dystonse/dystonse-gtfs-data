@@ -143,7 +143,7 @@ impl<'a> CurveCreator<'a> {
                 let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
                 fs::create_dir_all(&dirname)?;                
 
-                let end_stop_name = trip.stop_times.last().unwrap().stop.name.clone();
+                let headsign = trip.trip_headsign.as_ref().unwrap_or(&trip.stop_times.last().unwrap().stop.name).clone();
                 let stop_count = trip.stop_times.len();
 
                 // threshold of delay secends that will be considered. 
@@ -156,7 +156,7 @@ impl<'a> CurveCreator<'a> {
 
                 // Also we will make a figure with departure delays at every stop:
                 let mut fg_all_stops = Figure::new();
-                let title = &format!("{} - {} Linie {} nach {} - Verspätung je Halt", agency_name, mode, route.short_name, end_stop_name);
+                let title = &format!("{} - {} Linie {} nach {} - Verspätung je Halt", agency_name, mode, route.short_name, headsign);
                 fg_all_stops.set_title(title);
                 let axes_all_stops = fg_all_stops.axes2d();
 
@@ -211,7 +211,7 @@ impl<'a> CurveCreator<'a> {
                             // Don't generate a graphic if we have too few pairs.
                             if matching_pairs.len() > 20 {
                                 let filename = format!("{}/curve_{}_to_{}.svg", &dirname, i_s, i_e);
-                                let title = &format!("{} - {} Linie {} nach {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, mode, route.short_name, end_stop_name,  i_s, st_s.stop.name, i_e, st_e.stop.name);
+                                let title = &format!("{} - {} Linie {} nach {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, mode, route.short_name, headsign, i_s, st_s.stop.name, i_e, st_e.stop.name);
                                 self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
                             }
                         }
