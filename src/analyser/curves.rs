@@ -2,7 +2,7 @@ use std::fs;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType};
+use gtfs_structures::{Gtfs, Route, RouteType, Trip};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -113,124 +113,283 @@ impl<'a> CurveCreator<'a> {
         println!("For route {} there are {} variants: {:?}", route_id, route_variants.len(), route_variants);
 
         for route_variant in route_variants {
-            self.create_curves_for_route_variant(&route, *route_variant, &agency_name, &db_items)?;
+            let variant_as_string = Some(format!("{}", route_variant));
+            let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
+
+            match trip {
+                None => {
+                    println!("Could not find trip for route_variant {}.", route_variant);
+                },
+                Some(trip) => {
+                    let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == *route_variant).collect();
+
+                    let mode = match route.route_type {
+                        RouteType::Tramway => "Straßenbahn",
+                        RouteType::Bus => "Bus",
+                        RouteType::Rail => "Zug",
+                        RouteType::Subway => "U-Bahn",
+                        _ => ""
+                    };
+                
+                    let headsign = trip.trip_headsign.as_ref().unwrap_or(&trip.stop_times.last().unwrap().stop.name).clone();    
+                    let dir_name = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
+                    
+                    fs::create_dir_all(&dir_name)?;                
+                    let title_prefix = &format!("{} - {} Linie {} nach {}", agency_name, mode, route.short_name, headsign);
+                    
+                    self.create_percentile_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant)?;
+                    self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant)?;
+                    self.create_curves_for_route_variant(&rows_matching_variant, trip, title_prefix, &dir_name)?;
+                }
+            }
         }
 
         Ok(())
     }
 
-    fn create_curves_for_route_variant(&self, route: &Route, route_variant: u64, agency_name: &str, db_items: &Vec<DbItem>) -> FnResult<()> {
-        let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == route_variant).collect();
+    // create a single figure with stations along the x axis.
+    // the y axis is, as usual, the proability between 0 and 1,
+    // and the curves will be for specific delays.
+    fn create_percentile_curves_for_route_variant(
+        &self, title_prefix: &str, 
+        dir_name: &str, 
+        trip: &Trip, 
+        rows_matching_variant: &Vec<&DbItem>
+    ) -> FnResult<()> {
+        let delays = [-120, -60, 0, 30, 60, 120, 300, 500];
 
-        let mode = match route.route_type {
-            RouteType::Tramway => "Straßenbahn",
-            RouteType::Bus => "Bus",
-            RouteType::Rail => "Zug",
-            RouteType::Subway => "U-Bahn",
-            _ => ""
-        };
+        let mut fg = Figure::new();
+        fg.set_title(&format!("{} - Verspätung in Perzentilen", title_prefix));
+        fg.set_pre_commands("set key outside");
+        let axes = fg.axes2d();
+        axes.set_legend(
+            Graph(0.97), 
+            Graph(0.03), 
+            &[Title("Verspätung in Sekunden"), Placement(AlignRight, AlignBottom)], 
+            &[]
+        );
+        axes.set_x_ticks_custom(
+            trip.stop_times.iter().enumerate().map(|(i, s)| Major(i as f32, Fix(s.stop.name.clone()))),
+			&[MajorScale(1.0), OnAxis(false)],
+			&[Rotate(-90.0), TextAlign(AlignRight)],
+        );
 
-        let variant_as_string = Some(format!("{}", route_variant));
-        let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
-        match trip {
-            None => {
-                println!("Could not find trip {}.", rows_matching_variant[0].trip_id);
-                Ok(())
-            },
-            Some(trip) => {
-                println!("Matching rows for route variant {} of route {}: {}", route_variant, route.short_name, rows_matching_variant.len());
+        let stop_count = trip.stop_times.len();
 
-                let dirname = format!("data/curve_img/{}/Linie_{}/{}", agency_name, route.short_name, route_variant);
-                fs::create_dir_all(&dirname)?;                
-
-                let headsign = trip.trip_headsign.as_ref().unwrap_or(&trip.stop_times.last().unwrap().stop.name).clone();
-                let stop_count = trip.stop_times.len();
-
-                // threshold of delay secends that will be considered. 
-                // Every stop with more than t or less then -t delay will be ignored.
-                // TODO This is for testing / visualizing only!
-                let t = 3000; 
-
-                // We need to make an image for each pair of start and end station along the route where
-                // the end station comes after the start station.AccessMode
-
-                // Also we will make a figure with departure delays at every stop:
-                let mut fg_all_stops = Figure::new();
-                let title = &format!("{} - {} Linie {} nach {} - Verspätung je Halt", agency_name, mode, route.short_name, headsign);
-                fg_all_stops.set_title(title);
-                let axes_all_stops = fg_all_stops.axes2d();
-                axes_all_stops.set_x_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
-                axes_all_stops.set_legend(
-                    Graph(0.97), 
-                    Graph(0.03), 
-                    &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
-                    &[]
-                );
-
-                // Iterate over all start stations
-                for (i_s, st_s) in trip.stop_times.iter().enumerate() {
-                    // Locally select the rows which match the start station
-                    let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_s.stop.id).collect();
-
-                    let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
-                    if departues.len() > 5 {
-                        let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
-                        self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name))?;
+        // Create a temporary curve for each stop, with the distribution of delays at that stop
+        let mut curves = Vec::<Option<IrregularDynamicCurve<f32, f32>>>::with_capacity(stop_count);
+        for st in trip.stop_times.iter() {
+            // Locally select the rows which match the start station
+            let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st.stop.id).filter_map(|r| r.delay_departure).map(|d| d as f32).collect();
+            if rows_matching_start.len() > 10 {
+                let potential_curve = self.make_curve(&rows_matching_start, None);
+                match potential_curve {
+                    Some(curve) => {
+                        curves.push(Some(curve.0));
+                    },
+                    None => {
+                        curves.push(None);
                     }
+                }
+            } else {
+                curves.push(None);
+            }
+        }
 
-                    // Iterate over end stations, and only use the ones after the start station
-                    for (i_e, st_e) in trip.stop_times.iter().enumerate() {
-                        if i_e > i_s {
-                            // Locally select rows that are matching the end station
-                            let rows_matching_end : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
-                            
-                            // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
-                            // which is given by (data, trip_id).
-                            let mut matching_pairs = Vec::<(f32, f32)>::with_capacity(usize::min(rows_matching_start.len(), rows_matching_end.len()));
-                            for row_s in &rows_matching_start {
-                                for row_e in &rows_matching_end {
-                                    if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
-                                        // Only use rows where delay is not None
-                                        // TODO filter those out at the DB level or in the above filter expressions
-                                        if let Some(d_s) = row_s.delay_departure {
-                                            if let Some(d_e) = row_e.delay_arrival {
-                                                // Filter out rows with too much positive or negative delay
-                                                if d_s < t && d_s > -t && d_e < t && d_e > -t {
-                                                    // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
-                                                    // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
-                                                    // kinds of problems.
-                                                    let rounded_d_s = (d_s / 12) * 12;
-                                                    let rounded_d_e = (d_e / 12) * 12;
-                                                    matching_pairs.push((rounded_d_s as f32, rounded_d_e as f32));
-                                                }
-                                            }
+        // Now, for every one of the predefined delays, draw a curve
+        for (i, delay) in delays.iter().enumerate() {
+            // for this delay, map the the probability for each station
+            let mut x_coords = Vec::<f32>::new();
+            let mut y_coords = Vec::<f32>::new();
+
+            for (i, potential_curve) in curves.iter().enumerate() {
+                match potential_curve {
+                    Some(curve) => {
+                        x_coords.push(i as f32);
+                        y_coords.push(curve.y_at_x(*delay as f32));
+                    },
+                    None => {
+                        
+                    }
+                }
+            }
+            let color = format!("#{:x}", colorous::TURBO.eval_rational(i, delays.len()));
+            axes.lines_points(&x_coords, &y_coords, &[Caption(&format!("{}s", delay)), PointSize(0.6), Color(&color), LineWidth(1.0)]);
+        }
+
+        let filename = format!("{}/all_stops_by_percentile.svg", dir_name);
+        fg.save_to_svg(filename, 1024, 768)?;
+
+
+        Ok(())
+    }
+
+    // create a single figure with stations along the x axis.
+    // the y axis is the amount of delay,
+    // and the curves will be for specific percentiles.
+    fn create_delay_curves_for_route_variant(
+        &self, title_prefix: &str, 
+        dir_name: &str, 
+        trip: &Trip, 
+        rows_matching_variant: &Vec<&DbItem>
+    ) -> FnResult<()> {
+        let percentiles = [0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0];
+
+        let mut fg = Figure::new();
+        fg.set_title(&format!("{} - Verspätung in Perzentilen", title_prefix));
+        let axes = fg.axes2d();
+        axes.set_y_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
+        axes.set_legend(
+            Graph(0.97), 
+            Graph(0.03), 
+            &[Title("Perzentile"), Placement(AlignRight, AlignBottom)], 
+            &[]
+        );
+        axes.set_x_ticks_custom(
+            trip.stop_times.iter().enumerate().map(|(i, s)| Major(i as f32, Fix(s.stop.name.clone()))),
+			&[MajorScale(1.0), OnAxis(false)],
+			&[Rotate(-90.0), TextAlign(AlignRight)],
+        );
+
+        let stop_count = trip.stop_times.len();
+
+        // Create a temporary curve for each stop, with the distribution of delays at that stop
+        let mut curves = Vec::<Option<IrregularDynamicCurve<f32, f32>>>::with_capacity(stop_count);
+        for st in trip.stop_times.iter() {
+            // Locally select the rows which match the start station
+            let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st.stop.id).filter_map(|r| r.delay_departure).map(|d| d as f32).collect();
+            if rows_matching_start.len() > 10 {
+                let potential_curve = self.make_curve(&rows_matching_start, None);
+                match potential_curve {
+                    Some(curve) => {
+                        curves.push(Some(curve.0));
+                    },
+                    None => {
+                        curves.push(None);
+                    }
+                }
+            } else {
+                curves.push(None);
+            }
+        }
+
+        // Now, for every one of the predefined delays, draw a curve
+        for (i, percentile) in percentiles.iter().enumerate() {
+            // for this delay, map the the probability for each station
+            let mut x_coords = Vec::<f32>::new();
+            let mut y_coords = Vec::<f32>::new();
+
+            for (i, potential_curve) in curves.iter().enumerate() {
+                match potential_curve {
+                    Some(curve) => {
+                        x_coords.push(i as f32);
+                        y_coords.push(curve.x_at_y(*percentile));
+                    },
+                    None => {
+                        
+                    }
+                }
+            }
+            let color = format!("#{:x}", colorous::TURBO.eval_rational(i, percentiles.len()));
+            axes.lines_points(&x_coords, &y_coords, &[Caption(&format!("{}%", (percentile * 100.0) as i32)), PointSize(0.6), Color(&color), LineWidth(1.0)]);
+        }
+
+        let filename = format!("{}/all_stops_by_delay.svg", dir_name);
+        fg.save_to_svg(filename, 1024, 768)?;
+
+
+        Ok(())
+    }
+
+    fn create_curves_for_route_variant(
+        &self, 
+        rows_matching_variant: &Vec<&DbItem>, 
+        trip: &Trip, title_prefix: &str,
+        dir_name: &str
+    ) -> FnResult<()> {
+        let stop_count = trip.stop_times.len();
+
+        // threshold of delay secends that will be considered. 
+        // Every stop with more than t or less then -t delay will be ignored.
+        let t = 3000; 
+
+        // We need to make an image for each pair of start and end station along the route where
+        // the end station comes after the start station.
+
+        // Also we will make a figure with departure delays at every stop:
+        let mut fg_all_stops = Figure::new();
+        fg_all_stops.set_title(&format!("{} - Verspätung je Halt", title_prefix));
+        let axes_all_stops = fg_all_stops.axes2d();
+        axes_all_stops.set_x_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
+        axes_all_stops.set_legend(
+            Graph(0.97), 
+            Graph(0.03), 
+            &[Title("Sekunden (Anzahl Fahrten)"), Placement(AlignRight, AlignBottom)], 
+            &[]
+        );
+
+        // Iterate over all start stations
+        for (i_s, st_s) in trip.stop_times.iter().enumerate() {
+            // Locally select the rows which match the start station
+            let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_s.stop.id).collect();
+
+            let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
+            if departues.len() > 5 {
+                let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
+                self.draw_to_figure(axes_all_stops, &departues, &color, None, Some(&st_s.stop.name))?;
+            }
+
+            // Iterate over end stations, and only use the ones after the start station
+            for (i_e, st_e) in trip.stop_times.iter().enumerate() {
+                if i_e > i_s {
+                    // Locally select rows that are matching the end station
+                    let rows_matching_end : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
+                    
+                    // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
+                    // which is given by (data, trip_id).
+                    let mut matching_pairs = Vec::<(f32, f32)>::with_capacity(usize::min(rows_matching_start.len(), rows_matching_end.len()));
+                    for row_s in &rows_matching_start {
+                        for row_e in &rows_matching_end {
+                            if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
+                                // Only use rows where delay is not None
+                                // TODO filter those out at the DB level or in the above filter expressions
+                                if let Some(d_s) = row_s.delay_departure {
+                                    if let Some(d_e) = row_e.delay_arrival {
+                                        // Filter out rows with too much positive or negative delay
+                                        if d_s < t && d_s > -t && d_e < t && d_e > -t {
+                                            // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
+                                            // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
+                                            // kinds of problems.
+                                            let rounded_d_s = (d_s / 12) * 12;
+                                            let rounded_d_e = (d_e / 12) * 12;
+                                            matching_pairs.push((rounded_d_s as f32, rounded_d_e as f32));
                                         }
-                                        break;
                                     }
                                 }
-                            }
-                            // For the start station i_s and the end station i_e we now have a collection of matching
-                            // pairs of observations, i.e. each pair means:
-                            // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
-
-                            println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
-                            
-                            // Don't generate a graphic if we have too few pairs.
-                            if matching_pairs.len() > 20 {
-                                let filename = format!("{}/curve_{}_to_{}.svg", &dirname, i_s, i_e);
-                                let title = &format!("{} - {} Linie {} nach {} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", agency_name, mode, route.short_name, headsign, i_s, st_s.stop.name, i_e, st_e.stop.name);
-                                self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
+                                break;
                             }
                         }
                     }
-                }
+                    // For the start station i_s and the end station i_e we now have a collection of matching
+                    // pairs of observations, i.e. each pair means:
+                    // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
 
-                let filename = format!("{}/all_stops.svg", &dirname);
-                fg_all_stops.save_to_svg(filename, 1024, 768)?;
-        
-                Ok(())
+                    println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
+                    
+                    // Don't generate a graphic if we have too few pairs.
+                    if matching_pairs.len() > 20 {
+                        let filename = format!("{}/curve_{}_to_{}.svg", &dir_name, i_s, i_e);
+                        let title = &format!("{} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", title_prefix, i_s, st_s.stop.name, i_e, st_e.stop.name);
+                        self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
+                    }
+                }
             }
         }
+
+        let filename = format!("{}/all_stops.svg", &dir_name);
+        fg_all_stops.save_to_svg(filename, 1024, 768)?;
+
+        Ok(())
     }
 
     fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>, filename: &str, title: &str) -> FnResult<()> {
