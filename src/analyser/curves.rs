@@ -1,4 +1,5 @@
 use std::fs;
+use rand::Rng;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
@@ -138,7 +139,8 @@ impl<'a> CurveCreator<'a> {
                     let title_prefix = &format!("{} - {} Linie {} nach {}", agency_name, mode, route.short_name, headsign);
                     
                     self.create_percentile_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant)?;
-                    self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant)?;
+                    self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant, false)?;
+                    self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant, true)?;
                     self.create_curves_for_route_variant(&rows_matching_variant, trip, title_prefix, &dir_name)?;
                 }
             }
@@ -160,7 +162,7 @@ impl<'a> CurveCreator<'a> {
 
         let mut fg = Figure::new();
         fg.set_title(&format!("{} - Verspätung in Perzentilen", title_prefix));
-        fg.set_pre_commands("set key outside");
+
         let axes = fg.axes2d();
         axes.set_legend(
             Graph(0.97), 
@@ -234,12 +236,17 @@ impl<'a> CurveCreator<'a> {
         &self, title_prefix: &str, 
         dir_name: &str, 
         trip: &Trip, 
-        rows_matching_variant: &Vec<&DbItem>
+        rows_matching_variant: &Vec<&DbItem>,
+        draw_box_plot: bool
     ) -> FnResult<()> {
-        let percentiles = [0.0, 0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99, 1.0];
+        let percentiles = [0.0, 0.025, 0.05, 0.25, 0.5, 0.75, 0.95, 0.975, 1.0];
 
         let mut fg = Figure::new();
-        fg.set_title(&format!("{} - Verspätung in Perzentilen", title_prefix));
+        if draw_box_plot {
+            fg.set_title(&format!("{} - Verspätung als Box-Plot", title_prefix));
+        } else {
+            fg.set_title(&format!("{} - Verspätung in Perzentilen", title_prefix));
+        }
         let axes = fg.axes2d();
         axes.set_y_range(gnuplot::AutoOption::Fix(-150.0),gnuplot::AutoOption::Fix(450.0));
         axes.set_legend(
@@ -248,21 +255,16 @@ impl<'a> CurveCreator<'a> {
             &[Title("Perzentile"), Placement(AlignRight, AlignBottom), Invert], 
             &[]
         );
-        axes.set_x_ticks_custom(
-            trip.stop_times.iter().enumerate().map(|(i, s)| Major(i as f32, Fix(s.stop.name.clone()))),
-			&[MajorScale(1.0), OnAxis(false)],
-			&[Rotate(-90.0), TextAlign(AlignRight)],
-        );
-        axes.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_y_grid(true);
-        axes.set_y_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
-
+       
         let stop_count = trip.stop_times.len();
 
         // Create a temporary curve for each stop, with the distribution of delays at that stop
         let mut curves = Vec::<Option<IrregularDynamicCurve<f32, f32>>>::with_capacity(stop_count);
+        let mut rows_per_stop: Vec<usize> = Vec::with_capacity(stop_count);
         for st in trip.stop_times.iter() {
             // Locally select the rows which match the start station
             let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st.stop.id).filter_map(|r| r.delay_departure).map(|d| d as f32).collect();
+            rows_per_stop.push(rows_matching_start.len());
             if rows_matching_start.len() > 10 {
                 let potential_curve = self.make_curve(&rows_matching_start, None);
                 match potential_curve {
@@ -278,30 +280,90 @@ impl<'a> CurveCreator<'a> {
             }
         }
 
-        // Now, for every one of the predefined delays, draw a curve
-        for (i, percentile) in percentiles.iter().enumerate() {
-            // for this delay, map the the probability for each station
-            let mut x_coords = Vec::<f32>::new();
-            let mut y_coords = Vec::<f32>::new();
+        axes.set_x_ticks_custom(
+            trip.stop_times.iter().enumerate().map(|(i, s)| {
+                let tick_name = format!("({}) {}", rows_per_stop[i], s.stop.name.clone());
+                Major(i as f32, Fix(tick_name))
+            }),
+			&[MajorScale(1.0), OnAxis(false)],
+			&[Rotate(-90.0), TextAlign(AlignRight)],
+        );
+        axes.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_y_grid(true);
+        axes.set_y_ticks(Some((Fix(60.0), 4)), &[MinorScale(0.5), MajorScale(1.0)], &[]);
 
-            for (i, potential_curve) in curves.iter().enumerate() {
-                match potential_curve {
-                    Some(curve) => {
-                        x_coords.push(i as f32);
-                        y_coords.push(curve.x_at_y(*percentile));
+
+        let actual_curves: Vec<_> = curves.iter().enumerate().filter_map(|(i, c)| {
+            match c {
+                Some(c) => Some((i, c)),
+                None => None
+            }
+        }).collect();
+
+        if draw_box_plot {
+            let mut rng = rand::thread_rng();
+
+            axes.box_and_whisker(
+                actual_curves.iter().map(|(i, _c)| i),
+                actual_curves.iter().map(|(_i, c)| c.x_at_y(0.25)),
+                actual_curves.iter().map(|(_i, c)| c.x_at_y(0.025)),
+                actual_curves.iter().map(|(_i, c)| c.x_at_y(0.975)),
+                actual_curves.iter().map(|(_i, c)| c.x_at_y(0.75)),
+                &[WhiskerBars(1.0), Color("black")]
+            );
+
+             // draw medians (somehow can't pass them to box_and_whisker)
+            axes.points(
+                actual_curves.iter().map(|(i, _c)| i),
+                actual_curves.iter().map(|(_i, c)| c.x_at_y(0.5)),
+                &[Color("black"), PointSymbol('+')]
+            );
+
+            // draw outliers
+            for (i, st) in trip.stop_times.iter().enumerate() {
+                // Locally select the rows which match the start station
+                let rows_matching_start: Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st.stop.id).filter_map(|r| r.delay_departure).map(|d| d as f32).collect();
+                
+                let potential_curve = actual_curves.iter().filter(|(actual_i, _c)| *actual_i == i).next();
+                let delays = match potential_curve {
+                    Some((_i, c)) => {
+                        let min_inlier = c.x_at_y(0.025);
+                        let max_inlier = c.x_at_y(0.975);
+                        rows_matching_start.iter().filter(|d| **d < min_inlier || **d > max_inlier).map(|d| *d).collect()
                     },
                     None => {
-                        
+                        rows_matching_start
                     }
+                };
+
+                if delays.len() > 0 {
+                    let size = f32::max(0.25, 0.6 - (delays.len() as f32 / 50.0));
+                    axes.points(
+                        std::iter::repeat(i).take(delays.len()).map(|x| x as f32 + rng.gen_range(-0.15, 0.15)),
+                        delays,
+                        &[Color("#99440000"), PointSymbol('O'), PointSize(size as f64)]
+                    );
                 }
             }
-            let color = format!("#{:x}", colorous::TURBO.eval_rational(i, percentiles.len()));
-            axes.lines_points(&x_coords, &y_coords, &[Caption(&format!("{}%", (percentile * 100.0) as i32)), PointSize(0.6), Color(&color), LineWidth(1.0)]);
+
+
+            let filename = format!("{}/all_stops_by_delay_box.svg", dir_name);
+            fg.save_to_svg(filename, 1024, 768)?;
+        } else {
+            // Now, for every one of the predefined delays, draw a curve
+            for (i, percentile) in percentiles.iter().enumerate() {
+                // for this delay, map the the probability for each station
+                let points: Vec<_> = actual_curves.iter().map(|(i, curve)| {
+                    (*i as f32, curve.x_at_y(*percentile))
+                }).collect();
+                let color = format!("#{:x}", colorous::TURBO.eval_rational(i, percentiles.len()));
+                axes.lines_points(
+                    points.iter().map(|(x, _y)| x), 
+                    points.iter().map(|(_x, y)| y), 
+                    &[Caption(&format!("{:.1}%", percentile * 100.0)), PointSize(0.6), Color(&color), LineWidth(1.0)]);
+            }
+            let filename = format!("{}/all_stops_by_delay.svg", dir_name);
+            fg.save_to_svg(filename, 1024, 768)?;
         }
-
-        let filename = format!("{}/all_stops_by_delay.svg", dir_name);
-        fg.save_to_svg(filename, 1024, 768)?;
-
 
         Ok(())
     }
