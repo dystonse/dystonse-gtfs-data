@@ -1,5 +1,6 @@
 mod count;
 mod curves;
+mod default_curves;
 mod visual_schedule;
 
 use chrono::NaiveDateTime;
