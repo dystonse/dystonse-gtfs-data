@@ -3,7 +3,7 @@ use rand::Rng;
 
 use chrono::{NaiveDate, NaiveDateTime, Weekday, Timelike, Datelike};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType, Trip};
+use gtfs_structures::{Gtfs, Route, RouteType};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -24,6 +24,43 @@ use crate::Main;
 //! The calculations are based on the routes for which we have historic realtime data, 
 //! but the curves are intended to be used for any prediction, identified by the criteria mentioned above.
 */
+
+/// Route sections are sets of stops that form a part of the route (beginning, middle, or end)
+
+pub enum RouteSection {
+    Beginning,
+    Middle,
+    End,
+}
+
+// this finds out for a given stop, in which section of a route it is.
+// caution: this panics when trip or stop is not found!
+pub fn get_route_section(schedule: &Gtfs, trip_id: &str, stop_id: &str) -> RouteSection {
+    // check if trip_id is valid for the given schedule
+    // and get the right trip object
+    let trip = schedule.get_trip(&trip_id).unwrap(); //panics if trip is not found!
+
+    // Find out how many stops this trip has
+    let stop_count = trip.stop_times.len();
+
+    // Find the index of the stop in question
+    let stop_index = trip.stop_times.iter().enumerate().filter_map
+        (|(i, st)| if st.stop.id == stop_id {Some(i)} else {None}).next();
+
+    // define the length of the beginning and end sections:
+    // 1/3 of the trip for trips shorter than 15 stops, 5 stops for longer trips.
+    let section_size = usize::min(5, stop_count/3);
+
+    // find return value according to index
+    // panics if stop was not found!!!
+    if stop_index.unwrap() < section_size {
+           return RouteSection::Beginning;
+        }
+    else if stop_count - stop_index.unwrap() <= section_size {
+           return RouteSection::End;
+        }
+    return RouteSection::Middle;
+}
 
 /// Time slots are specific ranges in time that occur repeatedly. 
 /// Any DateTime should be able to be mapped to exactly one TimeSlot constant.
@@ -129,20 +166,20 @@ impl<'a> TimeSlot<'a> {
     };
 
     /// find the matching TimeSlot for a given DateTime
-    pub fn from_datetime(dt: NaiveDateTime) -> &TimeSlot<'a> {
+    pub fn from_datetime(dt: NaiveDateTime) -> &'static TimeSlot<'a> {
         // list all possible time slots:
         let time_slots = [
-            Self::WORKDAY_MORNING, 
-            Self::WORKDAY_MORNING_RUSH, 
-            Self::WORKDAY_LATE_MORNING,
-            Self::WORKDAY_NOON_RUSH,
-            Self::WORKDAY_AFTERNOON,
-            Self::WORKDAY_AFTERNOON_RUSH,
-            Self::WORKDAY_EVENING,
-            Self::SATURDAY_DAY,
-            Self::SUNDAY_DAY,
-            Self::NIGHT_BEFORE_WORKDAY,
-            Self::NIGHT_BEFORE_WEEKEND_DAY
+            &Self::WORKDAY_MORNING, 
+            &Self::WORKDAY_MORNING_RUSH, 
+            &Self::WORKDAY_LATE_MORNING,
+            &Self::WORKDAY_NOON_RUSH,
+            &Self::WORKDAY_AFTERNOON,
+            &Self::WORKDAY_AFTERNOON_RUSH,
+            &Self::WORKDAY_EVENING,
+            &Self::SATURDAY_DAY,
+            &Self::SUNDAY_DAY,
+            &Self::NIGHT_BEFORE_WORKDAY,
+            &Self::NIGHT_BEFORE_WEEKEND_DAY
             ];
 
         // find the right one:
