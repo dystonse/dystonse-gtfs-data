@@ -1,5 +1,7 @@
 use std::fs;
 use rand::Rng;
+use std::fs::File;
+use std::io::prelude::*;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
@@ -8,9 +10,10 @@ use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
 use gnuplot::*;
+use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::{Curve};
+use dystonse_curves::{Curve, curve_set::CurveSet};
 
 use super::Analyser;
 
@@ -540,6 +543,8 @@ impl<'a> CurveCreator<'a> {
             axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
             axes_na.lines_points(&[-100], &[0.005], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
 
+
+            let mut curve_set = CurveSet::<f32, IrregularDynamicCurve<f32, f32>>::new();
             // Now generate and draw one or more actual result curves.
             // Each cuve will focus on the mid marker, and include all the data points from
             // the min to the max marker.
@@ -553,12 +558,34 @@ impl<'a> CurveCreator<'a> {
                     let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, markers.len()));
 
                     let mut options = vec!{ Color(color.as_str()), PointSize(0.6)};
-                    self.draw_to_figure(axes, &slice, &mut options, Some(*mid), false, false)?;
+                    //self.draw_to_figure(axes, &slice, &mut options, Some(*mid), false, false)?;
+                    if let Some((mut curve, sum)) = self.make_curve(&slice,  Some(*mid)) {
+                        curve.simplify(0.001);
+                        if curve.max_x() <  curve.min_x() + 13.0 {
+                            bail!("Curve too short.");
+                        }
+            
+                        self.actually_draw_to_figure(axes, &curve, sum, &options, Some(*mid), false, false)?;
+                        curve_set.add_curve(*mid, curve);
+                    }
                     self.draw_to_figure(axes_na, &slice, &mut options, Some(*mid), true, false)?; // histogram mode
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
             fg_na.save_to_svg(filename.replace(".svg", "_na.svg"), 1024, 400)?;
+            let serialized_bin = rmp_serde::to_vec(&curve_set).unwrap();
+            let mut file = match File::create(&filename.replace(".svg", ".crv")) {
+                Err(why) => panic!("couldn't create file: {}", why),
+                Ok(file) => file,
+            };
+            match file.write_all(&serialized_bin) {
+                Err(why) => panic!("couldn't write: {}", why),
+                Ok(_) => println!("successfully wrote."),
+            }
+
+            // Print as json for debugging:
+            // let serialized = serde_json::to_string(&curve_set).unwrap();
+            // println!("serialized = {}", serialized);
         }
 
         Ok(())
@@ -603,51 +630,67 @@ impl<'a> CurveCreator<'a> {
     /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
     /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
     /// will be weighted close to zero. Otherwise, all points will be weighted equally.
-    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<()> {
-        let min_delay = pairs.first().unwrap();
-        let max_delay = pairs.last().unwrap();
-
-        let mut own_options = plot_options.clone();
-
-        if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
-            let cap = if let Some(focus) = focus { 
-                format!("ca. {}s ({:.2})", focus as i32, sum)
-            } else {
-                format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
-            };
-            if !own_options.iter().any(|opt| match opt { Caption(_) => true, _ => false}) {
-                own_options.push(Caption(&cap));
-            }
-
+    fn draw_to_figure(&self, axes: &mut gnuplot::Axes2D, pairs: &Vec<f32>, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<IrregularDynamicCurve<f32, f32>> {
+         if let Some((mut curve, sum)) = self.make_curve(&pairs, focus) {
             curve.simplify(0.001);
             if curve.max_x() <  curve.min_x() + 13.0 {
-                println!("Curve too short.");
-                return Ok(());
+                bail!("Curve too short.");
             }
 
-            if non_accumulated {
-                let mut x_coords = Vec::<f32>::new();
-                let mut y_coords = Vec::<f32>::new();
-                for x in (curve.min_x() as i32 .. curve.max_x() as i32).step_by(12) {
-                    let y = curve.y_at_x(x as f32 + 0.5) - curve.y_at_x(x as f32 - 0.5);
-                    x_coords.push(x as f32);
-                    y_coords.push(y * 100.0);
-                }
-                if no_points {
-                    axes.lines(&x_coords, &y_coords, &own_options);
-                } else {
-                    axes.lines_points(&x_coords, &y_coords, &own_options);
-                }
+            self.actually_draw_to_figure(axes, &curve, sum, plot_options, focus, non_accumulated, no_points)?;
+
+            Ok(curve)
+        } else {
+            bail!("Could not create curve");
+        }
+    }
+
+    /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
+    /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
+    /// will be weighted close to zero. Otherwise, all points will be weighted equally.
+    fn actually_draw_to_figure(&self, axes: &mut gnuplot::Axes2D, curve: &IrregularDynamicCurve<f32, f32>, sum: f32, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<()> {
+        
+        let mut own_options = plot_options.clone();
+        
+        let cap = if let Some(focus) = focus { 
+            format!("ca. {}s ({:.2})", focus as i32, sum)
+        } else {
+            let min_delay = curve.min_x();
+            let max_delay = curve.max_x();
+            format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+        };
+        if !own_options.iter().any(|opt| match opt { Caption(_) => true, _ => false}) {
+            own_options.push(Caption(&cap));
+        }
+
+        if curve.max_x() <  curve.min_x() + 13.0 {
+            println!("Curve too short.");
+            return Ok(());
+        }
+
+        if non_accumulated {
+            let mut x_coords = Vec::<f32>::new();
+            let mut y_coords = Vec::<f32>::new();
+            for x in (curve.min_x() as i32 .. curve.max_x() as i32).step_by(12) {
+                let y = curve.y_at_x(x as f32 + 0.5) - curve.y_at_x(x as f32 - 0.5);
+                x_coords.push(x as f32);
+                y_coords.push(y * 100.0);
+            }
+            if no_points {
+                axes.lines(&x_coords, &y_coords, &own_options);
             } else {
-                let (x_coords, mut y_coords) = curve.get_values_as_vectors();
-                y_coords = y_coords.iter().map(|y| y*100.0).collect();
-                if no_points {
-                    axes.lines(&x_coords, &y_coords, &own_options);
-                } else {
-                    axes.lines_points(&x_coords, &y_coords, &own_options);
-                }
+                axes.lines_points(&x_coords, &y_coords, &own_options);
+            }
+        } else {
+            let (x_coords, mut y_coords) = curve.get_values_as_vectors();
+            y_coords = y_coords.iter().map(|y| y*100.0).collect();
+            if no_points {
+                axes.lines(&x_coords, &y_coords, &own_options);
+            } else {
+                axes.lines_points(&x_coords, &y_coords, &own_options);
             }
         }
+    
     
         Ok(())
     }
