@@ -14,7 +14,7 @@ use simple_error::SimpleError;
 
 use count::*;
 use curve_analysis::CurveCreator;
-use curve_visualisation::CurveCreator as CurveDrawer;
+use curve_visualisation::CurveDrawer;
 use visual_schedule::*;
 
 use crate::FnResult;
