@@ -30,7 +30,7 @@ use crate::Main;
 */
 
 /// Route sections are sets of stops that form a part of the route (beginning, middle, or end)
-#[derive(PartialEq)]
+#[derive(Hash, Eq, PartialEq, Debug)]
 pub enum RouteSection {
     Beginning,
     Middle,
@@ -110,6 +110,12 @@ impl<'a> DefaultCurveCreator<'a> {
         //iterate over route types
         for rt in route_types.iter() {
 
+            // data structures for collecting all curves of this route type:
+            let mut arrival_curves_for_route_type :
+                HashMap<(RouteSection, TimeSlot), Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
+            let mut departure_curves_for_route_type :
+                HashMap<(RouteSection, TimeSlot), Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
+
             //find all routes
             let routes = self.get_routes_for_type(*rt);
 
@@ -122,7 +128,7 @@ impl<'a> DefaultCurveCreator<'a> {
             //iterate over route variants
             for rv in route_variants {
 
-                //TODO: not yet sure if I need this...
+                // used as part of keys to build big hashmaps:
                 let route_sections = [
                     RouteSection::Beginning, 
                     RouteSection::Middle, 
@@ -153,12 +159,38 @@ impl<'a> DefaultCurveCreator<'a> {
                 //...now the borders should be known.
 
                 // Get rt data from the database for all route sections in this route variant
-                // Caution: this panics if anything went wrong in the database connection etc.!
+                // TODO: fix this, because it panics if anything went wrong in the database connection etc.!
                 let beginning_data = self.get_data_from_db(&rv, 0, max_beginning_stop).unwrap();
                 let middle_data = self.get_data_from_db(&rv, max_beginning_stop + 1, max_middle_stop).unwrap();
                 let end_data = self.get_data_from_db(&rv, max_middle_stop + 1, u16::MAX).unwrap();
 
                 // for each of these sections, separate the data into time slots
+                let beginning_data_by_timeslot = self.sort_dbitems_by_timeslot(beginning_data).unwrap();
+                let middle_data_by_timeslot = self.sort_dbitems_by_timeslot(middle_data).unwrap();
+                let end_data_by_timeslot = self.sort_dbitems_by_timeslot(end_data).unwrap();
+
+                // TODO: catch errors when beginning/middle/end data was empty!
+
+                // make a hashmap on one more meta level from what we have until here
+                let mut data_by_route_section_and_timeslot : 
+                    HashMap<RouteSection, HashMap<&TimeSlot, Vec<DbItem>>> = HashMap::new();
+
+                data_by_route_section_and_timeslot.insert(RouteSection::Beginning, beginning_data_by_timeslot);
+                data_by_route_section_and_timeslot.insert(RouteSection::Middle, middle_data_by_timeslot);
+                data_by_route_section_and_timeslot.insert(RouteSection::End, end_data_by_timeslot);
+
+                // for each time slot in each section, make two curves (delay for arrival and depature)
+                for rs in &route_sections {
+                    for ts in &TimeSlot::TIME_SLOTS {
+                        let arrival_delays : Vec<f32> = 
+                            data_by_route_section_and_timeslot[rs][ts].iter()
+                                .filter_map(|item| item.delay_arrival).map(|i| i as f32).collect();
+                        let departure_delays : Vec<f32> = 
+                            data_by_route_section_and_timeslot[rs][ts].iter()
+                                .filter_map(|item| item.delay_departure).map(|i| i as f32).collect();
+                        //TODO: make curves from these vectors and put them into the big hashmap above on route_type level
+                    }
+                }
 
 
                 //TODO: this is where I left off yesterday... go on!
@@ -250,14 +282,23 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // go through all items and sort them into the vectors
         for i in items {
-            //let ts : &TimeSlot = TimeSlot::from_datetime();
+            let mut dt = self.get_datetime_from_dbitem(&i, false);
+            // if arrival time is not set, use depature time instead:
+            if dt.is_none() {
+                dt = self.get_datetime_from_dbitem(&i, true);
+            }
+            // should always be some now, but to be sure...
+            if dt.is_some() {
+                let ts : &TimeSlot = TimeSlot::from_datetime(dt.unwrap());
+                sorted_items.get_mut(ts).unwrap().push(i);
+            }
         }
 
         return Ok(sorted_items);
     }
 
     // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
-    fn get_datetime_from_dbitem(&self, dbitem: DbItem, departure: bool) -> Option<NaiveDateTime> {
+    fn get_datetime_from_dbitem(&self, dbitem: &DbItem, departure: bool) -> Option<NaiveDateTime> {
 
         // find corresponding StopTime for dbItem
         let st : &StopTime = self.schedule.get_trip(&dbitem.trip_id).unwrap().stop_times.iter()
@@ -265,13 +306,16 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // get arrival or departure time from StopTime:
         let t : Option<u32> = if departure {st.departure_time} else {st.arrival_time};
+        if t.is_none() { return None; } // prevents panic before trying to unwrap
+        let time = NaiveTime::from_num_seconds_from_midnight(t.unwrap(), 0);
 
         // get date from DbItem
-        let d : Option<NaiveDate> = dbitem.date;
+        let d : NaiveDate = dbitem.date.unwrap(); //should never panic because date is always set
 
-        //let dt : Option<NaiveDateTime> =
+        // add date and time together
+        let dt : NaiveDateTime = d.and_time(time);
 
-        None
+        return Some(dt);
     }
 
     
