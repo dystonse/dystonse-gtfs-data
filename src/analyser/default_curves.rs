@@ -1,9 +1,13 @@
 use std::fs;
+use std::collections::{HashSet, HashMap};
 use rand::Rng;
+use std::u16;
 
-use chrono::{NaiveDate, NaiveDateTime, Weekday, Timelike, Datelike};
+use super::time_slots::TimeSlot;
+
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Timelike, Datelike};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType};
+use gtfs_structures::{Gtfs, Route, RouteType, StopTime};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -26,7 +30,7 @@ use crate::Main;
 */
 
 /// Route sections are sets of stops that form a part of the route (beginning, middle, or end)
-
+#[derive(PartialEq)]
 pub enum RouteSection {
     Beginning,
     Middle,
@@ -62,176 +66,7 @@ pub fn get_route_section(schedule: &Gtfs, trip_id: &str, stop_id: &str) -> Route
     return RouteSection::Middle;
 }
 
-/// Time slots are specific ranges in time that occur repeatedly. 
-/// Any DateTime should be able to be mapped to exactly one TimeSlot constant.
-/// TimeSlots are defined by: id, description, weekday and hour criteria
 
-pub struct TimeSlot<'a> {
-    id: u8,
-    description: &'a str,
-    min_weekday: Weekday,
-    max_weekday: Weekday,
-    min_hour: u32, //including
-    max_hour: u32, //excluding
-}
-
-impl<'a> TimeSlot<'a> {
-    pub const WORKDAY_MORNING : TimeSlot<'a> = TimeSlot {
-        id: 1, 
-        description: "Workdays from 4 to 6h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 4,
-        max_hour: 6,
-    };
-    pub const WORKDAY_MORNING_RUSH : TimeSlot<'a> = TimeSlot {
-        id: 2, 
-        description: "Workdays from 6 to 8h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 6,
-        max_hour: 8,
-    };
-    pub const WORKDAY_LATE_MORNING : TimeSlot<'a> = TimeSlot {
-        id: 3, 
-        description: "Workdays from 8 to 12h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 8,
-        max_hour: 12,
-    };
-    pub const WORKDAY_NOON_RUSH : TimeSlot<'a> = TimeSlot {
-        id: 4, 
-        description: "Workdays from 12 to 14h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 12,
-        max_hour: 14,
-    };
-    pub const WORKDAY_AFTERNOON : TimeSlot<'a> = TimeSlot {
-        id: 5, 
-        description: "Workdays from 14 to 16h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 14,
-        max_hour: 16,
-    };
-    pub const WORKDAY_AFTERNOON_RUSH : TimeSlot<'a> = TimeSlot {
-        id: 6, 
-        description: "Workdays from 16 to 18h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 16,
-        max_hour: 18,
-    };
-    pub const WORKDAY_EVENING : TimeSlot<'a> = TimeSlot {
-        id: 7, 
-        description: "Workdays from 18 to 20h",
-        min_weekday: Weekday::Mon,
-        max_weekday: Weekday::Fri,
-        min_hour: 18,
-        max_hour: 20,
-    };
-    pub const SATURDAY_DAY : TimeSlot<'a> = TimeSlot {
-        id: 8, 
-        description: "Saturdays from 04 to 20h",
-        min_weekday: Weekday::Sat,
-        max_weekday: Weekday::Sat,
-        min_hour: 4,
-        max_hour: 20,
-    };
-    pub const SUNDAY_DAY : TimeSlot<'a> = TimeSlot {
-        id: 9, 
-        description: "Sundays from 04 to 20h",
-        min_weekday: Weekday::Sun,
-        max_weekday: Weekday::Sun,
-        min_hour: 4,
-        max_hour: 20,
-    };
-    pub const NIGHT_BEFORE_WORKDAY : TimeSlot<'a> = TimeSlot {
-        id: 10, 
-        description: "Nights before workdays from 20 to 04h",
-        min_weekday: Weekday::Sun,
-        max_weekday: Weekday::Thu,
-        min_hour: 20,
-        max_hour: 4,
-    };
-    pub const NIGHT_BEFORE_WEEKEND_DAY : TimeSlot<'a> = TimeSlot {
-        id: 11, 
-        description: "Nights before weekend days from 20 to 04h",
-        min_weekday: Weekday::Fri,
-        max_weekday: Weekday::Sat,
-        min_hour: 20,
-        max_hour: 4,
-    };
-
-    /// find the matching TimeSlot for a given DateTime
-    pub fn from_datetime(dt: NaiveDateTime) -> &'static TimeSlot<'a> {
-        // list all possible time slots:
-        let time_slots = [
-            &Self::WORKDAY_MORNING, 
-            &Self::WORKDAY_MORNING_RUSH, 
-            &Self::WORKDAY_LATE_MORNING,
-            &Self::WORKDAY_NOON_RUSH,
-            &Self::WORKDAY_AFTERNOON,
-            &Self::WORKDAY_AFTERNOON_RUSH,
-            &Self::WORKDAY_EVENING,
-            &Self::SATURDAY_DAY,
-            &Self::SUNDAY_DAY,
-            &Self::NIGHT_BEFORE_WORKDAY,
-            &Self::NIGHT_BEFORE_WEEKEND_DAY
-            ];
-
-        // find the right one:
-        for ts in &time_slots {
-            if ts.matches(dt) {
-                return ts;
-            }
-        } 
-        // this should never be reached if time slots are defined correctly:
-        panic!("invalid time slot definition!");
-    }
-
-    /// check if a given DateTime fits inside the TimeSlot
-    pub fn matches(&self, dt: NaiveDateTime) -> bool {
-        
-        let mut day = false;
-        let mut hour = false;
-
-        // simple case for days:
-        if dt.weekday().num_days_from_monday() >= self.min_weekday.num_days_from_monday() 
-            && dt.weekday().num_days_from_monday() <= self.max_weekday.num_days_from_monday()
-            {
-                day = true;
-            }
-        // complex case for days:
-        else if self.min_weekday.num_days_from_monday() > self.max_weekday.num_days_from_monday() 
-            && (dt.weekday().num_days_from_monday() >= self.min_weekday.num_days_from_monday() 
-                || dt.weekday().num_days_from_monday() <= self.max_weekday.num_days_from_monday())
-            {
-                day = true;
-            }
-        
-        //simple case for hours:
-        if dt.hour() >= self.min_hour 
-            && dt.hour() < self.max_hour
-            {
-                hour = true;
-            }
-        //complex case for night hours:
-        else if self.min_hour > self.max_hour
-            && (dt.hour() >= self.min_hour || dt.hour() < self.max_hour)
-            {
-                hour = true;
-            }
-
-        return day && hour;
-    }
-}
-
-// TODO: everything from here on is just copypasted from curves.rs and needs to be adapted!!!
-
-/*
 
 struct DbItem {
     delay_arrival: Option<i32>,
@@ -239,7 +74,6 @@ struct DbItem {
     date: Option<NaiveDate>,
     trip_id: String,
     stop_id: String,
-    route_variant: u64
 }
 
 impl FromRow for DbItem {
@@ -250,7 +84,6 @@ impl FromRow for DbItem {
             date: row.get_opt(2).unwrap().ok(),
             trip_id: row.get::<String, _>(3).unwrap(),
             stop_id: row.get::<String, _>(4).unwrap(),
-            route_variant: row.get::<u64, _>(5).unwrap(),
         })
     }
 }
@@ -261,6 +94,205 @@ pub struct DefaultCurveCreator<'a> {
     pub schedule: Gtfs,
     pub args: &'a ArgMatches
 }
+
+impl<'a> DefaultCurveCreator<'a> {
+
+    pub fn run_default_curves(&self) -> FnResult<()> {
+
+        let route_types = [
+            RouteType::Tramway,
+            RouteType::Subway,
+            RouteType::Rail,
+            RouteType::Bus,
+            RouteType::Ferry
+            ];
+
+        //iterate over route types
+        for rt in route_types.iter() {
+
+            //find all routes
+            let routes = self.get_routes_for_type(*rt);
+
+            //find all route variants (for this route type)
+            let mut route_variants : Vec<&str> = Vec::new();
+            for r in routes {
+                route_variants.extend(self.get_variants_for_route(r));
+            }
+
+            //iterate over route variants
+            for rv in route_variants {
+
+                //TODO: not yet sure if I need this...
+                let route_sections = [
+                    RouteSection::Beginning, 
+                    RouteSection::Middle, 
+                    RouteSection::End
+                    ];
+
+                //find one trip of this variant
+                let trip = self.schedule.trips.values().filter(
+                        |trip| trip.route_variant.as_ref().unwrap() == rv
+                    ).next().unwrap();
+
+                // take the list of stops from this trip
+                let rv_stops = &trip.stop_times;
+
+                //find the borders between the route sections
+                let mut max_beginning_stop : u16 = 0;
+                let mut max_middle_stop : u16 = 0;
+
+                for s in rv_stops {
+                    let sec : RouteSection = get_route_section(&self.schedule, &trip.id, &s.stop.id);
+                    if sec == RouteSection::Beginning {
+                        max_beginning_stop = s.stop_sequence;
+                    }
+                    else if sec == RouteSection::Middle {
+                        max_middle_stop = s.stop_sequence;
+                    }
+                }
+                //...now the borders should be known.
+
+                // Get rt data from the database for all route sections in this route variant
+                // Caution: this panics if anything went wrong in the database connection etc.!
+                let beginning_data = self.get_data_from_db(&rv, 0, max_beginning_stop).unwrap();
+                let middle_data = self.get_data_from_db(&rv, max_beginning_stop + 1, max_middle_stop).unwrap();
+                let end_data = self.get_data_from_db(&rv, max_middle_stop + 1, u16::MAX).unwrap();
+
+                // for each of these sections, separate the data into time slots
+
+
+                //TODO: this is where I left off yesterday... go on!
+            }
+            
+        }
+
+
+        //TODO:content!
+        Ok(())
+    }
+
+    fn get_routes_for_type(&self, rt: RouteType) -> Vec<&Route> {
+
+        let mut routes : Vec<&Route> = Vec::new();
+
+        for r in self.schedule.routes.values() {
+            if r.route_type == rt {
+                routes.push(r);
+            }
+        }
+        return routes;
+    }
+
+    fn get_variants_for_route(&self, r: &Route) -> HashSet<&str> {
+
+        let mut variants : HashSet<&str> = HashSet::new();
+
+        for t in self.schedule.trips.values() {
+            if t.route_id == r.id {
+                variants.insert(&t.route_variant.as_ref().unwrap());
+            }
+        }
+        return variants;
+    }
+
+    // picks all rows from the database for a given route section and variant
+    fn get_data_from_db(&self, rv: &str, min: u16, max: u16) -> FnResult<Vec<DbItem>> {
+        let mut con = self.main.pool.get_conn()?;
+        let stmt = con.prep(
+            r"SELECT 
+                delay_arrival,
+                delay_departure,
+                date,
+                trip_id,
+                stop_id,
+            FROM 
+                realtime 
+            WHERE 
+                source=:source AND 
+                route_variant=:route_variant AND
+                stop_sequence >= lower_bound AND
+                stop_sequence <= upper_bound
+            ORDER BY 
+                date,
+                trip_id",
+        )?;
+
+        let mut result = con.exec_iter(
+            &stmt,
+            params! {
+                "source" => &self.main.source,
+                "route_variant" => rv,
+                "lower_bound" => min,
+                "upper_bound" => max,
+            },
+        )?;
+
+        let result_set = result.next_set().unwrap()?;
+
+        let db_items: Vec<_> = result_set
+            .map(|row| {
+                let item: DbItem = from_row(row.unwrap());
+                item
+            })
+            .collect();
+
+        return Ok(db_items);
+    }
+
+    fn sort_dbitems_by_timeslot(&self, items: Vec<DbItem>) -> FnResult<HashMap<&'a TimeSlot<'a>, Vec<DbItem>>> {
+        
+        let mut sorted_items = HashMap::new();
+
+        // initialize hashmap keys with time slots and values with empty vectors
+        for ts in &TimeSlot::TIME_SLOTS {
+            sorted_items.insert(*ts, Vec::new());
+        }
+
+        // go through all items and sort them into the vectors
+        for i in items {
+            //let ts : &TimeSlot = TimeSlot::from_datetime();
+        }
+
+        return Ok(sorted_items);
+    }
+
+    // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
+    fn get_datetime_from_dbitem(&self, dbitem: DbItem, departure: bool) -> Option<NaiveDateTime> {
+
+        // find corresponding StopTime for dbItem
+        let st : &StopTime = self.schedule.get_trip(&dbitem.trip_id).unwrap().stop_times.iter()
+            .filter(|s| s.stop.id == dbitem.stop_id).next().unwrap();
+
+        // get arrival or departure time from StopTime:
+        let t : Option<u32> = if departure {st.departure_time} else {st.arrival_time};
+
+        // get date from DbItem
+        let d : Option<NaiveDate> = dbitem.date;
+
+        //let dt : Option<NaiveDateTime> =
+
+        None
+    }
+
+    
+}
+
+/*
+NOTIZEN:
+oberste ebene:route_type
+dann: blockweise nach route_variant...
+filtern nach stop-sequence (vorher berechent wie die grenzen sind) für die route sections
+    zeilen rausholen mit: trip_id, stop_id, date, delay_arrival, delay_departure
+    für jede zeile dann:
+        timeslot bestimmen (mit hilfe von stopTime aus dem fahrplan)
+        pro timeslot eine menge (sortiert, mit duplikaten) jeweils für delay-arrival und delay-departure
+wenn alle route_variants durch sind, alle solchen mengen jeweils zusammenwerfen und daraus 2x165 kurven machen mit metadaten-zuordnung
+*/
+
+
+// TODO: everything from here on is just copypasted from curves.rs and needs to be adapted!!!
+
+/*
 
 impl<'a> DefaultCurveCreator<'a> {
 

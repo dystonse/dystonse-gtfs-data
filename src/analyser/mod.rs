@@ -4,6 +4,7 @@ mod curve_visualisation;
 mod route_data;
 mod default_curves;
 mod visual_schedule;
+mod time_slots;
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
