@@ -1,5 +1,7 @@
 mod count;
-mod curves;
+mod curve_analysis;
+mod curve_visualisation;
+mod route_data;
 mod default_curves;
 mod visual_schedule;
 
@@ -11,7 +13,8 @@ use regex::Regex;
 use simple_error::SimpleError;
 
 use count::*;
-use curves::CurveCreator;
+use curve_analysis::CurveCreator;
+use curve_visualisation::CurveCreator as CurveDrawer;
 use visual_schedule::*;
 
 use crate::FnResult;
@@ -69,8 +72,8 @@ impl<'a> Analyser<'a> {
                     .conflicts_with("route-ids")
                 )
             )
-            .subcommand(App::new("curves")
-                .about("Generates curves just because")
+            .subcommand(App::new("compute-curves")
+                .about("Generates curve data from realtime data out of the database")
                 .arg(Arg::new("schedule")
                     .short('s')
                     .long("schedule")
@@ -81,21 +84,39 @@ impl<'a> Analyser<'a> {
                 ).arg(Arg::new("route-ids")
                     .short('r')
                     .long("route-ids")
-                    .about("If provided, curves will be created for each route variant of each of the selected routes.")
+                    .about("If provided, curves will be computed for each route variant of each of the selected routes.")
                     .value_name("ROUTE_ID")
                     .multiple(true)
                     .conflicts_with("shape-ids")
-                ).arg(Arg::new("shape-ids")
-                    .short('p')
-                    .long("shape-ids")
-                    .about("If provided, curves will be created for each route variant that has the selected shape-id.")
-                    .value_name("SHAPE_ID")
-                    .multiple(true)
-                    .conflicts_with("route-ids")
                 ).arg(Arg::new("all")
                     .short('a')
                     .long("all")
-                    .about("If provided, curves will be created for each route of the schedule.")
+                    .about("If provided, curves will be computed for each route of the schedule.")
+                    .conflicts_with("route-ids")
+                )
+            )
+            .subcommand(App::new("draw-curves")
+                .about("Generates curve data from realtime data out of the database")
+                // TODO In the near future: 
+                // .about("Draws curves out of previously generated curve data without accessing the database")
+                .arg(Arg::new("schedule")
+                    .short('s')
+                    .long("schedule")
+                    .required(true)
+                    .about("The path of the GTFS schedule that is used as a base for the curves.")
+                    .takes_value(true)
+                    .value_name("GTFS_SCHEDULE")
+                ).arg(Arg::new("route-ids")
+                    .short('r')
+                    .long("route-ids")
+                    .about("If provided, curves will be drawn for each route variant of each of the selected routes.")
+                    .value_name("ROUTE_ID")
+                    .multiple(true)
+                    .conflicts_with("shape-ids")
+                ).arg(Arg::new("all")
+                    .short('a')
+                    .long("all")
+                    .about("If provided, curves will be drawn for each route of the schedule.")
                     .conflicts_with("route-ids")
                 )
             )
@@ -131,9 +152,18 @@ impl<'a> Analyser<'a> {
                     schedule: self.read_schedule(sub_args)?
                 };
                 vsc.run_visual_schedule()
-            }
-            ("curves", Some(sub_args)) => {
+            },
+            ("compute-curves", Some(sub_args)) => {
                 let cc = CurveCreator {
+                    main: self.main,
+                    analyser: self,
+                    args: sub_args, 
+                    schedule: self.read_schedule(sub_args)?
+                };
+                cc.run_curves()
+            },
+            ("draw-curves", Some(sub_args)) => {
+                let cc = CurveDrawer {
                     main: self.main,
                     analyser: self,
                     args: sub_args, 

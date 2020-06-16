@@ -2,53 +2,25 @@ use std::fs;
 use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
-use std::collections::HashMap;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType, Trip};
+use gtfs_structures::{Gtfs, RouteType, Trip};
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
 use gnuplot::*;
 use simple_error::bail;
-use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
 
 use super::Analyser;
+use super::route_data::*;
 
 use crate::FnResult;
 use crate::Main;
 
-#[derive(Serialize, Deserialize)]
-struct RouteData {
-    variants: HashMap<u64, RouteVariantData>
-}
-
-impl RouteData {
-    fn new() -> Self {
-        return Self {
-            variants: HashMap::new()
-        };
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-struct RouteVariantData {
-    stop_ids: Vec<String>,
-    curve_sets: HashMap<(u32, u32), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>
-}
-
-impl RouteVariantData {
-    fn new() -> Self {
-        return Self {
-            stop_ids: Vec::new(),
-            curve_sets: HashMap::new()
-        };
-    }
-}
 
 struct DbItem {
     delay_arrival: Option<i32>,
