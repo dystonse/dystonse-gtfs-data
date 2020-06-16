@@ -171,8 +171,15 @@ impl<'a> CurveCreator<'a> {
         // Iterate over all start stations
         for (i_s, st_s) in trip.stop_times.iter().enumerate() {
             // Locally select the rows which match the start station
-            let rows_matching_start : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_s.stop.id).collect();
+            let rows_matching_start : Vec<_> = rows_matching_variant.into_iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| *i).collect();
 
+            if let Ok(res) = self.generate_delay_curve(&rows_matching_start, true) {
+                route_variant_data.general_delay_arrival.insert(i_s as u32, res);
+            }
+            if let Ok(res) = self.generate_delay_curve(&rows_matching_start, false) {
+                route_variant_data.general_delay_departure.insert(i_s as u32, res);
+            }
+            
             // Iterate over end stations, and only use the ones after the start station
             for (i_e, st_e) in trip.stop_times.iter().enumerate() {
                 if i_e > i_s {
@@ -223,16 +230,28 @@ impl<'a> CurveCreator<'a> {
          Ok(route_variant_data)
     }
 
+    fn generate_delay_curve(&self, rows: &Vec<&DbItem>, use_arrival_times: bool) -> FnResult<IrregularDynamicCurve<f32,f32>> {
+        let values: Vec<f32> = if use_arrival_times {
+            rows.iter().filter_map(|r| r.delay_arrival).map(|t| t as f32).collect()
+        } else {
+            rows.iter().filter_map(|r| r.delay_departure).map(|t| t as f32).collect()
+        };
+        if values.len() < 20 {
+            bail!("Less than 20 data rows.");
+        }
+        Ok(Self::make_curve(&values, None).unwrap().0)
+    }
+
     fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
-        // because we wukk group them by that criterion.
+        // because we will group them by that criterion.
         let mut own_pairs = pairs.clone();
         own_pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         let count = own_pairs.len();
 
         // Try to make a curve out of initial delays. This curve is different from the actual
         // output curve(s), but is needed as a intermediate result to compute the markers.
-        if let Some((initial_curve, _sum)) = self.make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
+        if let Ok((initial_curve, _sum)) = Self::make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
             // We build a list of "markers", which are x-coordinates / initial delays for which we 
             // will build a curve. That curve will consist of rows with "similar" delays.
             // All the "middle" will be inserted in-order by the recurse function. 
@@ -255,7 +274,7 @@ impl<'a> CurveCreator<'a> {
                 let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
                 let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
                 if slice.len() > 1 {
-                    if let Some((mut curve, _sum)) = self.make_curve(&slice,  Some(*mid)) {
+                    if let Ok((mut curve, _sum)) = Self::make_curve(&slice,  Some(*mid)) {
                         curve.simplify(0.001);
                         if curve.max_x() <  curve.min_x() + 13.0 {
                             continue;
@@ -328,7 +347,7 @@ impl<'a> CurveCreator<'a> {
         }
     }
 
-    fn make_curve(&self, values: &Vec<f32>, focus: Option<f32>) -> Option<(IrregularDynamicCurve<f32, f32>, f32)> {
+    pub fn make_curve(values: &Vec<f32>, focus: Option<f32>) -> FnResult<(IrregularDynamicCurve<f32, f32>, f32)> {
         let mut own_values = values.clone(); // TODO maybe we don't need to clone this
         own_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let min_delay = *own_values.first().unwrap();
@@ -350,13 +369,12 @@ impl<'a> CurveCreator<'a> {
         }
 
         if tups.len() < 2 {
-            println!("Curve would have only {} points, skipping.", tups.len());
-            return None;
+            bail!("Curve would have only {} points, skipping.", tups.len());
         }
 
         tups.first_mut().unwrap().y = 0.0;
         tups.last_mut().unwrap().y = 1.0;
 
-        Some((IrregularDynamicCurve::new(tups), sum_of_weights))
+        Ok((IrregularDynamicCurve::new(tups), sum_of_weights))
     }
 }

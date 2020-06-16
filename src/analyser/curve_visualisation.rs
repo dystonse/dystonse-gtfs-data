@@ -4,9 +4,7 @@ use std::io::prelude::*;
 
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, RouteType, Trip};
-use itertools::Itertools;
 use gnuplot::*;
-use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};

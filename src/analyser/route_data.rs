@@ -19,14 +19,18 @@ impl RouteData {
 #[derive(Serialize, Deserialize)]
 pub struct RouteVariantData {
     pub stop_ids: Vec<String>,
-    pub curve_sets: HashMap<(u32, u32), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>
+    pub curve_sets: HashMap<(u32, u32), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>,
+    pub general_delay_arrival: HashMap<u32, IrregularDynamicCurve<f32,f32>>,
+    pub general_delay_departure: HashMap<u32, IrregularDynamicCurve<f32,f32>>,
 }
 
 impl RouteVariantData {
     pub fn new() -> Self {
         return Self {
             stop_ids: Vec::new(),
-            curve_sets: HashMap::new()
+            curve_sets: HashMap::new(),
+            general_delay_arrival: HashMap::new(),
+            general_delay_departure: HashMap::new(),
         };
     }
 }

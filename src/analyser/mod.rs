@@ -198,15 +198,15 @@ impl<'a> Analyser<'a> {
     }
 
     // This method was used to output a graphviz dot file of the stops of a route and its variants
-    fn print_pair(schedule: &Gtfs, first_stop_id: &str, second_stop_id: &str, reverse: bool) {
-        println!(
-            r##""{} ()" -> "{} ()" [color={}, dir={}]"##,
-            schedule.get_stop(first_stop_id).unwrap().name,
-            //first_stop_id,
-            schedule.get_stop(second_stop_id).unwrap().name,
-            //second_stop_id,
-            if reverse { "red" } else { "blue" },
-            if reverse { "back" } else { "foreward" }
-        );
-    }
+    // fn print_pair(schedule: &Gtfs, first_stop_id: &str, second_stop_id: &str, reverse: bool) {
+    //     println!(
+    //         r##""{} ()" -> "{} ()" [color={}, dir={}]"##,
+    //         schedule.get_stop(first_stop_id).unwrap().name,
+    //         //first_stop_id,
+    //         schedule.get_stop(second_stop_id).unwrap().name,
+    //         //second_stop_id,
+    //         if reverse { "red" } else { "blue" },
+    //         if reverse { "back" } else { "foreward" }
+    //     );
+    // }
 }
