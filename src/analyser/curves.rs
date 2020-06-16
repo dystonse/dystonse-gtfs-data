@@ -2,6 +2,7 @@ use std::fs;
 use rand::Rng;
 use std::fs::File;
 use std::io::prelude::*;
+use std::collections::HashMap;
 
 use chrono::{NaiveDate};
 use clap::ArgMatches;
@@ -11,6 +12,7 @@ use mysql::*;
 use mysql::prelude::*;
 use gnuplot::*;
 use simple_error::bail;
+use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
@@ -19,6 +21,34 @@ use super::Analyser;
 
 use crate::FnResult;
 use crate::Main;
+
+#[derive(Serialize, Deserialize)]
+struct RouteData {
+    variants: HashMap<u64, RouteVariantData>
+}
+
+impl RouteData {
+    fn new() -> Self {
+        return Self {
+            variants: HashMap::new()
+        };
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct RouteVariantData {
+    stop_ids: Vec<String>,
+    curve_sets: HashMap<(u32, u32), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>
+}
+
+impl RouteVariantData {
+    fn new() -> Self {
+        return Self {
+            stop_ids: Vec::new(),
+            curve_sets: HashMap::new()
+        };
+    }
+}
 
 struct DbItem {
     delay_arrival: Option<i32>,
@@ -76,6 +106,8 @@ impl<'a> CurveCreator<'a> {
             .clone();
 
         println!("Working on route {} of agency {}.", route.short_name, agency_name);
+
+        let mut route_data = RouteData::new();
 
         let mut con = self.main.pool.get_conn()?;
         let stmt = con.prep(
@@ -144,10 +176,28 @@ impl<'a> CurveCreator<'a> {
                     self.create_percentile_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant)?;
                     self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant, false)?;
                     self.create_delay_curves_for_route_variant(title_prefix, &dir_name, trip, &rows_matching_variant, true)?;
-                    self.create_curves_for_route_variant(&rows_matching_variant, trip, title_prefix, &dir_name)?;
+                    let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip, title_prefix, &dir_name)?;
+                    route_data.variants.insert(*route_variant, variant_data);
                 }
             }
         }
+
+        let serialized_bin = rmp_serde::to_vec(&route_data).unwrap();
+        let dir_name = format!("data/curve_data/{}", agency_name);
+        fs::create_dir_all(&dir_name)?;    
+        let file_name = format!("{}/Linie_{}.crv", dir_name, route.short_name);
+        let mut file = match File::create(&file_name) {
+            Err(why) => panic!("couldn't create file: {}", why),
+            Ok(file) => file,
+        };
+        match file.write_all(&serialized_bin) {
+            Err(why) => panic!("couldn't write: {}", why),
+            Ok(_) => println!("successfully wrote."),
+        }
+
+        // Print as json for debugging:
+        // let serialized = serde_json::to_string(&curve_set).unwrap();
+        // println!("serialized = {}", serialized);
 
         Ok(())
     }
@@ -376,8 +426,11 @@ impl<'a> CurveCreator<'a> {
         rows_matching_variant: &Vec<&DbItem>, 
         trip: &Trip, title_prefix: &str,
         dir_name: &str
-    ) -> FnResult<()> {
+    ) -> FnResult<RouteVariantData> {
         let stop_count = trip.stop_times.len();
+
+        let mut route_variant_data = RouteVariantData::new();
+        route_variant_data.stop_ids = trip.stop_times.iter().map(|st| st.stop.id.clone()).collect();
 
         // threshold of delay secends that will be considered. 
         // Every stop with more than t or less then -t delay will be ignored.
@@ -454,7 +507,10 @@ impl<'a> CurveCreator<'a> {
                     if matching_pairs.len() > 20 {
                         let filename = format!("{}/curve_{}_to_{}.svg", &dir_name, i_s, i_e);
                         let title = &format!("{} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", title_prefix, i_s, st_s.stop.name, i_e, st_e.stop.name);
-                        self.generate_curves_for_stop_pair(matching_pairs, &filename, &title)?;
+                        let stop_pair_data = self.generate_curves_for_stop_pair(matching_pairs, &filename, &title);
+                        if let Ok(actual_data) = stop_pair_data {
+                            route_variant_data.curve_sets.insert((i_s as u32, i_e as u32), actual_data);
+                        }
                     }
                 }
             }
@@ -463,10 +519,10 @@ impl<'a> CurveCreator<'a> {
         let filename = format!("{}/all_stops.svg", &dir_name);
         fg_all_stops.save_to_svg(filename, 1024, 768)?;
 
-        Ok(())
+        Ok(route_variant_data)
     }
 
-    fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>, filename: &str, title: &str) -> FnResult<()> {
+    fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>, filename: &str, title: &str) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {
         let mut fg = Figure::new();
         fg.set_title(title);
         let axes = fg.axes2d();
@@ -535,14 +591,13 @@ impl<'a> CurveCreator<'a> {
                 axes.lines_points(&x, &y, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
                 let end_delays: Vec<f32> = own_pairs.iter().map(|(_s,e)| *e).collect();
                 let mut options = vec!{ Color("#08421F"), Caption(&caption_all_end), LineStyle(Dash), LineWidth(3.0), PointSize(0.6)};
-                self.draw_to_figure(axes_na, &end_delays, &mut options, None, true, false)?;
+                let _ = self.draw_to_figure(axes_na, &end_delays, &mut options, None, true, false);
                 //axes_na.lines_points(&x, &dy, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
             }
 
             // Add an invisible curve to display an additonal line in the legend
             axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
             axes_na.lines_points(&[-100], &[0.005], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
-
 
             let mut curve_set = CurveSet::<f32, IrregularDynamicCurve<f32, f32>>::new();
             // Now generate and draw one or more actual result curves.
@@ -562,33 +617,34 @@ impl<'a> CurveCreator<'a> {
                     if let Some((mut curve, sum)) = self.make_curve(&slice,  Some(*mid)) {
                         curve.simplify(0.001);
                         if curve.max_x() <  curve.min_x() + 13.0 {
-                            bail!("Curve too short.");
+                            continue;
                         }
             
-                        self.actually_draw_to_figure(axes, &curve, sum, &options, Some(*mid), false, false)?;
+                        let _ = self.actually_draw_to_figure(axes, &curve, sum, &options, Some(*mid), false, false);
                         curve_set.add_curve(*mid, curve);
                     }
-                    self.draw_to_figure(axes_na, &slice, &mut options, Some(*mid), true, false)?; // histogram mode
+                    let _ = self.draw_to_figure(axes_na, &slice, &mut options, Some(*mid), true, false); // histogram mode
                 }
             }
             fg.save_to_svg(filename, 1024, 768)?;
             fg_na.save_to_svg(filename.replace(".svg", "_na.svg"), 1024, 400)?;
-            let serialized_bin = rmp_serde::to_vec(&curve_set).unwrap();
-            let mut file = match File::create(&filename.replace(".svg", ".crv")) {
-                Err(why) => panic!("couldn't create file: {}", why),
-                Ok(file) => file,
-            };
-            match file.write_all(&serialized_bin) {
-                Err(why) => panic!("couldn't write: {}", why),
-                Ok(_) => println!("successfully wrote."),
-            }
+            // let serialized_bin = rmp_serde::to_vec(&curve_set).unwrap();
+            // let mut file = match File::create(&filename.replace(".svg", ".crv")) {
+            //     Err(why) => panic!("couldn't create file: {}", why),
+            //     Ok(file) => file,
+            // };
+            // match file.write_all(&serialized_bin) {
+            //     Err(why) => panic!("couldn't write: {}", why),
+            //     Ok(_) => println!("successfully wrote."),
+            // }
 
             // Print as json for debugging:
             // let serialized = serde_json::to_string(&curve_set).unwrap();
             // println!("serialized = {}", serialized);
+            return Ok(curve_set);
         }
 
-        Ok(())
+        bail!("Could not make curve.");
     }
 
     // This method determines whether there should be another marker between the ones already present at lower and upper.
