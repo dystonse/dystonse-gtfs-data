@@ -2,6 +2,7 @@ mod count;
 mod curves;
 mod default_curves;
 mod visual_schedule;
+mod time_slots;
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
