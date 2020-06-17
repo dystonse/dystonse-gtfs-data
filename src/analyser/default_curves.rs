@@ -4,11 +4,13 @@ use rand::Rng;
 use std::u16;
 
 use super::time_slots::TimeSlot;
+use super::curve_analysis::CurveCreator;
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Timelike, Datelike};
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType, StopTime};
 use itertools::Itertools;
+use std::iter;
 use mysql::*;
 use mysql::prelude::*;
 use gnuplot::*;
@@ -28,6 +30,8 @@ use crate::Main;
 //! The calculations are based on the routes for which we have historic realtime data, 
 //! but the curves are intended to be used for any prediction, identified by the criteria mentioned above.
 */
+
+const MIN_DATA_FOR_CURVE : usize = 10; //curves based on less than this number of data will be discarded
 
 /// Route sections are sets of stops that form a part of the route (beginning, middle, or end)
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -106,20 +110,38 @@ impl<'a> DefaultCurveCreator<'a> {
             RouteType::Bus,
             RouteType::Ferry
             ];
+            
+        let route_sections = [
+            RouteSection::Beginning, 
+            RouteSection::Middle, 
+            RouteSection::End
+            ];
+
+        //data structures to collect all default curves:
+        let mut default_arrival_curves : 
+            HashMap<(&RouteType, &RouteSection, &TimeSlot), 
+                Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
+        let mut default_departure_curves : 
+            HashMap<(&RouteType, &RouteSection, &TimeSlot), 
+                Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
+
+        // initialize them with empty vectors
+        for rt in &route_types {
+            for rs in &route_sections {
+                for ts in &TimeSlot::TIME_SLOTS {
+                    default_arrival_curves.insert((rt, rs, ts), Vec::new());
+                    default_departure_curves.insert((rt, rs, ts), Vec::new());
+                }
+            }
+        }
 
         //iterate over route types
         for rt in route_types.iter() {
 
-            // data structures for collecting all curves of this route type:
-            let mut arrival_curves_for_route_type :
-                HashMap<(RouteSection, TimeSlot), Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
-            let mut departure_curves_for_route_type :
-                HashMap<(RouteSection, TimeSlot), Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
-
-            //find all routes
+            //find all routes for this type
             let routes = self.get_routes_for_type(*rt);
 
-            //find all route variants (for this route type)
+            //find all their route variants
             let mut route_variants : Vec<&str> = Vec::new();
             for r in routes {
                 route_variants.extend(self.get_variants_for_route(r));
@@ -128,12 +150,6 @@ impl<'a> DefaultCurveCreator<'a> {
             //iterate over route variants
             for rv in route_variants {
 
-                // used as part of keys to build big hashmaps:
-                let route_sections = [
-                    RouteSection::Beginning, 
-                    RouteSection::Middle, 
-                    RouteSection::End
-                    ];
 
                 //find one trip of this variant
                 let trip = self.schedule.trips.values().filter(
@@ -182,24 +198,55 @@ impl<'a> DefaultCurveCreator<'a> {
                 // for each time slot in each section, make two curves (delay for arrival and depature)
                 for rs in &route_sections {
                     for ts in &TimeSlot::TIME_SLOTS {
+
+                        // collect delays in vectors:
                         let arrival_delays : Vec<f32> = 
                             data_by_route_section_and_timeslot[rs][ts].iter()
                                 .filter_map(|item| item.delay_arrival).map(|i| i as f32).collect();
                         let departure_delays : Vec<f32> = 
                             data_by_route_section_and_timeslot[rs][ts].iter()
                                 .filter_map(|item| item.delay_departure).map(|i| i as f32).collect();
-                        //TODO: make curves from these vectors and put them into the big hashmap above on route_type level
+
+                        // create curves from the vectors and put them into the big hashmap:
+                        if arrival_delays.len() >= MIN_DATA_FOR_CURVE {
+                            let arrival_curve = CurveCreator::make_curve(&arrival_delays, None).unwrap().0;
+                            default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(arrival_curve);
+                        }
+                        if departure_delays.len() >= MIN_DATA_FOR_CURVE {
+                            let departure_curve = CurveCreator::make_curve(&departure_delays, None).unwrap().0;
+                            default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(departure_curve);
+                        }
                     }
                 }
 
-
-                //TODO: this is where I left off yesterday... go on!
             }
             
         }
 
+        // on each leaf of the trees, there is now a vector of curves 
+        // with one curve for each route_variant.
+        // the next step is to interpolate between all those curves so that we have 
+        // only one curve for each (route type, route section, time slot)-tuple
 
-        //TODO:content!
+        for rt in &route_types {
+            for rs in &route_sections {
+                for ts in &TimeSlot::TIME_SLOTS {
+
+                    // curve vectors
+                    let a_curves = default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap();
+                    let d_curves = default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap();
+
+                    // interpolate them into one curve each
+                    /*
+                    let arrival_curve = IrregularDynamicCurve::average(a_curves);
+                    let departure_curve = IrregularDynamicCurve::average(d_curves);
+                    */
+
+                    //TODO: fix this and go on from here
+                }
+            }
+        }
+        
         Ok(())
     }
 
