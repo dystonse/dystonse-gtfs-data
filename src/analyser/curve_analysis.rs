@@ -239,7 +239,9 @@ impl<'a> CurveCreator<'a> {
         if values.len() < 20 {
             bail!("Less than 20 data rows.");
         }
-        Ok(Self::make_curve(&values, None).unwrap().0)
+        let mut curve = Self::make_curve(&values, None).unwrap().0;
+        curve.simplify(0.01);
+        Ok(curve)
     }
 
     fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {

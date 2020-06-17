@@ -352,7 +352,7 @@ impl<'a> CurveDrawer<'a> {
             let st_e = self.schedule.get_stop(&data.stop_ids[i_e as usize]).unwrap();
             let filename = format!("{}/curve_{}_to_{}.svg", &dir_name, i_s, i_e);
             let title = &format!("{} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", title_prefix, i_s, st_s.name, i_e, st_e.name);
-            self.draw_curves_for_stop_pair(stop_pair_data, &filename, &title)?;
+            self.draw_curves_for_stop_pair(stop_pair_data, data.general_delay_departure.get(&i_s), data.general_delay_arrival.get(&i_e), &filename, &title)?;
         }
 
         // let filename = format!("{}/all_stops.svg", &dir_name);
@@ -361,7 +361,13 @@ impl<'a> CurveDrawer<'a> {
         Ok(())
     }
 
-    fn draw_curves_for_stop_pair(&self, data: CurveSet<f32, IrregularDynamicCurve<f32, f32>>, filename: &str, title: &str) -> FnResult<()> {
+    fn draw_curves_for_stop_pair(
+        &self, 
+        data: CurveSet<f32, IrregularDynamicCurve<f32, f32>>, 
+        general_delay_arrival: Option<&IrregularDynamicCurve<f32, f32>>, 
+        general_delay_departure: Option<&IrregularDynamicCurve<f32, f32>>, 
+        filename: &str, title: &str
+    ) -> FnResult<()> {
         let mut fg = Figure::new();
         fg.set_title(title);
         let axes = fg.axes2d();
@@ -400,21 +406,22 @@ impl<'a> CurveDrawer<'a> {
         // let mut options = vec!{ Color("#129245"), Caption(&caption_all_initial), LineStyle(Dot), LineWidth(3.0), PointSize(0.6)};
         // self.draw_to_figure(axes_na, &start_delays, &mut options, None, true, false)?;
             
-        // // draw the overall destination delay
-        // if let Some((mut curve, sum)) = self.make_curve(&own_pairs.iter().map(|(_s,e)| *e).collect(), None) {
-        //     curve.simplify(0.001);
-        //     let (x, mut y) = curve.get_values_as_vectors();
-        //     y = y.iter().map(|y| y*100.0).collect();
-        //     let caption_all_end = format!("Ende - alle Daten ({})", sum as i32);
-        //     axes.lines_points(&x, &y, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
-        //     let end_delays: Vec<f32> = own_pairs.iter().map(|(_s,e)| *e).collect();
-        //     let mut options = vec!{ Color("#08421F"), Caption(&caption_all_end), LineStyle(Dash), LineWidth(3.0), PointSize(0.6)};
-        //     let _ = self.draw_to_figure(axes_na, &end_delays, &mut options, None, true, false);
-        //     //axes_na.lines_points(&x, &dy, &[LineStyle(Dash), LineWidth(3.0), Caption(&caption_all_end), Color("#08421F")]);
-        // }
+        // draw the overall destination delay
+        
+        if let Some(general_curve) = general_delay_departure {
+            let (x, mut y) = general_curve.get_values_as_vectors();
+            y = y.iter().map(|y| y*100.0).collect();
+            axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption("Abfahrt am Start"), Color("#129245")]);
+        }
 
-        // // Add an invisible curve to display an additonal line in the legend
-        // axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
+        if let Some(general_curve) = general_delay_arrival {
+            let (x, mut y) = general_curve.get_values_as_vectors();
+            y = y.iter().map(|y| y*100.0).collect();
+            axes.lines_points(&x, &y, &[LineStyle(Dash), LineWidth(3.0), Caption("Ankunft am Ende"), Color("#08421F")]);
+        }
+
+        // Add an invisible curve to display an additonal line in the legend
+        axes.lines_points(&[-100], &[0.95], &[Caption("Nach Anfangsverspätung:"), Color("white")]);
         // axes_na.lines_points(&[-100], &[0.005], &[Caption("Nach Anfangsverspätung (Gewicht):"), Color("white")]);
 
          // Now generate and draw one or more actual result curves.
@@ -446,7 +453,7 @@ impl<'a> CurveDrawer<'a> {
         let mut own_options = plot_options.clone();
         
         let cap = if let Some(focus) = focus { 
-            format!("ca. {}s ({:.2})", focus as i32, sum)
+            format!("ca. {}s", focus as i32)
         } else {
             let min_delay = curve.min_x();
             let max_delay = curve.max_x();
