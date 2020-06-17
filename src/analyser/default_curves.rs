@@ -153,12 +153,14 @@ impl<'a> DefaultCurveCreator<'a> {
 
                         // create curves from the vectors and put them into the big hashmap:
                         if arrival_delays.len() >= MIN_DATA_FOR_CURVE {
-                            let arrival_curve = CurveCreator::make_curve(&arrival_delays, None).unwrap().0;
-                            default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(arrival_curve);
+                            if let Ok(arrival_curve) = CurveCreator::make_curve(&arrival_delays, None) {
+                                default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(arrival_curve.0);
+                            }
                         }
                         if departure_delays.len() >= MIN_DATA_FOR_CURVE {
-                            let departure_curve = CurveCreator::make_curve(&departure_delays, None).unwrap().0;
-                            default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(departure_curve);
+                            if let Ok(departure_curve) = CurveCreator::make_curve(&departure_delays, None) {
+                                default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(departure_curve.0);
+                            }
                         }
                     }
                 }
@@ -189,26 +191,31 @@ impl<'a> DefaultCurveCreator<'a> {
                     let d_curves = default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap();
 
                     // interpolate them into one curve each
-                    let arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
-                    let departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
-
                     // put curves into the final datastructure:
-                    all_default_curves.insert((rt, rs, ts, EventType::Arrival), arrival_curve);
-                    all_default_curves.insert((rt, rs, ts, EventType::Departure), departure_curve);
-
+                    if a_curves.len() > 0 {
+                        let arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
+                        all_default_curves.insert((rt, rs, ts, EventType::Arrival), arrival_curve);
+                    }
+                    
+                    if d_curves.len() > 0 {
+                        let departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
+                        all_default_curves.insert((rt, rs, ts, EventType::Departure), departure_curve);
+                    }
                 }
             }
         }
+
+        println!("Done with everything but saving. Result: {:?}", all_default_curves);
 
         println!("Saving to binary file.");
 
         // save curve tree to a binary file
         save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
         
-        println!("Saving to json file.");
-
-        // save curve tree to a json file
-        save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.json", SerdeFormat::Json)?;
+        // The hashmap has tuples as keys, which is not supported by json without manual conversion.
+        // println!("Saving to json file.");
+        // // save curve tree to a json file
+        // save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.json", SerdeFormat::Json)?;
 
         println!("Done!");
 
