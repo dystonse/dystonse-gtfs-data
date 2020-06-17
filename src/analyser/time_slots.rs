@@ -78,7 +78,7 @@ impl TimeSlot {
     };
     pub const SATURDAY_DAY : TimeSlot = TimeSlot {
         id: 8, 
-        description: "Saturdays from 04 to 20h",
+        description: "Saturdays from 4 to 20h",
         min_weekday: Weekday::Sat,
         max_weekday: Weekday::Sat,
         min_hour: 4,
@@ -86,7 +86,7 @@ impl TimeSlot {
     };
     pub const SUNDAY_DAY : TimeSlot = TimeSlot {
         id: 9, 
-        description: "Sundays from 04 to 20h",
+        description: "Sundays from 4 to 20h",
         min_weekday: Weekday::Sun,
         max_weekday: Weekday::Sun,
         min_hour: 4,
@@ -94,7 +94,7 @@ impl TimeSlot {
     };
     pub const NIGHT_BEFORE_WORKDAY : TimeSlot = TimeSlot {
         id: 10, 
-        description: "Nights before workdays from 20 to 04h",
+        description: "Nights before workdays from 20 to 4h",
         min_weekday: Weekday::Sun,
         max_weekday: Weekday::Thu,
         min_hour: 20,
@@ -102,7 +102,7 @@ impl TimeSlot {
     };
     pub const NIGHT_BEFORE_WEEKEND_DAY : TimeSlot = TimeSlot {
         id: 11, 
-        description: "Nights before weekend days from 20 to 04h",
+        description: "Nights before weekend days from 20 to 4h",
         min_weekday: Weekday::Fri,
         max_weekday: Weekday::Sat,
         min_hour: 20,
