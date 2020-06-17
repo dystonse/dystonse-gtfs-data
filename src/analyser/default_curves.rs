@@ -239,8 +239,8 @@ impl<'a> DefaultCurveCreator<'a> {
             WHERE 
                 source=:source AND 
                 route_variant=:route_variant AND
-                stop_sequence >= lower_bound AND
-                stop_sequence <= upper_bound
+                stop_sequence >= :lower_bound AND
+                stop_sequence <= :upper_bound
             ORDER BY 
                 date,
                 trip_id",
@@ -279,10 +279,10 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // go through all items and sort them into the vectors
         for i in items {
-            let mut dt = self.get_datetime_from_dbitem(&i, EventType::Arrival);
+            let mut dt = i.get_datetime_from_schedule(&self.schedule, EventType::Arrival);
             // if arrival time is not set, use depature time instead:
             if dt.is_none() {
-                dt = self.get_datetime_from_dbitem(&i, EventType::Departure);
+                dt = i.get_datetime_from_schedule(&self.schedule, EventType::Departure);
             }
             // should always be some now, but to be sure...
             if dt.is_some() {
@@ -293,29 +293,6 @@ impl<'a> DefaultCurveCreator<'a> {
 
         return Ok(sorted_items);
     }
-
-    // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
-    fn get_datetime_from_dbitem(&self, dbitem: &DbItem, et: EventType) -> Option<NaiveDateTime> {
-
-        // find corresponding StopTime for dbItem
-        let st : &StopTime = self.schedule.get_trip(&dbitem.trip_id).unwrap().stop_times.iter()
-            .filter(|s| s.stop.id == dbitem.stop_id).next().unwrap();
-
-        // get arrival or departure time from StopTime:
-        let t : Option<u32> = if et == EventType::Departure {st.departure_time} else {st.arrival_time};
-        if t.is_none() { return None; } // prevents panic before trying to unwrap
-        let time = NaiveTime::from_num_seconds_from_midnight(t.unwrap(), 0);
-
-        // get date from DbItem
-        let d : NaiveDate = dbitem.date.unwrap(); //should never panic because date is always set
-
-        // add date and time together
-        let dt : NaiveDateTime = d.and_time(time);
-
-        return Some(dt);
-    }
-
-    
 }
 
 /*

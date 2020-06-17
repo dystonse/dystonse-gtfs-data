@@ -5,7 +5,9 @@ use serde::{Serialize, Deserialize};
 use super::time_slots::TimeSlot;
 use mysql::*;
 use mysql::prelude::*;
-use chrono::NaiveDate;
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use crate::EventType;
+use gtfs_structures::{Trip, Gtfs};
 
 #[derive(Serialize, Deserialize)]
 pub struct RouteData {
@@ -58,6 +60,43 @@ impl FromRow for DbItem {
             stop_id: row.get::<String, _>(4).unwrap(),
             route_variant: row.get::<u64, _>(5).unwrap(),
         })
+    }
+}
+
+impl DbItem {
+    // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
+    pub fn get_datetime_from_trip(&self, trip: &Trip, et: EventType) -> Option<NaiveDateTime> {
+
+        // find corresponding StopTime for dbItem
+        let st = trip.stop_times.iter()
+            .filter(|s| s.stop.id == self.stop_id).next();
+
+        if st.is_none() { return None; } // prevents panic before trying to unwrap
+
+        // get arrival or departure time from StopTime:
+        let t : Option<u32> = if et == EventType::Departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
+        if t.is_none() { return None; } // prevents panic before trying to unwrap
+        let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
+        if time.is_none() { return None; } // prevents panic before trying to unwrap
+        
+
+        // get date from DbItem
+        let d : NaiveDate = self.date.unwrap(); //should never panic because date is always set
+
+        // add date and time together
+        let dt : NaiveDateTime = d.and_time(time.unwrap());
+
+        return Some(dt);
+    }
+
+        // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
+    pub fn get_datetime_from_schedule(&self, schedule: &Gtfs, et: EventType) -> Option<NaiveDateTime> {
+        // find corresponding StopTime for dbItem
+        let maybe_trip = schedule.get_trip(&self.trip_id);
+        if maybe_trip.is_err() {
+            return None;
+        }
+        self.get_datetime_from_trip(maybe_trip.unwrap(), et)
     }
 }
 

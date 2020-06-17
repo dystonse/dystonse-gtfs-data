@@ -1,4 +1,4 @@
-use chrono::{Weekday, NaiveDateTime, NaiveDate, NaiveTime, Datelike, Timelike};
+use chrono::{Weekday, NaiveDateTime, Datelike, Timelike};
 use serde::{Serialize, Deserialize};
 use gtfs_structures::Trip;
 use super::route_data::DbItem;
@@ -172,33 +172,8 @@ impl TimeSlot {
         return day && hour;
     }
 
-     // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
-     fn get_datetime_from_dbitem(trip: &Trip, dbitem: &DbItem, et: EventType) -> Option<NaiveDateTime> {
-
-        // find corresponding StopTime for dbItem
-        let st = trip.stop_times.iter()
-            .filter(|s| s.stop.id == dbitem.stop_id).next();
-
-        if st.is_none() { return None; } // prevents panic before trying to unwrap
-
-        // get arrival or departure time from StopTime:
-        let t : Option<u32> = if et == EventType::Departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
-        if t.is_none() { return None; } // prevents panic before trying to unwrap
-        let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
-        if time.is_none() { return None; } // prevents panic before trying to unwrap
-        
-
-        // get date from DbItem
-        let d : NaiveDate = dbitem.date.unwrap(); //should never panic because date is always set
-
-        // add date and time together
-        let dt : NaiveDateTime = d.and_time(time.unwrap());
-
-        return Some(dt);
-    }
-
     pub fn matches_item(&self, item: &DbItem, trip: &Trip, et: EventType) -> bool {
-        if let Some(dt) = Self::get_datetime_from_dbitem(trip, item, et) {
+        if let Some(dt) = item.get_datetime_from_trip(trip, et) {
             self.matches(dt)
         } else {
             false
