@@ -271,10 +271,10 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // go through all items and sort them into the vectors
         for i in items {
-            let mut dt = self.get_datetime_from_dbitem(&i, false);
+            let mut dt = self.get_datetime_from_dbitem(&i, EventType::Arrival);
             // if arrival time is not set, use depature time instead:
             if dt.is_none() {
-                dt = self.get_datetime_from_dbitem(&i, true);
+                dt = self.get_datetime_from_dbitem(&i, EventType::Departure);
             }
             // should always be some now, but to be sure...
             if dt.is_some() {
@@ -294,7 +294,7 @@ impl<'a> DefaultCurveCreator<'a> {
             .filter(|s| s.stop.id == dbitem.stop_id).next().unwrap();
 
         // get arrival or departure time from StopTime:
-        let t : Option<u32> = if (et == EventType::Departure) {st.departure_time} else {st.arrival_time};
+        let t : Option<u32> = if et == EventType::Departure {st.departure_time} else {st.arrival_time};
         if t.is_none() { return None; } // prevents panic before trying to unwrap
         let time = NaiveTime::from_num_seconds_from_midnight(t.unwrap(), 0);
 
