@@ -16,8 +16,7 @@ use super::Analyser;
 use super::route_data::*;
 use super::time_slots::TimeSlot;
 
-use crate::FnResult;
-use crate::Main;
+use crate::{ FnResult, Main, EventType };
 
 pub struct CurveCreator<'a> {
     pub main: &'a Main,
@@ -153,10 +152,10 @@ impl<'a> CurveCreator<'a> {
                 // Locally select the rows which match the start station
                 let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
 
-                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, true) {
+                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, EventType::Arrival) {
                     route_variant_data.general_delay_arrival.insert(i_s as u32, res);
                 }
-                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, false) {
+                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, EventType::Departure) {
                     route_variant_data.general_delay_departure.insert(i_s as u32, res);
                 }
                 
@@ -211,11 +210,10 @@ impl<'a> CurveCreator<'a> {
         Ok(route_variant_data)
     }
 
-    fn generate_delay_curve(&self, rows: &Vec<&DbItem>, use_arrival_times: bool) -> FnResult<IrregularDynamicCurve<f32,f32>> {
-        let values: Vec<f32> = if use_arrival_times {
-            rows.iter().filter_map(|r| r.delay_arrival).map(|t| t as f32).collect()
-        } else {
-            rows.iter().filter_map(|r| r.delay_departure).map(|t| t as f32).collect()
+    fn generate_delay_curve(&self, rows: &Vec<&DbItem>, event_type: EventType) -> FnResult<IrregularDynamicCurve<f32,f32>> {
+        let values: Vec<f32> = match event_type {
+            EventType::Arrival => rows.iter().filter_map(|r| r.delay_arrival).map(|t| t as f32).collect(),
+            EventType::Departure => rows.iter().filter_map(|r| r.delay_departure).map(|t| t as f32).collect()
         };
         if values.len() < 20 {
             bail!("Less than 20 data rows.");

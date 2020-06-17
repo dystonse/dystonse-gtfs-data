@@ -13,6 +13,11 @@ use retry::retry;
 use importer::Importer;
 use analyser::Analyser;
 
+enum EventType {
+    Arrival,
+    Departure,
+}
+
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
 type FnResult<R> = std::result::Result<R, Box<dyn Error>>;

@@ -9,10 +9,9 @@ use simple_error::SimpleError;
 use std::fs::File;
 use std::io::prelude::*;
 
-use crate::FnResult;
+use crate::{FnResult, EventType};
 
 const MAX_BATCH_SIZE: usize = 1000;
-
 
 pub struct PerScheduleImporter<'a> {
     pool: &'a Pool,
@@ -20,11 +19,6 @@ pub struct PerScheduleImporter<'a> {
     verbose: bool,
     source: &'a str,
     filename: &'a str,
-}
-
-enum EventType {
-    Arrival,
-    Departure,
 }
 
 struct EventTimes {
