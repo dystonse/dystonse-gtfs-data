@@ -154,12 +154,16 @@ impl<'a> DefaultCurveCreator<'a> {
                         // create curves from the vectors and put them into the big hashmap:
                         if arrival_delays.len() >= MIN_DATA_FOR_CURVE {
                             if let Ok(arrival_curve) = CurveCreator::make_curve(&arrival_delays, None) {
-                                default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(arrival_curve.0);
+                                let mut curve = arrival_curve.0;
+                                curve.simplify(0.001);
+                                default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(curve);
                             }
                         }
                         if departure_delays.len() >= MIN_DATA_FOR_CURVE {
                             if let Ok(departure_curve) = CurveCreator::make_curve(&departure_delays, None) {
-                                default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(departure_curve.0);
+                                let mut curve = departure_curve.0;
+                                curve.simplify(0.001);
+                                default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(curve);
                             }
                         }
                     }
@@ -193,12 +197,14 @@ impl<'a> DefaultCurveCreator<'a> {
                     // interpolate them into one curve each
                     // put curves into the final datastructure:
                     if a_curves.len() > 0 {
-                        let arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
+                        let mut arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
+                        arrival_curve.simplify(0.001);
                         all_default_curves.insert((rt, rs, ts, EventType::Arrival), arrival_curve);
                     }
                     
                     if d_curves.len() > 0 {
-                        let departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
+                        let mut departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
+                        departure_curve.simplify(0.001);
                         all_default_curves.insert((rt, rs, ts, EventType::Departure), departure_curve);
                     }
                 }
