@@ -2,6 +2,7 @@ use chrono::{Weekday, NaiveDateTime, NaiveDate, NaiveTime, Datelike, Timelike};
 use serde::{Serialize, Deserialize};
 use gtfs_structures::Trip;
 use super::route_data::DbItem;
+use crate::EventType;
 
 /// Time slots are specific ranges in time that occur repeatedly. 
 /// Any DateTime should be able to be mapped to exactly one TimeSlot constant.
@@ -172,7 +173,7 @@ impl TimeSlot {
     }
 
      // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
-     fn get_datetime_from_dbitem(trip: &Trip, dbitem: &DbItem, departure: bool) -> Option<NaiveDateTime> {
+     fn get_datetime_from_dbitem(trip: &Trip, dbitem: &DbItem, et: EventType) -> Option<NaiveDateTime> {
 
         // find corresponding StopTime for dbItem
         let st = trip.stop_times.iter()
@@ -181,7 +182,7 @@ impl TimeSlot {
         if st.is_none() { return None; } // prevents panic before trying to unwrap
 
         // get arrival or departure time from StopTime:
-        let t : Option<u32> = if departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
+        let t : Option<u32> = if et == EventType::Departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
         if t.is_none() { return None; } // prevents panic before trying to unwrap
         let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
         if time.is_none() { return None; } // prevents panic before trying to unwrap
@@ -196,8 +197,8 @@ impl TimeSlot {
         return Some(dt);
     }
 
-    pub fn matches_item(&self, item: &DbItem, trip: &Trip, departure: bool) -> bool {
-        if let Some(dt) = Self::get_datetime_from_dbitem(trip, item, departure) {
+    pub fn matches_item(&self, item: &DbItem, trip: &Trip, et: EventType) -> bool {
+        if let Some(dt) = Self::get_datetime_from_dbitem(trip, item, et) {
             self.matches(dt)
         } else {
             false

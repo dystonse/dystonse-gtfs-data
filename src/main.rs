@@ -18,7 +18,8 @@ use serde::Serialize;
 use importer::Importer;
 use analyser::Analyser;
 
-enum EventType {
+#[derive(Hash, Eq, PartialEq, Debug)]
+pub enum EventType {
     Arrival,
     Departure,
 }

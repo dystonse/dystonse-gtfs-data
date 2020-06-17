@@ -130,7 +130,7 @@ impl<'a> CurveCreator<'a> {
 
         for ts in &TimeSlot::TIME_SLOTS {
             // TODO here we filter all rows based on departure:true, maybe we should actually filter twice, once for each [departure, arrival]
-            let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, true)).collect();
+            let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, EventType::Departure)).collect();
 
             // Iterate over all start stations
             for (i_s, st_s) in trip.stop_times.iter().enumerate() {
