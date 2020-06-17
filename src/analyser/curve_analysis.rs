@@ -203,7 +203,7 @@ impl<'a> CurveCreator<'a> {
         if values.len() < 20 {
             bail!("Less than 20 data rows.");
         }
-        let mut curve = Self::make_curve(&values, None).unwrap().0;
+        let mut curve = Self::make_curve(&values, None)?.0;
         curve.simplify(0.01);
         Ok(curve)
     }

@@ -1,6 +1,6 @@
 use chrono::{Weekday, NaiveDateTime, NaiveDate, NaiveTime, Datelike, Timelike};
 use serde::{Serialize, Deserialize};
-use gtfs_structures::{Trip, StopTime};
+use gtfs_structures::Trip;
 use super::route_data::DbItem;
 
 /// Time slots are specific ranges in time that occur repeatedly. 
@@ -183,13 +183,15 @@ impl TimeSlot {
         // get arrival or departure time from StopTime:
         let t : Option<u32> = if departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
         if t.is_none() { return None; } // prevents panic before trying to unwrap
-        let time = NaiveTime::from_num_seconds_from_midnight(t.unwrap(), 0);
+        let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
+        if time.is_none() { return None; } // prevents panic before trying to unwrap
+        
 
         // get date from DbItem
         let d : NaiveDate = dbitem.date.unwrap(); //should never panic because date is always set
 
         // add date and time together
-        let dt : NaiveDateTime = d.and_time(time);
+        let dt : NaiveDateTime = d.and_time(time.unwrap());
 
         return Some(dt);
     }
