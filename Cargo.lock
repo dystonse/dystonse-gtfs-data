@@ -549,7 +549,7 @@ dependencies = [
 [[package]]
 name = "dystonse-curves"
 version = "0.1.0"
-source = "git+https://github.com/dystonse/dystonse-curves.git#5fb314e7482153fc5cd694e6abb4e17002dac482"
+source = "git+https://github.com/dystonse/dystonse-curves.git#feb91bbf284ce9d506408d8035b9f5e488a7bb29"
 dependencies = [
  "assert_approx_eq",
  "fixed",

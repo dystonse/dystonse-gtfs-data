@@ -11,6 +11,7 @@ use dystonse_curves::{Curve, curve_set::CurveSet};
 
 use super::Analyser;
 use super::route_data::*;
+use super::time_slots::TimeSlot;
 
 use crate::FnResult;
 use crate::Main;
@@ -340,7 +341,7 @@ impl<'a> CurveDrawer<'a> {
         // axes_all_stops.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true).set_y_grid(true);
 
         // Iterate over all start stations
-        for ((i_s, i_e), stop_pair_data) in data.curve_sets {
+        for ((i_s, i_e, ts), stop_pair_data) in data.curve_sets {
             // let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
             // if departues.len() > 5 {
             //     let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
@@ -350,15 +351,27 @@ impl<'a> CurveDrawer<'a> {
 
             let st_s = self.schedule.get_stop(&data.stop_ids[i_s as usize]).unwrap();
             let st_e = self.schedule.get_stop(&data.stop_ids[i_e as usize]).unwrap();
-            let filename = format!("{}/curve_{}_to_{}.svg", &dir_name, i_s, i_e);
+
+            let sub_dir_name = format!("{}/{}", &dir_name, self.get_time_slot_description(&ts));
+            fs::create_dir_all(&sub_dir_name)?;
+            let file_name = format!("{}/curve_{}_to_{}.svg", &sub_dir_name, i_s, i_e);
             let title = &format!("{} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", title_prefix, i_s, st_s.name, i_e, st_e.name);
-            self.draw_curves_for_stop_pair(stop_pair_data, data.general_delay_departure.get(&i_s), data.general_delay_arrival.get(&i_e), &filename, &title)?;
+            self.draw_curves_for_stop_pair(stop_pair_data, data.general_delay_departure.get(&i_s), data.general_delay_arrival.get(&i_e), &file_name, &title)?;
         }
 
         // let filename = format!("{}/all_stops.svg", &dir_name);
         // fg_all_stops.save_to_svg(filename, 1024, 768)?;
 
         Ok(())
+    }
+
+    fn get_time_slot_description(&self, semi_ts: &TimeSlot) -> String {
+        let original_ts = TimeSlot::TIME_SLOTS.iter().filter(|ts| ts.id == semi_ts.id).next();
+        if let Some(ts) = original_ts {
+            return String::from(ts.description);
+        } else {
+            return format!("unknown_time_slot_from_{}_to_{}", semi_ts.min_hour, semi_ts.max_hour);
+        }
     }
 
     fn draw_curves_for_stop_pair(

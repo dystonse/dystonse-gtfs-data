@@ -1,22 +1,17 @@
-use std::fs;
 use std::collections::{HashSet, HashMap};
-use rand::Rng;
 use std::u16;
 
 use super::time_slots::TimeSlot;
 use super::curve_analysis::CurveCreator;
+use super::route_data::DbItem;
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Weekday, Timelike, Datelike};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime,};
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType, StopTime};
-use itertools::Itertools;
-use std::iter;
 use mysql::*;
 use mysql::prelude::*;
-use gnuplot::*;
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::{Curve};
 
 use super::Analyser;
 
@@ -68,28 +63,6 @@ pub fn get_route_section(schedule: &Gtfs, trip_id: &str, stop_id: &str) -> Route
            return RouteSection::End;
         }
     return RouteSection::Middle;
-}
-
-
-
-struct DbItem {
-    delay_arrival: Option<i32>,
-    delay_departure: Option<i32>,
-    date: Option<NaiveDate>,
-    trip_id: String,
-    stop_id: String,
-}
-
-impl FromRow for DbItem {
-    fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
-        Ok(DbItem{
-            delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
-            delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
-            date: row.get_opt(2).unwrap().ok(),
-            trip_id: row.get::<String, _>(3).unwrap(),
-            stop_id: row.get::<String, _>(4).unwrap(),
-        })
-    }
 }
 
 pub struct DefaultCurveCreator<'a> {
@@ -284,6 +257,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 date,
                 trip_id,
                 stop_id,
+                route_variant
             FROM 
                 realtime 
             WHERE 
@@ -318,7 +292,7 @@ impl<'a> DefaultCurveCreator<'a> {
         return Ok(db_items);
     }
 
-    fn sort_dbitems_by_timeslot(&self, items: Vec<DbItem>) -> FnResult<HashMap<&'a TimeSlot<'a>, Vec<DbItem>>> {
+    fn sort_dbitems_by_timeslot(&self, items: Vec<DbItem>) -> FnResult<HashMap<&TimeSlot, Vec<DbItem>>> {
         
         let mut sorted_items = HashMap::new();
 

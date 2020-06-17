@@ -2,7 +2,6 @@ use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 
-use chrono::{NaiveDate};
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Trip};
 use itertools::Itertools;
@@ -15,32 +14,10 @@ use dystonse_curves::{Curve, curve_set::CurveSet};
 
 use super::Analyser;
 use super::route_data::*;
+use super::time_slots::TimeSlot;
 
 use crate::FnResult;
 use crate::Main;
-
-
-struct DbItem {
-    delay_arrival: Option<i32>,
-    delay_departure: Option<i32>,
-    date: Option<NaiveDate>,
-    trip_id: String,
-    stop_id: String,
-    route_variant: u64
-}
-
-impl FromRow for DbItem {
-    fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
-        Ok(DbItem{
-            delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
-            delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
-            date: row.get_opt(2).unwrap().ok(),
-            trip_id: row.get::<String, _>(3).unwrap(),
-            stop_id: row.get::<String, _>(4).unwrap(),
-            route_variant: row.get::<u64, _>(5).unwrap(),
-        })
-    }
-}
 
 pub struct CurveCreator<'a> {
     pub main: &'a Main,
@@ -129,7 +106,6 @@ impl<'a> CurveCreator<'a> {
                 },
                 Some(trip) => {
                     let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == *route_variant).collect();
-
                     let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip)?;
                     route_data.variants.insert(*route_variant, variant_data);
                 }
@@ -168,66 +144,71 @@ impl<'a> CurveCreator<'a> {
         // Every stop with more than t or less then -t delay will be ignored.
         let t = 3000; 
 
-        // Iterate over all start stations
-        for (i_s, st_s) in trip.stop_times.iter().enumerate() {
-            // Locally select the rows which match the start station
-            let rows_matching_start : Vec<_> = rows_matching_variant.into_iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| *i).collect();
+        for ts in &TimeSlot::TIME_SLOTS {
+            // TODO here we filter all rows based on departure:true, maybe we should actually filter twice, once for each [departure, arrival]
+            let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, true)).collect();
 
-            if let Ok(res) = self.generate_delay_curve(&rows_matching_start, true) {
-                route_variant_data.general_delay_arrival.insert(i_s as u32, res);
-            }
-            if let Ok(res) = self.generate_delay_curve(&rows_matching_start, false) {
-                route_variant_data.general_delay_departure.insert(i_s as u32, res);
-            }
-            
-            // Iterate over end stations, and only use the ones after the start station
-            for (i_e, st_e) in trip.stop_times.iter().enumerate() {
-                if i_e > i_s {
-                    // Locally select rows that are matching the end station
-                    let rows_matching_end : Vec<_> = rows_matching_variant.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
-                    
-                    // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
-                    // which is given by (data, trip_id).
-                    let mut matching_pairs = Vec::<(f32, f32)>::with_capacity(usize::min(rows_matching_start.len(), rows_matching_end.len()));
-                    for row_s in &rows_matching_start {
-                        for row_e in &rows_matching_end {
-                            if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
-                                // Only use rows where delay is not None
-                                // TODO filter those out at the DB level or in the above filter expressions
-                                if let Some(d_s) = row_s.delay_departure {
-                                    if let Some(d_e) = row_e.delay_arrival {
-                                        // Filter out rows with too much positive or negative delay
-                                        if d_s < t && d_s > -t && d_e < t && d_e > -t {
-                                            // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
-                                            // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
-                                            // kinds of problems.
-                                            let rounded_d_s = (d_s / 12) * 12;
-                                            let rounded_d_e = (d_e / 12) * 12;
-                                            matching_pairs.push((rounded_d_s as f32, rounded_d_e as f32));
+            // Iterate over all start stations
+            for (i_s, st_s) in trip.stop_times.iter().enumerate() {
+                // Locally select the rows which match the start station
+                let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
+
+                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, true) {
+                    route_variant_data.general_delay_arrival.insert(i_s as u32, res);
+                }
+                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, false) {
+                    route_variant_data.general_delay_departure.insert(i_s as u32, res);
+                }
+                
+                // Iterate over end stations, and only use the ones after the start station
+                for (i_e, st_e) in trip.stop_times.iter().enumerate() {
+                    if i_e > i_s {
+                        // Locally select rows that are matching the end station
+                        let rows_matching_end : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
+                        
+                        // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
+                        // which is given by (data, trip_id).
+                        let mut matching_pairs = Vec::<(f32, f32)>::with_capacity(usize::min(rows_matching_start.len(), rows_matching_end.len()));
+                        for row_s in &rows_matching_start {
+                            for row_e in &rows_matching_end {
+                                if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
+                                    // Only use rows where delay is not None
+                                    // TODO filter those out at the DB level or in the above filter expressions
+                                    if let Some(d_s) = row_s.delay_departure {
+                                        if let Some(d_e) = row_e.delay_arrival {
+                                            // Filter out rows with too much positive or negative delay
+                                            if d_s < t && d_s > -t && d_e < t && d_e > -t {
+                                                // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
+                                                // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
+                                                // kinds of problems.
+                                                let rounded_d_s = (d_s / 12) * 12;
+                                                let rounded_d_e = (d_e / 12) * 12;
+                                                matching_pairs.push((rounded_d_s as f32, rounded_d_e as f32));
+                                            }
                                         }
                                     }
+                                    break;
                                 }
-                                break;
                             }
                         }
-                    }
-                    // For the start station i_s and the end station i_e we now have a collection of matching
-                    // pairs of observations, i.e. each pair means:
-                    // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
+                        // For the start station i_s and the end station i_e we now have a collection of matching
+                        // pairs of observations, i.e. each pair means:
+                        // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
 
-                    // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
-                    
-                    // Don't generate a graphic if we have too few pairs.
-                    if matching_pairs.len() > 20 {
-                        let stop_pair_data = self.generate_curves_for_stop_pair(matching_pairs);
-                        if let Ok(actual_data) = stop_pair_data {
-                            route_variant_data.curve_sets.insert((i_s as u32, i_e as u32), actual_data);
+                        // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
+                        
+                        // Don't generate a graphic if we have too few pairs.
+                        if matching_pairs.len() > 20 {
+                            let stop_pair_data = self.generate_curves_for_stop_pair(matching_pairs);
+                            if let Ok(actual_data) = stop_pair_data {
+                                route_variant_data.curve_sets.insert((i_s as u32, i_e as u32, (**ts).clone()), actual_data);
+                            }
                         }
                     }
                 }
             }
         }
-         Ok(route_variant_data)
+        Ok(route_variant_data)
     }
 
     fn generate_delay_curve(&self, rows: &Vec<&DbItem>, use_arrival_times: bool) -> FnResult<IrregularDynamicCurve<f32,f32>> {
