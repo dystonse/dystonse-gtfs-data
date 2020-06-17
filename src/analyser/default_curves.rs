@@ -80,7 +80,7 @@ impl<'a> DefaultCurveCreator<'a> {
             let routes = self.get_routes_for_type(*rt);
 
             //find all their route variants
-            let mut route_variants : Vec<&str> = Vec::new();
+            let mut route_variants : Vec<(String, &str)> = Vec::new();
             for r in &routes {
                 route_variants.extend(self.get_variants_for_route(r));
             }
@@ -88,7 +88,7 @@ impl<'a> DefaultCurveCreator<'a> {
             println!("Found {} route variants in {} routes", route_variants.len(), routes.len());
 
             //iterate over route variants
-            for rv in route_variants {
+            for (ri, rv) in route_variants {
 
 
                 //find one trip of this variant
@@ -119,9 +119,9 @@ impl<'a> DefaultCurveCreator<'a> {
 
                 // Get rt data from the database for all route sections in this route variant
                 // TODO: fix this, because it panics if anything went wrong in the database connection etc.!
-                let beginning_data = self.get_data_from_db(&rv, 0, max_beginning_stop).unwrap();
-                let middle_data = self.get_data_from_db(&rv, max_beginning_stop + 1, max_middle_stop).unwrap();
-                let end_data = self.get_data_from_db(&rv, max_middle_stop + 1, u16::MAX).unwrap();
+                let beginning_data = self.get_data_from_db(&ri, &rv, 0, max_beginning_stop).unwrap();
+                let middle_data = self.get_data_from_db(&ri, &rv, max_beginning_stop + 1, max_middle_stop).unwrap();
+                let end_data = self.get_data_from_db(&ri, &rv, max_middle_stop + 1, u16::MAX).unwrap();
 
                 // for each of these sections, separate the data into time slots
                 let beginning_data_by_timeslot = self.sort_dbitems_by_timeslot(beginning_data).unwrap();
@@ -227,20 +227,20 @@ impl<'a> DefaultCurveCreator<'a> {
         return routes;
     }
 
-    fn get_variants_for_route(&self, r: &Route) -> HashSet<&str> {
+    fn get_variants_for_route(&self, r: &Route) -> HashSet<(String, &str)> {
 
-        let mut variants : HashSet<&str> = HashSet::new();
+        let mut variants : HashSet<(String, &str)> = HashSet::new();
 
         for t in self.schedule.trips.values() {
             if t.route_id == r.id {
-                variants.insert(&t.route_variant.as_ref().unwrap());
+                variants.insert((r.id.clone(), &t.route_variant.as_ref().unwrap()));
             }
         }
         return variants;
     }
 
     // picks all rows from the database for a given route section and variant
-    fn get_data_from_db(&self, rv: &str, min: u16, max: u16) -> FnResult<Vec<DbItem>> {
+    fn get_data_from_db(&self, ri: &str, rv: &str, min: u16, max: u16) -> FnResult<Vec<DbItem>> {
         let mut con = self.main.pool.get_conn()?;
         let stmt = con.prep(
             r"SELECT 
@@ -254,18 +254,17 @@ impl<'a> DefaultCurveCreator<'a> {
                 realtime 
             WHERE 
                 source=:source AND 
+                route_id = :route_id AND
                 route_variant=:route_variant AND
                 stop_sequence >= :lower_bound AND
-                stop_sequence <= :upper_bound
-            ORDER BY 
-                date,
-                trip_id",
+                stop_sequence <= :upper_bound",
         )?;
 
         let mut result = con.exec_iter(
             &stmt,
             params! {
                 "source" => &self.main.source,
+                "route_id" => ri,
                 "route_variant" => rv,
                 "lower_bound" => min,
                 "upper_bound" => max,
