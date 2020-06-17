@@ -16,6 +16,7 @@ use simple_error::SimpleError;
 
 use count::*;
 use curve_analysis::CurveCreator;
+use default_curves::DefaultCurveCreator;
 use curve_visualisation::CurveDrawer;
 use visual_schedule::*;
 
@@ -96,6 +97,17 @@ impl<'a> Analyser<'a> {
                     .conflicts_with("route-ids")
                 )
             )
+            .subcommand(App::new("compute-default-curves")
+                .about("Generates default curve data from realtime data out of the database")
+                .arg(Arg::new("schedule")
+                    .short('s')
+                    .long("schedule")
+                    .required(true)
+                    .about("The path of the GTFS schedule that is used as a base for the curves.")
+                    .takes_value(true)
+                    .value_name("GTFS_SCHEDULE")
+                )
+            )
             .subcommand(App::new("draw-curves")
                 .about("Generates curve data from realtime data out of the database")
                 // TODO In the near future: 
@@ -161,6 +173,15 @@ impl<'a> Analyser<'a> {
                     schedule: self.read_schedule(sub_args)?
                 };
                 cc.run_curves()
+            },
+            ("compute-default-curves", Some(sub_args)) => {
+                let dcc = DefaultCurveCreator {
+                    main: self.main,
+                    analyser: self,
+                    args: sub_args, 
+                    schedule: self.read_schedule(sub_args)?
+                };
+                dcc.run_default_curves()
             },
             ("draw-curves", Some(sub_args)) => {
                 let cc = CurveDrawer {
