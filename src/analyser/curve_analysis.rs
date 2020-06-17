@@ -1,7 +1,3 @@
-use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Trip};
 use itertools::Itertools;
@@ -16,7 +12,7 @@ use super::Analyser;
 use super::route_data::*;
 use super::time_slots::TimeSlot;
 
-use crate::{ FnResult, Main, EventType };
+use crate::{ FnResult, Main, EventType, save_to_file, SerdeFormat };
 
 pub struct CurveCreator<'a> {
     pub main: &'a Main,
@@ -111,18 +107,7 @@ impl<'a> CurveCreator<'a> {
             }
         }
 
-        let serialized_bin = rmp_serde::to_vec(&route_data).unwrap();
-        let dir_name = format!("data/curve_data/{}", agency_name);
-        fs::create_dir_all(&dir_name)?;    
-        let file_name = format!("{}/Linie_{}.crv", dir_name, route.short_name);
-        let mut file = match File::create(&file_name) {
-            Err(why) => panic!("couldn't create file: {}", why),
-            Ok(file) => file,
-        };
-        match file.write_all(&serialized_bin) {
-            Err(why) => panic!("couldn't write: {}", why),
-            Ok(_) => println!("successfully wrote."),
-        }
+        save_to_file(&route_data, &format!("data/curve_data/{}", agency_name), &format!("Linie_{}.crv", route.short_name), SerdeFormat::MessagePack)?;
 
         // Print as json for debugging:
         // let serialized = serde_json::to_string(&curve_set).unwrap();

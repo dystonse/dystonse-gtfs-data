@@ -5,10 +5,15 @@ use std::error::Error;
 #[macro_use]
 extern crate lazy_static;
 
+use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
+
 use clap::{App, Arg, ArgMatches};
 use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
+use serde::Serialize;
 
 use importer::Importer;
 use analyser::Analyser;
@@ -144,4 +149,28 @@ impl Main {
         Ok(pool)
     }
 
+}
+
+pub enum SerdeFormat {
+    Json,
+    MessagePack
+}
+
+pub fn save_to_file(object: &impl Serialize, dir_name: &str, file_name: &str, format: SerdeFormat) -> FnResult<()> {
+    let serialized_bin = match format {
+        SerdeFormat::MessagePack => rmp_serde::to_vec(object).unwrap(),
+        SerdeFormat::Json => serde_json::to_vec(object).unwrap(),
+    };
+    fs::create_dir_all(&dir_name)?;    
+    let file_path = format!("{}/{}", dir_name, file_name);
+    let mut file = match File::create(&file_path) {
+        Err(why) => panic!("couldn't create file: {}", why),
+        Ok(file) => file,
+    };
+    match file.write_all(&serialized_bin) {
+        Err(why) => panic!("couldn't write: {}", why),
+        Ok(_) => println!("successfully wrote."),
+    }
+
+    Ok(())
 }
