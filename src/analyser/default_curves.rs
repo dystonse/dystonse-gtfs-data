@@ -16,9 +16,7 @@ use dystonse_curves::irregular_dynamic::*;
 
 use super::Analyser;
 
-use crate::FnResult;
-use crate::Main;
-use crate::EventType;
+use crate::{FnResult, Main, EventType, SerdeFormat, save_to_file};
 
 /*
 //! Create default curves for predictions on routes for which we don't have realtime data
@@ -167,7 +165,10 @@ impl<'a> DefaultCurveCreator<'a> {
         // the next step is to interpolate between all those curves so that we have 
         // only one curve for each (route type, route section, time slot)-tuple
 
-        //let mut all_default_curves : HashMap<(&RouteType, &RouteSection, &TimeSlot, EventType)>;
+        // new datastructure for all the default curves:
+        let mut all_default_curves : 
+            HashMap<(&RouteType, &RouteSection, &TimeSlot, EventType), 
+                IrregularDynamicCurve<f32, f32>> = HashMap::new();
 
         for rt in &route_types {
             for rs in &route_sections {
@@ -178,16 +179,23 @@ impl<'a> DefaultCurveCreator<'a> {
                     let d_curves = default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap();
 
                     // interpolate them into one curve each
-                    /*
-                    let arrival_curve = IrregularDynamicCurve::average(a_curves);
-                    let departure_curve = IrregularDynamicCurve::average(d_curves);
-                    */
+                    let arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
+                    let departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
 
-                    //TODO: fix this and go on from here
+                    // put curves into the final datastructure:
+                    all_default_curves.insert((rt, rs, ts, EventType::Arrival), arrival_curve);
+                    all_default_curves.insert((rt, rs, ts, EventType::Departure), departure_curve);
+
                 }
             }
         }
+
+        // save curve tree to a binary file
+        save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
         
+        // save curve tree to a json file
+        save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.json", SerdeFormat::Json)?;
+
         Ok(())
     }
 

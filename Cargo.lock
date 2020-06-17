@@ -549,7 +549,7 @@ dependencies = [
 [[package]]
 name = "dystonse-curves"
 version = "0.1.0"
-source = "git+https://github.com/dystonse/dystonse-curves.git#feb91bbf284ce9d506408d8035b9f5e488a7bb29"
+source = "git+https://github.com/dystonse/dystonse-curves.git#59eebd52f4de7c0fe7ef7ae5eb409bbe5a2ee917"
 dependencies = [
  "assert_approx_eq",
  "fixed",
@@ -2539,7 +2539,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bfd5b7557925ce778ff9b9ef90e3ade34c524b5ff10e239c69a42d546d2af56"
 dependencies = [
- "rand 0.7.3",
+ "rand 0.4.6",
 ]
 
 [[package]]

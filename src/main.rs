@@ -13,12 +13,12 @@ use clap::{App, Arg, ArgMatches};
 use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 use importer::Importer;
 use analyser::Analyser;
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub enum EventType {
     Arrival,
     Departure,
