@@ -2,6 +2,7 @@ mod count;
 mod curve_analysis;
 mod curve_visualisation;
 mod route_data;
+mod route_sections;
 mod default_curves;
 mod visual_schedule;
 mod time_slots;
