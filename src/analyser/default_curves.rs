@@ -74,15 +74,18 @@ impl<'a> DefaultCurveCreator<'a> {
 
         //iterate over route types
         for rt in route_types.iter() {
+            println!("Starting with route type {:?}", rt);
 
             //find all routes for this type
             let routes = self.get_routes_for_type(*rt);
 
             //find all their route variants
             let mut route_variants : Vec<&str> = Vec::new();
-            for r in routes {
+            for r in &routes {
                 route_variants.extend(self.get_variants_for_route(r));
             }
+
+            println!("Found {} route variants in {} routes", route_variants.len(), routes.len());
 
             //iterate over route variants
             for rv in route_variants {
@@ -111,6 +114,9 @@ impl<'a> DefaultCurveCreator<'a> {
                 }
                 //...now the borders should be known.
 
+                println!("For route variant {} with {} stops, the route sections are at {} and {}.",
+                    rv, rv_stops.len(), max_beginning_stop, max_middle_stop);
+
                 // Get rt data from the database for all route sections in this route variant
                 // TODO: fix this, because it panics if anything went wrong in the database connection etc.!
                 let beginning_data = self.get_data_from_db(&rv, 0, max_beginning_stop).unwrap();
@@ -135,6 +141,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 // for each time slot in each section, make two curves (delay for arrival and depature)
                 for rs in &route_sections {
                     for ts in &TimeSlot::TIME_SLOTS {
+                        println!("Create curves for section {:?} and time slot {}.", rs, ts.description);
 
                         // collect delays in vectors:
                         let arrival_delays : Vec<f32> = 
@@ -160,6 +167,8 @@ impl<'a> DefaultCurveCreator<'a> {
             
         }
 
+        println!("Done with curves for each route variant, now computing average curves…");
+
         // on each leaf of the trees, there is now a vector of curves 
         // with one curve for each route_variant.
         // the next step is to interpolate between all those curves so that we have 
@@ -173,6 +182,7 @@ impl<'a> DefaultCurveCreator<'a> {
         for rt in &route_types {
             for rs in &route_sections {
                 for ts in &TimeSlot::TIME_SLOTS {
+                    println!("Create average curve for route type {:?}, route section {:?} and time slot {}", rt, rs, ts.description);
 
                     // curve vectors
                     let a_curves = default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap();
@@ -190,11 +200,17 @@ impl<'a> DefaultCurveCreator<'a> {
             }
         }
 
+        println!("Saving to binary file.");
+
         // save curve tree to a binary file
         save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
         
+        println!("Saving to json file.");
+
         // save curve tree to a json file
         save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.json", SerdeFormat::Json)?;
+
+        println!("Done!");
 
         Ok(())
     }
