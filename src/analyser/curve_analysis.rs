@@ -10,7 +10,7 @@ use dystonse_curves::{Curve, curve_set::CurveSet};
 use dystonse_curves::tree::{SerdeFormat, TreeData};
 
 use super::Analyser;
-use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData};
+use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData, DelayStatistics};
 
 use crate::{ FnResult, Main };
 
@@ -24,19 +24,22 @@ pub struct CurveCreator<'a> {
 impl<'a> CurveCreator<'a> {
 
     pub fn run_curves(&self) -> FnResult<()> {
+        let mut delay_stats = DelayStatistics::new();
         if let Some(route_ids) = self.args.values_of("route-ids") {
             println!("Handling {} route ids…", route_ids.len());
             for route_id in route_ids {
-                self.create_curves_for_route(&String::from(route_id))?;
+                let route_data = self.create_curves_for_route(&String::from(route_id))?;
+                delay_stats.specific.insert(String::from(route_id), route_data);
             }
         } else {
             println!("I've got no route!");
             // TODO implement handling the "all" arg
         }
+        delay_stats.save_tree(self.analyser.args.value_of("dir").unwrap(), &SerdeFormat::MessagePack, 0)?;
         Ok(())
     }
 
-    fn create_curves_for_route(&self, route_id: &String)  -> FnResult<()> {
+    fn create_curves_for_route(&self, route_id: &String)  -> FnResult<RouteData> {
         let route = self.schedule.get_route(route_id)?;
         let agency_id = route.agency_id.as_ref().unwrap().clone();
         let agency_name = self.schedule
@@ -107,15 +110,7 @@ impl<'a> CurveCreator<'a> {
             }
         }
 
-        let dir_name = format!("data/curve_data/{}", agency_name);
-
-        route_data.save_tree(&dir_name, &SerdeFormat::MessagePack, 0)?;
-
-        // Print as json for debugging:
-        // let serialized = serde_json::to_string(&curve_set).unwrap();
-        // println!("serialized = {}", serialized);
-
-        Ok(())
+        Ok(route_data)
     }
 
     fn create_curves_for_route_variant(
