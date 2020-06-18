@@ -17,16 +17,20 @@ use std::ops::{Index, IndexMut};
 use mysql::*;
 use serde::{Serialize, Deserialize};
 
-#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum EventType {
     Arrival,
     Departure,
 }
 
+impl EventType {
+    pub const TYPES: [&'static EventType; 2] = [&EventType::Arrival, &EventType::Departure];
+}
+
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct EventPair<T> {
-    arrival: T,
-    departure: T
+    pub arrival: T,
+    pub departure: T
 }
 
 impl<T> Index<EventType> for EventPair<T> {
@@ -40,7 +44,6 @@ impl<T> Index<EventType> for EventPair<T> {
     }
 }
 
-
 impl<T> IndexMut<EventType> for EventPair<T> {
     fn index_mut(&mut self, event_type: EventType) -> &mut Self::Output {
         match event_type {
@@ -49,4 +52,3 @@ impl<T> IndexMut<EventType> for EventPair<T> {
         }
     }
 }
-

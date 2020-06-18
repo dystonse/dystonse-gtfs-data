@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use mysql::*;
 use serde::{Serialize, Deserialize};
 
-use dystonse_curves::deser::{SerdeFormat, TreeData, NodeData};
+use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
 
 use crate::{FnResult};
 use super::RouteVariantData;

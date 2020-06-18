@@ -356,7 +356,7 @@ impl<'a> CurveDrawer<'a> {
             fs::create_dir_all(&sub_dir_name)?;
             let file_name = format!("{}/curve_{}_to_{}.svg", &sub_dir_name, i_s, i_e);
             let title = &format!("{} - Verspätungsentwicklung von #{} '{}' bis #{} '{}'", title_prefix, i_s, st_s.name, i_e, st_e.name);
-            self.draw_curves_for_stop_pair(stop_pair_data, data.general_delay_departure.get(&i_s), data.general_delay_arrival.get(&i_e), &file_name, &title)?;
+            self.draw_curves_for_stop_pair(stop_pair_data, data.general_delay.departure.get(&i_s), data.general_delay.arrival.get(&i_e), &file_name, &title)?;
         }
 
         // let filename = format!("{}/all_stops.svg", &dir_name);

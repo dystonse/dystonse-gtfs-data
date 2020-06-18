@@ -12,7 +12,7 @@ use mysql::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::deser::{SerdeFormat, TreeData};
+use dystonse_curves::tree::{SerdeFormat, TreeData};
 
 use super::Analyser;
 

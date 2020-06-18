@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use gtfs_structures::{RouteType};
 
 use dystonse_curves::{
-    deser::{TreeData, SerdeFormat},
+    tree::{TreeData, SerdeFormat},
     irregular_dynamic::*
 };
 

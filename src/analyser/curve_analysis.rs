@@ -7,7 +7,7 @@ use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
-use dystonse_curves::deser::{SerdeFormat, TreeData};
+use dystonse_curves::tree::{SerdeFormat, TreeData};
 
 use super::Analyser;
 use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData};
@@ -139,11 +139,10 @@ impl<'a> CurveCreator<'a> {
                 // Locally select the rows which match the start station
                 let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
 
-                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, EventType::Arrival) {
-                    route_variant_data.general_delay_arrival.insert(i_s as u32, res);
-                }
-                if let Ok(res) = self.generate_delay_curve(&rows_matching_start, EventType::Departure) {
-                    route_variant_data.general_delay_departure.insert(i_s as u32, res);
+                for e_t in &EventType::TYPES {
+                    if let Ok(res) = self.generate_delay_curve(&rows_matching_start, **e_t) {
+                        route_variant_data.general_delay[**e_t].insert(i_s as u32, res);
+                    }
                 }
                 
                 // Iterate over end stations, and only use the ones after the start station
