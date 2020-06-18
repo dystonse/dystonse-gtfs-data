@@ -1,4 +1,4 @@
-use crate::types::{DefaultCurves, EventType, TimeSlot, RouteSection};
+use crate::types::{DefaultCurves, EventType, TimeSlot, RouteSection, PredictionResult};
 use crate::analyser::default_curves::*;
 
 use chrono::NaiveDateTime;
@@ -6,7 +6,7 @@ use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType};
 use mysql::*;
 use regex::Regex;
-use simple_error::SimpleError;
+use simple_error::{SimpleError, bail};
 
 use crate::FnResult;
 use crate::Main;
@@ -117,43 +117,73 @@ impl<'a> Predictor<'a> {
         }
     }
 
-    // keeps running and answering requests for predictions until stopped
+    /// keeps running and answering requests for predictions until stopped
     fn run_start(&self, _args: &ArgMatches) -> FnResult<()> {
         //TODO: everything
 
         Ok(())
     }
 
-    // looks up one prediction and then returns
+    /// looks up one prediction and then returns
     fn run_single(&self, args: &ArgMatches) -> FnResult<()> {
 
+        // parse command line arguments into the right data types
         let route_id = args.value_of("route-id").unwrap();
         let trip_id = args.value_of("trip-id").unwrap();
         let stop_id = args.value_of("stop-id").unwrap();
-        let event_type = args.value_of("event-type").unwrap();
-        let date_time = args.value_of("date-time").unwrap();
+        let event_type = match args.value_of("event-type").unwrap() {
+            "arrival" => EventType::Arrival,
+            "departure" => EventType::Departure,
+            _ => {panic!("Invalid event type argument!");}
+        };
+        let date_time = NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?;
 
-        // find out if there are realtime data of the requested route_variant
+        // data structure to hold the prediction result:
+        let curve : Box<dyn Curve> = self.predict(route_id, trip_id, stop_id, event_type, date_time)?;
 
+        // output the resulting curve to the command line
+        // TODO: we could probably use more advanced kinds of output here
+        println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
+        println!("{:?}", curve);
+
+        Ok(())
+    }
+
+    /// finds out which kind of curve can be used for this prediction and looks up the requested curve
+    fn predict(&self, route_id: &str, trip_id: &str, stop_id: &str, et: EventType, date_time: NaiveDateTime) -> FnResult<Box<dyn Curve>> {
+
+        // data structure for holding the lookup's result:
+        //let mut curve : Box<dyn Curve> = Box::new();
+
+        // find out if there are historical realtime data of the requested route_variant
+        let trip = self.schedule.get_trip(trip_id)?;
+        let route_variant = trip.route_variant.as_ref().unwrap(); //TODO:maybe improve error handling here
+        
+        /*
+        // NOTE: THE FOLLOWING STUFF SHOULD PROBABLY BE COMPUTED BY WHOEVER CALLS THIS MODULE INSTEAD OF HERE:
+        // find out if we have current realtime data of this trip
         // if yes, find latest stop where we have a delay_departure in the past
-            // get that delay and from which stop it is
-            // load curve for that start-delay from that stop to the currently requested stop
+        // get that delay and from which stop it is
+        */
+
+        // load curve for that start-delay from that stop to the currently requested stop
+        
+
+
+            //curve = predict_specific();
             // return that curve to [wherever]
 
         // if no, find route type, route section and time slot of requested data
             // load curve for requested route type, route section, time slot and event type
+            //curve = predict_default();
             // return that curve to [wherever]
-
-        //TODO: everything
-        Ok(())
+        bail!("not yet implemented");
     }
-
-    //TODO: eine funktion, die das eigentliche lookup übernimmt und 
-    // die antwort auf einem definierten weg rausgibt (bei single einmal, bei start mehrmals aufrufen)
 
     // looks up a curve from default curves and returns it
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: TimeSlot, et: EventType) 
             -> FnResult<Box<dyn Curve>> {
+
         let curve = self.default_curves.all_default_curves[&(rt, rs, ts, et)].clone();
   
         Ok(Box::new(curve))
@@ -161,17 +191,17 @@ impl<'a> Predictor<'a> {
 
     // looks up a curve from specific curves and returns it
     fn predict_specific(&self, 
-            ri: &str, 
-            rv: u64, 
-            start_stop: &str, 
-            start_delay: f32, 
+            route_id: &str, 
+            route_variant: u64, 
+            start: Option<(&str, Option<f32>)>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
             ts: TimeSlot,
-            et: EventType) -> FnResult<Box<dyn Curve>> {
+            et: EventType) -> FnResult<PredictionResult> {
         // TODO: actual lookup
         let curve : IrregularDynamicCurve<f32, f32> = IrregularDynamicCurve::new(Vec::new());
         
-        Ok(Box::new(curve))
+        //Ok(Box::new(curve))
+        bail!("not yet implemented");
     }
 
     fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
