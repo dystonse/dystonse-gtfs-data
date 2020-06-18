@@ -90,11 +90,12 @@ impl<'a> Analyser<'a> {
                     .about("If provided, curves will be computed for each route variant of each of the selected routes.")
                     .value_name("ROUTE_ID")
                     .multiple(true)
-                ).arg(Arg::new("all")
-                    .short('a')
-                    .long("all")
-                    .about("If provided, curves will be computed for each route of the schedule.")
-                    .conflicts_with("route-ids")
+                // TODO implement the "all" mode
+                // ).arg(Arg::new("all")
+                //     .short('a')
+                //     .long("all")
+                //     .about("If provided, curves will be computed for each route of the schedule.")
+                //     .conflicts_with("route-ids")
                 )
             )
             .subcommand(App::new("compute-default-curves")
@@ -109,9 +110,7 @@ impl<'a> Analyser<'a> {
                 )
             )
             .subcommand(App::new("draw-curves")
-                .about("Generates curve data from realtime data out of the database")
-                // TODO In the near future: 
-                // .about("Draws curves out of previously generated curve data without accessing the database")
+                .about("Draws curves out of previously generated curve data without accessing the database")
                 .arg(Arg::new("schedule")
                     .short('s')
                     .long("schedule")
@@ -125,11 +124,12 @@ impl<'a> Analyser<'a> {
                     .about("If provided, curves will be drawn for each route variant of each of the selected routes.")
                     .value_name("ROUTE_ID")
                     .multiple(true)
-                ).arg(Arg::new("all")
-                    .short('a')
-                    .long("all")
-                    .about("If provided, curves will be drawn for each route of the schedule.")
-                    .conflicts_with("route-ids")
+                // TODO implement the "all" mode
+                // ).arg(Arg::new("all")
+                //     .short('a')
+                //     .long("all")
+                //     .about("If provided, curves will be drawn for each route of the schedule.")
+                //     .conflicts_with("route-ids")
                 )
             )
             .arg(Arg::new("dir")
@@ -216,17 +216,4 @@ impl<'a> Analyser<'a> {
             )))?;
         Ok(NaiveDateTime::from_str(&date_element_captures[1])?)
     }
-
-    // This method was used to output a graphviz dot file of the stops of a route and its variants
-    // fn print_pair(schedule: &Gtfs, first_stop_id: &str, second_stop_id: &str, reverse: bool) {
-    //     println!(
-    //         r##""{} ()" -> "{} ()" [color={}, dir={}]"##,
-    //         schedule.get_stop(first_stop_id).unwrap().name,
-    //         //first_stop_id,
-    //         schedule.get_stop(second_stop_id).unwrap().name,
-    //         //second_stop_id,
-    //         if reverse { "red" } else { "blue" },
-    //         if reverse { "back" } else { "foreward" }
-    //     );
-    // }
 }
