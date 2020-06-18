@@ -1,9 +1,9 @@
-use crate::types::DefaultCurves;
+use crate::types::{DefaultCurves, EventType, TimeSlot, RouteSection};
 use crate::analyser::default_curves::*;
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
-use gtfs_structures::Gtfs;
+use gtfs_structures::{Gtfs, RouteType};
 use mysql::*;
 use regex::Regex;
 use simple_error::SimpleError;
@@ -12,6 +12,9 @@ use crate::FnResult;
 use crate::Main;
 
 use std::str::FromStr;
+
+use dystonse_curves::*;
+use dystonse_curves::irregular_dynamic::IrregularDynamicCurve;
 
 pub struct Predictor<'a> {
     #[allow(dead_code)]
@@ -100,8 +103,8 @@ impl<'a> Predictor<'a> {
             main,
             args,
             data_dir: Some(String::from(args.value_of("dir").unwrap())),
-            schedule: Predictor::read_schedule(args).unwrap(),
-            default_curves: Predictor::read_default_curves(args).unwrap(),
+            schedule: Self::read_schedule(args).unwrap(),
+            default_curves: Self::read_default_curves(args).unwrap(),
         }
     }
 
@@ -118,15 +121,57 @@ impl<'a> Predictor<'a> {
     fn run_start(&self, _args: &ArgMatches) -> FnResult<()> {
         //TODO: everything
 
-
         Ok(())
     }
 
     // looks up one prediction and then returns
-    fn run_single(&self, _args: &ArgMatches) -> FnResult<()> {
-        //TODO: everything
+    fn run_single(&self, args: &ArgMatches) -> FnResult<()> {
 
+        let route_id = args.value_of("route-id").unwrap();
+        let trip_id = args.value_of("trip-id").unwrap();
+        let stop_id = args.value_of("stop-id").unwrap();
+        let event_type = args.value_of("event-type").unwrap();
+        let date_time = args.value_of("date-time").unwrap();
+
+        // find out if there are realtime data of the requested route_variant
+
+        // if yes, find latest stop where we have a delay_departure in the past
+            // get that delay and from which stop it is
+            // load curve for that start-delay from that stop to the currently requested stop
+            // return that curve to [wherever]
+
+        // if no, find route type, route section and time slot of requested data
+            // load curve for requested route type, route section, time slot and event type
+            // return that curve to [wherever]
+
+        //TODO: everything
         Ok(())
+    }
+
+    //TODO: eine funktion, die das eigentliche lookup übernimmt und 
+    // die antwort auf einem definierten weg rausgibt (bei single einmal, bei start mehrmals aufrufen)
+
+    // looks up a curve from default curves and returns it
+    fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: TimeSlot, et: EventType) 
+            -> FnResult<Box<dyn Curve>> {
+        let curve = self.default_curves.all_default_curves[&(rt, rs, ts, et)].clone();
+  
+        Ok(Box::new(curve))
+    }
+
+    // looks up a curve from specific curves and returns it
+    fn predict_specific(&self, 
+            ri: &str, 
+            rv: u64, 
+            start_stop: &str, 
+            start_delay: f32, 
+            stop_id: &str, 
+            ts: TimeSlot,
+            et: EventType) -> FnResult<Box<dyn Curve>> {
+        // TODO: actual lookup
+        let curve : IrregularDynamicCurve<f32, f32> = IrregularDynamicCurve::new(Vec::new());
+        
+        Ok(Box::new(curve))
     }
 
     fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
