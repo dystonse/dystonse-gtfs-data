@@ -1,45 +1,8 @@
-use dystonse_curves::curve_set::CurveSet;
-use dystonse_curves::irregular_dynamic::*;
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
-use super::time_slots::TimeSlot;
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
 use mysql::*;
 use mysql::prelude::*;
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
-use crate::EventType;
 use gtfs_structures::{Trip, Gtfs};
-
-#[derive(Serialize, Deserialize)]
-pub struct RouteData {
-    pub variants: HashMap<u64, RouteVariantData>
-}
-
-impl RouteData {
-    pub fn new() -> Self {
-        return Self {
-            variants: HashMap::new()
-        };
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RouteVariantData {
-    pub stop_ids: Vec<String>,
-    pub curve_sets: HashMap<(u32, u32, TimeSlot), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>,
-    pub general_delay_arrival: HashMap<u32, IrregularDynamicCurve<f32,f32>>,
-    pub general_delay_departure: HashMap<u32, IrregularDynamicCurve<f32,f32>>,
-}
-
-impl RouteVariantData {
-    pub fn new() -> Self {
-        return Self {
-            stop_ids: Vec::new(),
-            curve_sets: HashMap::new(),
-            general_delay_arrival: HashMap::new(),
-            general_delay_departure: HashMap::new(),
-        };
-    }
-}
+use super::EventType;
 
 pub struct DbItem {
     pub delay_arrival: Option<i32>,

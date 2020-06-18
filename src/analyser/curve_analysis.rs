@@ -7,12 +7,12 @@ use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
+use dystonse_curves::deser::{SerdeFormat, TreeData};
 
 use super::Analyser;
-use super::route_data::*;
-use super::time_slots::TimeSlot;
+use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData};
 
-use crate::{ FnResult, Main, EventType, save_to_file, SerdeFormat };
+use crate::{ FnResult, Main };
 
 pub struct CurveCreator<'a> {
     pub main: &'a Main,
@@ -50,7 +50,7 @@ impl<'a> CurveCreator<'a> {
 
         println!("Working on route {} of agency {}.", route.short_name, agency_name);
 
-        let mut route_data = RouteData::new();
+        let mut route_data = RouteData::new(route_id);
 
         let mut con = self.main.pool.get_conn()?;
         let stmt = con.prep(
@@ -107,7 +107,9 @@ impl<'a> CurveCreator<'a> {
             }
         }
 
-        save_to_file(&route_data, &format!("data/curve_data/{}", agency_name), &format!("Linie_{}.crv", route.short_name), SerdeFormat::MessagePack)?;
+        let dir_name = format!("data/curve_data/{}", agency_name);
+
+        route_data.save_tree(&dir_name, &SerdeFormat::MessagePack, 0)?;
 
         // Print as json for debugging:
         // let serialized = serde_json::to_string(&curve_set).unwrap();

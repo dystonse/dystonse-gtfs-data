@@ -1,11 +1,8 @@
 mod count;
 pub mod curve_analysis;
 mod curve_visualisation;
-pub mod route_data;
-pub mod route_sections;
 pub mod default_curves;
 mod visual_schedule;
-pub mod time_slots;
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};

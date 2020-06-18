@@ -1,8 +1,9 @@
 use chrono::{Weekday, NaiveDateTime, Datelike, Timelike};
 use serde::{Serialize, Deserialize};
 use gtfs_structures::Trip;
-use super::route_data::DbItem;
-use crate::EventType;
+use crate::types::{
+    EventType, DbItem
+};
 
 /// Time slots are specific ranges in time that occur repeatedly. 
 /// Any DateTime should be able to be mapped to exactly one TimeSlot constant.

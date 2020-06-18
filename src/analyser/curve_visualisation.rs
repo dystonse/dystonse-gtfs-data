@@ -9,9 +9,9 @@ use gnuplot::*;
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
 
+use crate::types::{RouteData, RouteVariantData, TimeSlot};
+
 use super::Analyser;
-use super::route_data::*;
-use super::time_slots::TimeSlot;
 
 use crate::FnResult;
 use crate::Main;

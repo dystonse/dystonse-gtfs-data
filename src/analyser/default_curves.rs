@@ -1,10 +1,9 @@
 use std::collections::{HashSet, HashMap};
 use std::u16;
 
-use super::time_slots::TimeSlot;
+use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType};
+
 use super::curve_analysis::CurveCreator;
-use super::route_data::DbItem;
-use super::route_sections::*;
 
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType};
@@ -13,35 +12,14 @@ use mysql::prelude::*;
 use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
+use dystonse_curves::deser::{SerdeFormat, TreeData};
 
 use super::Analyser;
 
-use crate::{FnResult, Main, EventType, SerdeFormat, save_to_file};
-
-
+use crate::{FnResult, Main};
 
 // curves based on less than this number of data will be discarded:
 const MIN_DATA_FOR_CURVE : usize = 10; 
-
-/// a struct to hold a hash map of all the default curves
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DefaultCurves {
-    pub all_default_curves: HashMap<(RouteType, RouteSection, TimeSlot, EventType), 
-        IrregularDynamicCurve<f32, f32>>
-}
-
-impl DefaultCurves {
-    pub fn new() -> Self {
-        return Self {
-            all_default_curves: HashMap::new()
-        };
-    }
-
-    // TODO: This is just a dummy and does not actually do anything yet!!!
-    pub fn load_from_file(file_path: &str) -> FnResult<DefaultCurves> {
-        return Ok(DefaultCurves::new());
-    }
-}
 
 /// Create default curves for predictions on routes for which we don't have realtime data
 /// Default curves are computed for delay_arrival and delay_departure 
@@ -124,7 +102,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 let mut max_middle_stop : u16 = 0;
 
                 for s in rv_stops {
-                    let sec : RouteSection = get_route_section(&self.schedule, &trip.id, &s.stop.id);
+                    let sec : RouteSection = RouteSection::get_route_section(&self.schedule, &trip.id, &s.stop.id);
                     if sec == RouteSection::Beginning {
                         max_beginning_stop = s.stop_sequence;
                     }
@@ -235,12 +213,12 @@ impl<'a> DefaultCurveCreator<'a> {
 
         println!("Saving to binary file.");
 
-        // save curve tree to a binary file
-        save_to_file(&dc, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
+        // save curve types to a binary file
+        dc.save_tree("data/curve_data/default_curves", &SerdeFormat::MessagePack, 0)?;
         
         // The hashmap has tuples as keys, which is not supported by json without manual conversion.
         // println!("Saving to json file.");
-        // // save curve tree to a json file
+        // // save curve types to a json file
         // save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.json", SerdeFormat::Json)?;
 
         println!("Done!");

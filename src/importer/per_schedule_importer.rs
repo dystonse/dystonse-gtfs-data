@@ -9,7 +9,7 @@ use simple_error::SimpleError;
 use std::fs::File;
 use std::io::prelude::*;
 
-use crate::{FnResult, EventType};
+use crate::{FnResult, types::EventType};
 
 const MAX_BATCH_SIZE: usize = 1000;
 
