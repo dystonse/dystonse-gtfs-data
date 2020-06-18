@@ -1,5 +1,6 @@
 mod importer;
 mod analyser;
+mod predictor;
 
 use std::error::Error;
 #[macro_use]
@@ -17,6 +18,7 @@ use serde::{Serialize, Deserialize};
 
 use importer::Importer;
 use analyser::Analyser;
+use predictor::Predictor;
 
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub enum EventType {
@@ -45,6 +47,7 @@ fn parse_args() -> ArgMatches {
     let matches = App::new("dystonse-gtfs-data")
         .subcommand(Importer::get_subcommand())
         .subcommand(Analyser::get_subcommand())
+        .subcommand(Predictor::get_subcommand())        
         .arg(Arg::new("verbose")
             .short('v')
             .long("verbose")
@@ -122,11 +125,15 @@ impl Main {
             ("import", Some(sub_args)) => {
                 let mut importer = Importer::new(&self, sub_args);
                 importer.run()
-            }
+            },
             ("analyse", Some(sub_args)) => {
                 let mut analyser = Analyser::new(&self, sub_args);
                 analyser.run()
-            }
+            },
+            ("predict", Some(sub_args)) => {
+                let mut predictor = Predictor::new(&self, sub_args);
+                predictor.run()
+            },
             _ => panic!("Invalid arguments."),
         }
     }
