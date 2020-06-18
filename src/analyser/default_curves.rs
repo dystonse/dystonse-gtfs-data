@@ -6,11 +6,11 @@ use super::curve_analysis::CurveCreator;
 use super::route_data::DbItem;
 use super::route_sections::*;
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime,};
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType, StopTime};
+use gtfs_structures::{Gtfs, Route, RouteType};
 use mysql::*;
 use mysql::prelude::*;
+use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
 
@@ -18,16 +18,31 @@ use super::Analyser;
 
 use crate::{FnResult, Main, EventType, SerdeFormat, save_to_file};
 
+
+
+// curves based on less than this number of data will be discarded:
+const MIN_DATA_FOR_CURVE : usize = 10; 
+
+/// a struct to hold a hash map of all the default curves
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DefaultCurves {
+    pub all_default_curves: HashMap<(RouteType, RouteSection, TimeSlot, EventType), 
+        IrregularDynamicCurve<f32, f32>>
+}
+
+impl DefaultCurves {
+    pub fn new() -> Self {
+        return Self {
+            all_default_curves: HashMap::new()
+        };
+    }
+}
+
 /// Create default curves for predictions on routes for which we don't have realtime data
 /// Default curves are computed for delay_arrival and delay_departure 
 /// and are identified by route_type, time_slot and route_section.
 /// The calculations are based on the routes for which we have historic realtime data, 
 /// but the curves are intended to be used for any prediction, identified by the criteria mentioned above.
-
-
-//curves based on less than this number of data will be discarded
-const MIN_DATA_FOR_CURVE : usize = 10; 
-
 
 pub struct DefaultCurveCreator<'a> {
     pub main: &'a Main,
@@ -181,9 +196,7 @@ impl<'a> DefaultCurveCreator<'a> {
         // only one curve for each (route type, route section, time slot)-tuple
 
         // new datastructure for all the default curves:
-        let mut all_default_curves : 
-            HashMap<(&RouteType, &RouteSection, &TimeSlot, EventType), 
-                IrregularDynamicCurve<f32, f32>> = HashMap::new();
+        let mut dc : DefaultCurves = DefaultCurves::new();
 
         for rt in &route_types {
             for rs in &route_sections {
@@ -194,29 +207,31 @@ impl<'a> DefaultCurveCreator<'a> {
                     let a_curves = default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap();
                     let d_curves = default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap();
 
-                    // interpolate them into one curve each
+                    // interpolate them into one curve each and
                     // put curves into the final datastructure:
                     if a_curves.len() > 0 {
                         let mut arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
                         arrival_curve.simplify(0.001);
-                        all_default_curves.insert((rt, rs, ts, EventType::Arrival), arrival_curve);
+                        dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), EventType::Arrival), arrival_curve);
                     }
                     
                     if d_curves.len() > 0 {
                         let mut departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
                         departure_curve.simplify(0.001);
-                        all_default_curves.insert((rt, rs, ts, EventType::Departure), departure_curve);
+                        dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), EventType::Departure), departure_curve);
                     }
                 }
             }
         }
 
-        println!("Done with everything but saving. Result: {:?}", all_default_curves);
+
+
+        println!("Done with everything but saving. Result: {:?}", dc.all_default_curves);
 
         println!("Saving to binary file.");
 
         // save curve tree to a binary file
-        save_to_file(&all_default_curves, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
+        save_to_file(&dc, "data/curve_data/default_curves", "Default_Curves.crv", SerdeFormat::MessagePack)?;
         
         // The hashmap has tuples as keys, which is not supported by json without manual conversion.
         // println!("Saving to json file.");
