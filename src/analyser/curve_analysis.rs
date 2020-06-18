@@ -159,8 +159,8 @@ impl<'a> CurveCreator<'a> {
                                 if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
                                     // Only use rows where delay is not None
                                     // TODO filter those out at the DB level or in the above filter expressions
-                                    if let Some(d_s) = row_s.delay_departure {
-                                        if let Some(d_e) = row_e.delay_arrival {
+                                    if let Some(d_s) = row_s.delay.departure {
+                                        if let Some(d_e) = row_e.delay.arrival {
                                             // Filter out rows with too much positive or negative delay
                                             if d_s < t && d_s > -t && d_e < t && d_e > -t {
                                                 // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
@@ -196,11 +196,9 @@ impl<'a> CurveCreator<'a> {
         Ok(route_variant_data)
     }
 
-    fn generate_delay_curve(&self, rows: &Vec<&DbItem>, event_type: EventType) -> FnResult<IrregularDynamicCurve<f32,f32>> {
-        let values: Vec<f32> = match event_type {
-            EventType::Arrival => rows.iter().filter_map(|r| r.delay_arrival).map(|t| t as f32).collect(),
-            EventType::Departure => rows.iter().filter_map(|r| r.delay_departure).map(|t| t as f32).collect()
-        };
+    fn generate_delay_curve(&self, items: &Vec<&DbItem>, event_type: EventType) -> FnResult<IrregularDynamicCurve<f32,f32>> {
+        let values: Vec<f32> = items.iter().filter_map(|r| r.delay[event_type]).map(|t| t as f32).collect();
+
         if values.len() < 20 {
             bail!("Less than 20 data rows.");
         }

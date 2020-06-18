@@ -2,11 +2,12 @@ use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
 use mysql::*;
 use mysql::prelude::*;
 use gtfs_structures::{Trip, Gtfs};
-use super::EventType;
+use super::{EventType, EventPair, GetByEventType};
 
 pub struct DbItem {
-    pub delay_arrival: Option<i32>,
-    pub delay_departure: Option<i32>,
+    pub delay: EventPair<Option<i32>>,
+    //pub delay_arrival: Option<i32>,
+    //pub delay_departure: Option<i32>,
     pub date: Option<NaiveDate>,
     pub trip_id: String,
     pub stop_id: String,
@@ -16,8 +17,10 @@ pub struct DbItem {
 impl FromRow for DbItem {
     fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
         Ok(DbItem{
-            delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
-            delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
+            delay: EventPair {
+                arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
+                departure: row.get_opt::<i32,_>(1).unwrap().ok(),
+            },
             date: row.get_opt(2).unwrap().ok(),
             trip_id: row.get::<String, _>(3).unwrap(),
             stop_id: row.get::<String, _>(4).unwrap(),
@@ -37,7 +40,7 @@ impl DbItem {
         if st.is_none() { return None; } // prevents panic before trying to unwrap
 
         // get arrival or departure time from StopTime:
-        let t : Option<u32> = if et == EventType::Departure {st.unwrap().departure_time} else {st.unwrap().arrival_time};
+        let t = st.unwrap().get_time(et);
         if t.is_none() { return None; } // prevents panic before trying to unwrap
         let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
         if time.is_none() { return None; } // prevents panic before trying to unwrap

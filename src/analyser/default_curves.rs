@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::u16;
 
-use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType};
+use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType, EventPair};
 
 use super::curve_analysis::CurveCreator;
 
@@ -53,19 +53,16 @@ impl<'a> DefaultCurveCreator<'a> {
             ];
 
         //data structures to collect all default curves:
-        let mut default_arrival_curves : 
-            HashMap<(&RouteType, &RouteSection, &TimeSlot), 
-                Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
-        let mut default_departure_curves : 
-            HashMap<(&RouteType, &RouteSection, &TimeSlot), 
-                Vec<IrregularDynamicCurve<f32, f32>>> = HashMap::new();
-
+        let mut default_curves : EventPair
+            <HashMap<(&RouteType, &RouteSection, &TimeSlot), 
+                Vec<IrregularDynamicCurve<f32, f32>>>> = EventPair { arrival: HashMap::new(), departure: HashMap::new() };
+       
         // initialize them with empty vectors
         for rt in &route_types {
             for rs in &route_sections {
                 for ts in &TimeSlot::TIME_SLOTS {
-                    default_arrival_curves.insert((rt, rs, ts), Vec::new());
-                    default_departure_curves.insert((rt, rs, ts), Vec::new());
+                    default_curves.arrival.insert((rt, rs, ts), Vec::new());
+                    default_curves.departure.insert((rt, rs, ts), Vec::new());
                 }
             }
         }
@@ -142,33 +139,22 @@ impl<'a> DefaultCurveCreator<'a> {
                         println!("Create curves for section {:?} and time slot {}.", rs, ts.description);
 
                         // collect delays in vectors:
-                        let arrival_delays : Vec<f32> = 
-                            data_by_route_section_and_timeslot[rs][ts].iter()
-                                .filter_map(|item| item.delay_arrival).map(|i| i as f32).collect();
-                        let departure_delays : Vec<f32> = 
-                            data_by_route_section_and_timeslot[rs][ts].iter()
-                                .filter_map(|item| item.delay_departure).map(|i| i as f32).collect();
-
-                        // create curves from the vectors and put them into the big hashmap:
-                        if arrival_delays.len() >= MIN_DATA_FOR_CURVE {
-                            if let Ok(arrival_curve) = CurveCreator::make_curve(&arrival_delays, None) {
-                                let mut curve = arrival_curve.0;
-                                curve.simplify(0.001);
-                                default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap().push(curve);
-                            }
+                        let mut delays : EventPair<Vec<f32>> = EventPair { arrival: Vec::new(), departure: Vec::new() };
+                        for e_t in &EventType::TYPES {
+                            delays[**e_t] = data_by_route_section_and_timeslot[rs][ts].iter()
+                                .filter_map(|item| item.delay[**e_t]).map(|i| i as f32).collect();
                         }
-                        if departure_delays.len() >= MIN_DATA_FOR_CURVE {
-                            if let Ok(departure_curve) = CurveCreator::make_curve(&departure_delays, None) {
-                                let mut curve = departure_curve.0;
-                                curve.simplify(0.001);
-                                default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap().push(curve);
-                            }
+                        for e_t in &EventType::TYPES {
+                            if delays[**e_t].len() >= MIN_DATA_FOR_CURVE {
+                                if let Ok((mut curve, _)) = CurveCreator::make_curve(&delays[**e_t], None) {
+                                    curve.simplify(0.001);
+                                    default_curves[**e_t].get_mut(&(rt, rs, *ts)).unwrap().push(curve);
+                                }
+                            }   
                         }
                     }
                 }
-
             }
-            
         }
 
         println!("Done with curves for each route variant, now computing average curves…");
@@ -186,22 +172,16 @@ impl<'a> DefaultCurveCreator<'a> {
                 for ts in &TimeSlot::TIME_SLOTS {
                     println!("Create average curve for route type {:?}, route section {:?} and time slot {}", rt, rs, ts.description);
 
-                    // curve vectors
-                    let a_curves = default_arrival_curves.get_mut(&(rt, rs, *ts)).unwrap();
-                    let d_curves = default_departure_curves.get_mut(&(rt, rs, *ts)).unwrap();
-
-                    // interpolate them into one curve each and
-                    // put curves into the final datastructure:
-                    if a_curves.len() > 0 {
-                        let mut arrival_curve = IrregularDynamicCurve::<f32, f32>::average(a_curves);
-                        arrival_curve.simplify(0.001);
-                        dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), EventType::Arrival), arrival_curve);
-                    }
-                    
-                    if d_curves.len() > 0 {
-                        let mut departure_curve = IrregularDynamicCurve::<f32, f32>::average(d_curves);
-                        departure_curve.simplify(0.001);
-                        dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), EventType::Departure), departure_curve);
+                    for e_t in &EventType::TYPES {
+                        // curve vectors
+                        let curves = default_curves[**e_t].get_mut(&(rt, rs, *ts)).unwrap();
+                        // interpolate them into one curve each and
+                        // put curves into the final datastructure:
+                        if curves.len() > 0 {
+                            let mut curve = IrregularDynamicCurve::<f32, f32>::average(curves);
+                            curve.simplify(0.001);
+                            dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), curve);
+                        }
                     }
                 }
             }

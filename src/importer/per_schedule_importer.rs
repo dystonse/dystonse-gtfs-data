@@ -9,7 +9,8 @@ use simple_error::SimpleError;
 use std::fs::File;
 use std::io::prelude::*;
 
-use crate::{FnResult, types::EventType};
+use crate::FnResult;
+use crate::types::{EventType, GetByEventType};
 
 const MAX_BATCH_SIZE: usize = 1000;
 
@@ -258,13 +259,7 @@ impl<'a> PerScheduleImporter<'a> {
             if let Some(delay) = event.delay {
                 delay as i64
             } else {
-                eprintln!(
-                    "Stop time update {} without delay. Skipping.",
-                    match event_type {
-                        EventType::Arrival => "arrival",
-                        EventType::Departure => "departure",
-                    }
-                );
+                eprintln!("Stop time update {:?} without delay. Skipping.", event_type);
                 return EventTimes::empty();
             }
         } else {
@@ -273,10 +268,7 @@ impl<'a> PerScheduleImporter<'a> {
 
         let potential_stop_time = schedule_trip.stop_times.iter().filter(|st| st.stop_sequence == stop_sequence as u16).nth(0);
         let event_time = if let Some(stop_time) = potential_stop_time {
-            match event_type {
-                EventType::Arrival => stop_time.arrival_time,
-                EventType::Departure => stop_time.departure_time,
-            }
+            stop_time.get_time(event_type)
         } else {
             eprintln!("Realtime data references stop_sequence {}, which does not exist in trip {}.", stop_sequence, schedule_trip.id);
             // TODO return Error or something
