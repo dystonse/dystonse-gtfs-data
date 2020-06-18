@@ -36,6 +36,11 @@ impl DefaultCurves {
             all_default_curves: HashMap::new()
         };
     }
+
+    // TODO: This is just a dummy and does not actually do anything yet!!!
+    pub fn load_from_file(file_path: &str) -> FnResult<DefaultCurves> {
+        return Ok(DefaultCurves::new());
+    }
 }
 
 /// Create default curves for predictions on routes for which we don't have realtime data
