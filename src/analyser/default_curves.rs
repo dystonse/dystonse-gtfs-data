@@ -9,7 +9,6 @@ use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType};
 use mysql::*;
 use mysql::prelude::*;
-use serde::{Serialize, Deserialize};
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::tree::{SerdeFormat, TreeData};

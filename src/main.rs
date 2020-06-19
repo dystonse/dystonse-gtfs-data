@@ -11,7 +11,6 @@ use clap::{App, Arg, ArgMatches};
 use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
-use serde::{Serialize, Deserialize};
 
 use importer::Importer;
 use analyser::Analyser;

@@ -178,6 +178,7 @@ impl<'a> Predictor<'a> {
     }
 
     // looks up a curve from default curves and returns it
+    #[allow(dead_code)]
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: TimeSlot, et: EventType) 
             -> FnResult<Box<dyn Curve>> {
 
@@ -187,6 +188,7 @@ impl<'a> Predictor<'a> {
     }
 
     // looks up a curve from specific curves and returns it
+    #[allow(dead_code)]
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 

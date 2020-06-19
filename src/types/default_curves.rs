@@ -34,19 +34,14 @@ impl DefaultCurves {
             all_default_curves: HashMap::new()
         };
     }
-
-    // TODO: This is just a dummy and does not actually do anything yet!!!
-    pub fn load_from_file(file_path: &str) -> FnResult<DefaultCurves> {
-        return Ok(DefaultCurves::new());
-    }
 }
 
 impl TreeData for DefaultCurves {
-    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
+    fn save_tree(&self, _dir_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<()> {
         Ok(())
     }
 
-    fn load_tree(dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self>{
+    fn load_tree(_dir_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
 }
