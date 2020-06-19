@@ -21,23 +21,23 @@ pub struct RouteVariantData {
 }
 
 impl TreeData for RouteVariantData {
-    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
+    fn save_tree(&self, dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
         if leaves.contains(&Self::NAME) {
-            let file_name = format!("variant_{}.crv", dir_name);
-            self.save_to_file(dir_name, &file_name, format)?;
+            self.save_to_file(dir_name, own_name, format)?;
         } else {
             self.stop_ids.save_to_file(dir_name, "stop_ids", format)?;
             self.general_delay.save_to_file(dir_name, "general_delay", format)?;
             for ((i_s, i_e, time_slot), curve_set) in &self.curve_sets {
-                let sub_dir_name = format!("{}/{}/from_{}_to_{}", dir_name, time_slot.description, i_s, i_e);
-                curve_set.save_tree(&sub_dir_name, format, leaves)?;
+                let sub_dir_name = format!("{}/{}", dir_name, time_slot.description);
+                let own_name = format!("from_{}_to_{}", i_s, i_e);
+                curve_set.save_tree(&sub_dir_name, &own_name, format, leaves)?;
             }
         }
 
         Ok(())
     }
 
-    fn load_tree(_dir_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<Self>{
+    fn load_tree(_dir_name: &str, _own_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
 }

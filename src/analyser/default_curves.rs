@@ -11,7 +11,7 @@ use mysql::*;
 use mysql::prelude::*;
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::tree::{SerdeFormat, TreeData};
+use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
 
 use super::Analyser;
 
@@ -193,7 +193,7 @@ impl<'a> DefaultCurveCreator<'a> {
         println!("Saving to binary file.");
 
         // save curve types to a binary file
-        dc.save_tree("data/curve_data/default_curves", &SerdeFormat::MessagePack, &vec!(DefaultCurves::NAME))?;
+        dc.save_to_file("data/curve_data","default_curves", &SerdeFormat::MessagePack)?;
         
         // The hashmap has tuples as keys, which is not supported by json without manual conversion.
         // println!("Saving to json file.");

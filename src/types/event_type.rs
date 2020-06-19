@@ -1,6 +1,9 @@
 use gtfs_structures::StopTime;
 use std::ops::{Index, IndexMut};
 use serde::{Serialize, Deserialize};
+use simple_error::bail;
+use crate::FnResult;
+use dystonse_curves::tree::{TreeData, LeafData, SerdeFormat};
 
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum EventType {
@@ -16,6 +19,10 @@ impl EventType {
 pub struct EventPair<T> {
     pub arrival: T,
     pub departure: T
+}
+
+impl<T> EventPair<T> {
+    pub const NAME : &'static str = "EventPair";
 }
 
 impl<T> Index<EventType> for EventPair<T> {
@@ -36,6 +43,19 @@ impl<T> IndexMut<EventType> for EventPair<T> {
             EventType::Departure => &mut self.departure
         }
     }
+}
+
+impl<T> TreeData for EventPair<T> {
+    fn save_tree(&self, dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
+        bail!("Nerv nicht.");
+    }
+
+    fn load_tree(dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self> {
+        bail!("Nerv nicht.");
+    }
+}
+
+impl<T> LeafData for EventPair<T> {
 }
 
 pub trait GetByEventType {
