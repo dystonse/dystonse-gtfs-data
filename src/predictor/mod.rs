@@ -1,19 +1,17 @@
-use crate::types::{DefaultCurves, EventType, TimeSlot, RouteSection, PredictionResult};
-use crate::analyser::default_curves::*;
+use crate::types::{EventType, TimeSlot, RouteSection, PredictionResult, DelayStatistics};
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType};
 use mysql::*;
-use regex::Regex;
-use simple_error::{SimpleError, bail};
+
+use simple_error::bail;
 
 use crate::FnResult;
 use crate::Main;
 
-use std::str::FromStr;
-
 use dystonse_curves::*;
+use dystonse_curves::tree::{SerdeFormat, NodeData};
 use dystonse_curves::irregular_dynamic::IrregularDynamicCurve;
 
 pub struct Predictor<'a> {
@@ -22,8 +20,7 @@ pub struct Predictor<'a> {
     args: &'a ArgMatches,
     data_dir: Option<String>,
     schedule: Gtfs,
-    default_curves: DefaultCurves,
-    //TODO: add field with struct for "route data" curves here
+    delay_statistics: Box<DelayStatistics>,
 }
 
 impl<'a> Predictor<'a> {
@@ -104,7 +101,7 @@ impl<'a> Predictor<'a> {
             args,
             data_dir: Some(String::from(args.value_of("dir").unwrap())),
             schedule: Self::read_schedule(args).unwrap(),
-            default_curves: Self::read_default_curves(args).unwrap(),
+            delay_statistics: Self::read_delay_statistics(args).unwrap(),
         }
     }
 
@@ -184,7 +181,7 @@ impl<'a> Predictor<'a> {
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: TimeSlot, et: EventType) 
             -> FnResult<Box<dyn Curve>> {
 
-        let curve = self.default_curves.all_default_curves[&(rt, rs, ts, et)].clone();
+        let curve = self.delay_statistics.general.all_default_curves[&(rt, rs, ts, et)].clone();
   
         Ok(Box::new(curve))
     }
@@ -211,11 +208,11 @@ impl<'a> Predictor<'a> {
         Ok(schedule)
     }
 
-    fn read_default_curves(sub_args: &ArgMatches) -> FnResult<DefaultCurves> {
+    fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
         println!("parsing default curves…");
-        let file_path = format!("{}/curve_data/default_curves/Default_curves.crv", 
+        let dir_name = format!("{}/curve_data/default_curves", 
             String::from(sub_args.value_of("dir").unwrap())); //TODO: this could panic!
-        let def_curves = (DefaultCurves::load_from_file(&file_path))?;
+        let def_curves = (DelayStatistics::load_from_file(&dir_name, "Default_curves.crv", &SerdeFormat::MessagePack))?;
         println!("Done with parsing default curves.");
         Ok(def_curves)
     }

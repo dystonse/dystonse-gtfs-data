@@ -8,6 +8,8 @@ use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
 use crate::{FnResult};
 use super::RouteVariantData;
 
+use simple_error::bail;
+
 #[derive(Serialize, Deserialize)]
 pub struct RouteData {
     pub route_id: String,
@@ -36,5 +38,9 @@ impl TreeData for RouteData {
         }
 
         Ok(())
+    }
+
+    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Box<Self>>{
+        bail!("Not yet implemented!");
     }
 }

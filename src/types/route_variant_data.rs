@@ -11,6 +11,8 @@ use crate::{FnResult};
 use super::TimeSlot;
 use super::EventPair;
 
+use simple_error::bail;
+
 #[derive(Serialize, Deserialize)]
 pub struct RouteVariantData {
     pub stop_ids: Vec<String>,
@@ -33,6 +35,10 @@ impl TreeData for RouteVariantData {
         }
 
         Ok(())
+    }
+
+    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Box<Self>>{
+        bail!("Not yet implemented!");
     }
 }
 

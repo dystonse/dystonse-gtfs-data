@@ -3,8 +3,10 @@ use serde::{Serialize, Deserialize};
 
 use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
 
-use crate::{FnResult};
+use crate::FnResult;
 use crate::types::{RouteData, DefaultCurves};
+
+use simple_error::bail;
 
 #[derive(Serialize, Deserialize)]
 pub struct DelayStatistics {
@@ -35,5 +37,9 @@ impl TreeData for DelayStatistics {
         }
 
         Ok(())
+    }
+
+    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Box<Self>>{
+        bail!("Not yet implemented!");
     }
 }

@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use gtfs_structures::{RouteType};
 
+use simple_error::bail;
+
 use dystonse_curves::{
     tree::{TreeData, SerdeFormat},
     irregular_dynamic::*
@@ -39,5 +41,9 @@ impl DefaultCurves {
 impl TreeData for DefaultCurves {
     fn save_tree(&self, dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<()> {
         Ok(())
+    }
+
+    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Box<Self>>{
+        bail!("Not yet implemented!");
     }
 }
