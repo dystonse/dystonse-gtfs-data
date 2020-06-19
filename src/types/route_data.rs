@@ -40,7 +40,7 @@ impl TreeData for RouteData {
         Ok(())
     }
 
-    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Box<Self>>{
+    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
 }
