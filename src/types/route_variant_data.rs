@@ -21,8 +21,8 @@ pub struct RouteVariantData {
 }
 
 impl TreeData for RouteVariantData {
-    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<()> {
-        if file_levels == 0 {
+    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
+        if leaves.contains(&Self::NAME) {
             let file_name = format!("variant_{}.crv", dir_name);
             self.save_to_file(dir_name, &file_name, format)?;
         } else {
@@ -30,19 +30,21 @@ impl TreeData for RouteVariantData {
             self.general_delay.save_to_file(dir_name, "general_delay", format)?;
             for ((i_s, i_e, time_slot), curve_set) in &self.curve_sets {
                 let sub_dir_name = format!("{}/{}/from_{}_to_{}", dir_name, time_slot.description, i_s, i_e);
-                curve_set.save_tree(&sub_dir_name, format, file_levels - 1)?;
+                curve_set.save_tree(&sub_dir_name, format, leaves)?;
             }
         }
 
         Ok(())
     }
 
-    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Self>{
+    fn load_tree(dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
 }
 
 impl RouteVariantData {
+    pub const NAME : &'static str = "RouteVariantData";
+
     pub fn new() -> Self {
         return Self {
             stop_ids: Vec::new(),

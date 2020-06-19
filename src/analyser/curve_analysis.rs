@@ -35,7 +35,7 @@ impl<'a> CurveCreator<'a> {
             println!("I've got no route!");
             // TODO implement handling the "all" arg
         }
-        delay_stats.save_tree(self.analyser.args.value_of("dir").unwrap(), &SerdeFormat::MessagePack, 0)?;
+        delay_stats.save_tree(self.analyser.args.value_of("dir").unwrap(), &SerdeFormat::MessagePack, &vec!(DelayStatistics::NAME))?;
         Ok(())
     }
 

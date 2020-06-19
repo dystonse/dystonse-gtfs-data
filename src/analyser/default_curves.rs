@@ -194,7 +194,7 @@ impl<'a> DefaultCurveCreator<'a> {
         println!("Saving to binary file.");
 
         // save curve types to a binary file
-        dc.save_tree("data/curve_data/default_curves", &SerdeFormat::MessagePack, 0)?;
+        dc.save_tree("data/curve_data/default_curves", &SerdeFormat::MessagePack, &vec!(DefaultCurves::NAME))?;
         
         // The hashmap has tuples as keys, which is not supported by json without manual conversion.
         // println!("Saving to json file.");

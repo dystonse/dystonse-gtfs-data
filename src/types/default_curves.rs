@@ -23,9 +23,12 @@ use crate::types::{
 pub struct DefaultCurves {
     pub all_default_curves: HashMap<(RouteType, RouteSection, TimeSlot, EventType), 
         IrregularDynamicCurve<f32, f32>>
-}
 
+    }
+    
 impl DefaultCurves {
+    pub const NAME : &'static str = "DefaultCurves";
+ 
     pub fn new() -> Self {
         return Self {
             all_default_curves: HashMap::new()
@@ -39,11 +42,11 @@ impl DefaultCurves {
 }
 
 impl TreeData for DefaultCurves {
-    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<()> {
+    fn save_tree(&self, dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
         Ok(())
     }
 
-    fn load_tree(dir_name: &str, format: &SerdeFormat, file_levels: usize) -> FnResult<Self>{
+    fn load_tree(dir_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
 }
