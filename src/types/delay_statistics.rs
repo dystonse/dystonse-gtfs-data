@@ -28,7 +28,7 @@ impl DelayStatistics {
 impl TreeData for DelayStatistics {
     fn save_tree(&self, dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
         if leaves.contains(&Self::NAME) {
-            self.save_to_file(dir_name, "statistics", format)?;
+            self.save_to_file(dir_name, own_name, format)?;
         } else {
             let sub_dir_name = format!("{}/{}", dir_name, own_name);
             self.general.save_tree(&sub_dir_name, "general", format, leaves)?;

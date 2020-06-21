@@ -6,7 +6,7 @@ use gtfs_structures::{RouteType};
 use simple_error::bail;
 
 use dystonse_curves::{
-    tree::{TreeData, SerdeFormat},
+    tree::{TreeData, SerdeFormat, NodeData},
     irregular_dynamic::*
 };
 
@@ -37,7 +37,16 @@ impl DefaultCurves {
 }
 
 impl TreeData for DefaultCurves {
-    fn save_tree(&self, _dir_name: &str, _own_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<()> {
+    fn save_tree(&self, dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
+        if leaves.contains(&Self::NAME) {
+            self.save_to_file(dir_name, "statistics", format)?;
+        } else {
+            for ((route_type, route_section, time_slot, event_type), curve) in &self.all_default_curves {
+                let sub_dir_name = format!("{}/{}/{:?}/{:?}/{:?}", dir_name, own_name, route_type, route_section, time_slot);
+                let own_name = format!("route_{:?}", event_type);
+                curve.save_to_file(&sub_dir_name, &own_name, format)?;
+            }
+        }
         Ok(())
     }
 

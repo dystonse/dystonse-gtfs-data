@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use serde::{Serialize, Deserialize};
 use simple_error::bail;
 use crate::FnResult;
-use dystonse_curves::tree::{TreeData, LeafData, SerdeFormat};
+use dystonse_curves::tree::{TreeData, LeafData, SerdeFormat, NodeData};
 
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum EventType {
@@ -45,9 +45,19 @@ impl<T> IndexMut<EventType> for EventPair<T> {
     }
 }
 
-impl<T> TreeData for EventPair<T> {
+impl<T> TreeData for EventPair<T>
+    where T: TreeData,
+    EventPair<T>: NodeData
+{
     fn save_tree(&self, dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<()> {
-        bail!("Nerv nicht.");
+        if leaves.contains(&Self::NAME) {
+            self.save_to_file(dir_name, own_name, format)?;
+        } else {
+            let sub_dir_name = format!("{}/{}", dir_name, own_name);
+            self.arrival.save_tree(&sub_dir_name, "arrival", format, leaves)?;
+            self.departure.save_tree(&sub_dir_name, "departure", format, leaves)?;
+        }
+        Ok(())
     }
 
     fn load_tree(dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self> {

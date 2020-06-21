@@ -7,7 +7,7 @@ use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
-use dystonse_curves::tree::{SerdeFormat, NodeData};
+use dystonse_curves::tree::{SerdeFormat, NodeData, TreeData};
 
 use super::Analyser;
 use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData, DelayStatistics};
@@ -35,7 +35,8 @@ impl<'a> CurveCreator<'a> {
             println!("I've got no route!");
             // TODO implement handling the "all" arg
         }
-        delay_stats.save_to_file(self.analyser.args.value_of("dir").unwrap(), "stats", &SerdeFormat::MessagePack)?;
+        delay_stats.save_tree(self.analyser.args.value_of("dir").unwrap(), "analysis", &SerdeFormat::MessagePack, &vec!())?;
+        //delay_stats.save_to_file(self.analyser.args.value_of("dir").unwrap(), "stats", &SerdeFormat::MessagePack)?;
         Ok(())
     }
 
