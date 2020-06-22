@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use mysql::*;
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer, ser::SerializeMap};
 
 use dystonse_curves::curve_set::CurveSet;
 use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
@@ -13,7 +12,7 @@ use super::EventPair;
 
 use simple_error::bail;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct RouteVariantData {
     pub stop_ids: Vec<String>,
     pub curve_sets: HashMap<(u32, u32, TimeSlot), CurveSet<f32, IrregularDynamicCurve<f32,f32>>>,
@@ -40,6 +39,21 @@ impl TreeData for RouteVariantData {
     fn load_tree(_dir_name: &str, _own_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<Self>{
         bail!("Not yet implemented!");
     }
+}
+
+impl Serialize for RouteVariantData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where S: Serializer
+{
+    let mut m = serializer.serialize_map(Some(self.curve_sets.len()))?;
+    for ((s_s, s_e, t_s), v) in &self.curve_sets {
+        m.serialize_entry("i_start", s_s)?;
+        m.serialize_entry("i_end", s_e)?;
+        m.serialize_entry("timeslot", &t_s)?;
+        m.serialize_entry("curve_set", &v)?;
+    }
+    m.end()
+}
 }
 
 impl RouteVariantData {

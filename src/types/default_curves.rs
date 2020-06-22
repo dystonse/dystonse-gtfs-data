@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize, Serializer, ser::SerializeMap};
 use gtfs_structures::{RouteType};
 
 use simple_error::bail;
@@ -19,12 +19,13 @@ use crate::types::{
 };
 
 /// a struct to hold a hash map of all the default curves
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct DefaultCurves {
-    pub all_default_curves: HashMap<(RouteType, RouteSection, TimeSlot, EventType), 
-        IrregularDynamicCurve<f32, f32>>
-
-    }
+    pub all_default_curves: HashMap<
+        (RouteType, RouteSection, TimeSlot, EventType), 
+        IrregularDynamicCurve<f32, f32>
+    >
+}
     
 impl DefaultCurves {
     pub const NAME : &'static str = "DefaultCurves";
@@ -33,6 +34,19 @@ impl DefaultCurves {
         return Self {
             all_default_curves: HashMap::new()
         };
+    }
+}
+
+impl Serialize for DefaultCurves {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        let mut m = serializer.serialize_map(Some(self.all_default_curves.len()))?;
+        for ((tr, rs, ts, et), v) in &self.all_default_curves {
+            let k = format!("{:?}-{:?}-{:?}-{:?}", tr, rs, ts, et);
+            m.serialize_entry(&k, &v)?;
+        }
+        m.end()
     }
 }
 
