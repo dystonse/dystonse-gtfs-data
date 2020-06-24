@@ -29,25 +29,10 @@ impl<'a> Predictor<'a> {
         App::new("predict")
             .subcommand(App::new("start")
                 .about("Starts the predictor module and keeps running so it can answer requests for predictions.")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
-                )
             )
             .subcommand(App::new("single")
                 .about("Starts the predictor module and answers one request for a prediction, then quits.")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
-                ).arg(Arg::new("route-id")
+                .arg(Arg::new("route-id")
                     .short('r')
                     .long("route-id")
                     .required(true)
@@ -111,6 +96,13 @@ impl<'a> Predictor<'a> {
                     "The directory that contains the schedules (located in a subdirectory named 'schedules') \
                     and precomputed curve data (located in a subdirectory named 'curve_data')."
                 )
+            ).arg(Arg::new("schedule")
+                .short('s')
+                .long("schedule")
+                .required(true)
+                .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
+                .takes_value(true)
+                .value_name("GTFS_SCHEDULE")
             )
     }
 
@@ -284,7 +276,7 @@ impl<'a> Predictor<'a> {
     fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
         println!("parsing delay statistics…");
         let dir_name = String::from(sub_args.value_of("dir").unwrap());
-        let delay_stats = (DelayStatistics::load_from_file(&dir_name, "stats", &SerdeFormat::MessagePack))?;
+        let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;
         println!("Done with parsing delay statistics.");
         Ok(delay_stats)
     }

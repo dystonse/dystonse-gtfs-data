@@ -33,9 +33,15 @@ impl<'a> SpecificCurveCreator<'a> {
                 let route_data = self.create_curves_for_route(&String::from(route_id))?;
                 map.insert(String::from(route_id), route_data);
             }
+        } else if self.args.is_present("all") {
+            let route_ids = self.analyser.schedule.routes.keys();
+            println!("Handling {} route ids…", route_ids.len());
+            for route_id in route_ids {
+                let route_data = self.create_curves_for_route(&String::from(route_id))?;
+                map.insert(String::from(route_id), route_data);
+            }
         } else {
             println!("I've got no route!");
-            // TODO implement handling the "all" arg
         }
         
         Ok(map)
