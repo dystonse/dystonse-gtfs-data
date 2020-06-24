@@ -3,7 +3,6 @@ use crate::types::{EventType, TimeSlot, RouteSection, PredictionResult, DelaySta
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType};
-use mysql::*;
 use std::str::FromStr;
 use std::convert::TryInto;
 
@@ -13,6 +12,8 @@ use crate::FnResult;
 use crate::Main;
 
 use dystonse_curves::tree::{SerdeFormat, NodeData};
+
+mod real_time;
 
 pub struct Predictor<'a> {
     #[allow(dead_code)]
@@ -93,6 +94,12 @@ impl<'a> Predictor<'a> {
                     .about("delay (in seconds) of departure from the start-stop.")
                     .takes_value(true)
                     .value_name("INITIAL_DELAY")
+                ).arg(Arg::new("use-realtime")
+                    .short('u')
+                    .long("use-realtime")
+                    .required(false)
+                    .about("Try to get the most recent realtime update for the given trip.")
+                    .takes_value(false)
                 )
             )
             .arg(Arg::new("dir")
@@ -150,10 +157,20 @@ impl<'a> Predictor<'a> {
         // parse optional arguments:
         let start = match args.value_of("start-stop-id") {
             Some(s) => match args.value_of("initial-delay") {
-                            Some(d) => Some ((s, Some(f32::from_str(d).unwrap()))),
-                            None => Some((s, None)),
+                            Some(d) => Some ((s.to_string(), Some(f32::from_str(d).unwrap()))),
+                            None => Some((s.to_string(), None)),
                         },
-            None => None,
+            None => {
+                if args.is_present("use-realtime") {
+                    let trip = self.schedule.get_trip(trip_id)?;
+                    match real_time::get_realtime_data(self.main, &trip) {
+                        Ok((stop_id, delay)) => Some((stop_id.clone(), Some(delay as f32))),
+                        _ => None
+                    }
+                } else {
+                    None
+                }
+            },
         };
         
         // data structure to hold the prediction result:
@@ -166,20 +183,13 @@ impl<'a> Predictor<'a> {
 
         Ok(())
     }
-    
-    /*
-    NOTE/TODO: THE FOLLOWING STUFF SHOULD BE COMPUTED BY WHOEVER CALLS THIS MODULE:
-    - find out if we have current realtime data of this trip
-    - if yes, find latest stop where we have a delay_departure in the past
-    - get that delay and from which stop it is
-    - put that into [somewhere we can read it from]
-    */
+
 
     /// finds out which kind of curve can be used for this prediction and looks up the requested curve
     fn predict(&self, 
             route_id: &str, 
             trip_id: &str, 
-            start: Option<(&str, Option<f32>)>, 
+            start: Option<(String, Option<f32>)>, 
             stop_id: &str, 
             et: EventType, 
             date_time: NaiveDateTime) -> FnResult<PredictionResult> {
@@ -227,7 +237,7 @@ impl<'a> Predictor<'a> {
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 
-            start: Option<(&str, Option<f32>)>, //&str for stop_id, f32 for initial delay
+            start: Option<(String, Option<f32>)>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
             ts: &TimeSlot,
             et: EventType) -> FnResult<PredictionResult> {
@@ -246,7 +256,7 @@ impl<'a> Predictor<'a> {
             },
             Some((s_id, d)) => {
                 
-                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == &s_id).unwrap()
                     .try_into().unwrap(); //TODO: Error handling for unwraps
                 let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
                 match d {
@@ -278,4 +288,5 @@ impl<'a> Predictor<'a> {
         println!("Done with parsing delay statistics.");
         Ok(delay_stats)
     }
+
 }
