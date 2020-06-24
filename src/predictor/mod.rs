@@ -81,6 +81,18 @@ impl<'a> Predictor<'a> {
                     .about("Date and time YYYY-MM-DDThh:mm:ss in UTC for which the prediction shall be made.")
                     .takes_value(true)
                     .value_name("DATE_TIME")
+                ).arg(Arg::new("start-stop-id")
+                    .long("start-stop-id")
+                    .required(false)
+                    .about("Id of a stop in the past from which the vehicle started with initial-delay.")
+                    .takes_value(true)
+                    .value_name("START_STOP_ID")
+                ).arg(Arg::new("initial-delay")
+                    .long("initial-delay")
+                    .required(false)
+                    .about("delay (in seconds) of departure from the start-stop.")
+                    .takes_value(true)
+                    .value_name("INITIAL_DELAY")
                 )
             )
             .arg(Arg::new("dir")
@@ -135,8 +147,17 @@ impl<'a> Predictor<'a> {
         };
         let date_time = NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?;
 
+        // parse optional arguments:
+        let start = match args.value_of("start-stop-id") {
+            Some(s) => match args.value_of("initial-delay") {
+                            Some(d) => Some ((s, Some(f32::from_str(d).unwrap()))),
+                            None => Some((s, None)),
+                        },
+            None => None,
+        };
+        
         // data structure to hold the prediction result:
-        let prediction : PredictionResult = self.predict(route_id, trip_id, stop_id, event_type, date_time)?;
+        let prediction : PredictionResult = self.predict(route_id, trip_id, start, stop_id, event_type, date_time)?;
 
         // output the resulting curve(s) to the command line
         // TODO: we could probably use more advanced kinds of output here
@@ -155,8 +176,13 @@ impl<'a> Predictor<'a> {
     */
 
     /// finds out which kind of curve can be used for this prediction and looks up the requested curve
-    fn predict(&self, route_id: &str, trip_id: &str, stop_id: &str, et: EventType, date_time: NaiveDateTime) 
-        -> FnResult<PredictionResult> {
+    fn predict(&self, 
+            route_id: &str, 
+            trip_id: &str, 
+            start: Option<(&str, Option<f32>)>, 
+            stop_id: &str, 
+            et: EventType, 
+            date_time: NaiveDateTime) -> FnResult<PredictionResult> {
 
         // parse lookup parameters from input
         let ts = TimeSlot::from_datetime(date_time);
@@ -165,9 +191,6 @@ impl<'a> Predictor<'a> {
         let route_variant : u64 = u64::from_str(trip.route_variant.as_ref().unwrap()).unwrap(); 
         // should never panic because we already checked the validity of 
         // the trip, and route variants are always numbers.
-
-        let start : Option<(&str, Option<f32>)> = None;
-        // TODO: fill this option with start-stop_id and start-delay if given !!!!
 
         // try to find a specific prediction:
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et);
