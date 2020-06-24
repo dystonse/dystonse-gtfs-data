@@ -8,6 +8,7 @@ use simple_error::bail;
 use crate::FnResult;
 use crate::Main;
 
+#[derive(Debug)]
 pub struct RealtimeItem {
     pub stop_sequence: u32,
     pub stop_id: String,
@@ -65,25 +66,39 @@ pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
         })
         .collect();
 
+    println!("Got realtime data, found {} rows: {:?}.", realtime_items.len(), realtime_items);
+
     // map the (relative) delays from the db to absolute_departures, which are tuples of (stop_id, time)
     let absolute_departures : Vec<(&String, NaiveTime, i32)> = realtime_items.iter().filter_map(|item| {
         let stop_time = trip.stop_times.iter().filter(|st| st.stop.id == item.stop_id).next().unwrap();
         match (stop_time.departure_time, item.delay_departure) {
             (Some(departure_time), Some(departure_delay)) => { 
-                let secs = (departure_time as i32 + departure_delay) as u32;
+                let secs = ((departure_time as i32 - 7200) + departure_delay) as u32;
+                // TODO / FIXME: we substract 7200, which equals two hours, because the schedule is 
+                // in local time and our database contains UTC times.
                 Some((&item.stop_id, NaiveTime::from_num_seconds_from_midnight(secs, 0), departure_delay))
             },
             _ => None
         }
     }).collect();
 
+    println!("Mapped {} rows to absolute times: {:?}", absolute_departures.len(), absolute_departures);
+
+
     // now find the most recent absolute_departure which is in the past. Since they are ordered
     // from latest (possibly in the future) to earliest (possibly in the past), the first one
     // that is encountered is the correct one.
 
     let now = chrono::Utc::now().time();
+    println!("Comparing to 'now', which is {}.", now);
     match absolute_departures.iter().filter(|(_stop_id, time, _delay)| time < &now).next() {
-        Some((stop_id, _time, delay)) => Ok((stop_id.to_string(), *delay)),
-        None => bail!("No current delay found")
+        Some((stop_id, time, delay)) => {
+            println!("Found  most recent absolute_departure: at stop {} on {} with delay {}.", stop_id, time, delay);
+            Ok((stop_id.to_string(), *delay))
+        },
+        None => {
+            println!("Did not find  most recent absolute_departure.");
+            bail!("No current delay found")
+        }
     }
 }
