@@ -1,5 +1,5 @@
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Trip};
+use gtfs_structures::Trip;
 use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
@@ -7,43 +7,52 @@ use simple_error::bail;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
-use dystonse_curves::tree::{SerdeFormat, NodeData, TreeData};
+use dystonse_curves::tree::{SerdeFormat, NodeData};
 
 use super::Analyser;
-use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData, DelayStatistics};
+use super::curve_utils::*;
+use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData};
 
 use crate::{ FnResult, Main };
 
-pub struct CurveCreator<'a> {
+use std::collections::HashMap;
+
+pub struct SpecificCurveCreator<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
-    pub schedule: Gtfs,
     pub args: &'a ArgMatches
 }
 
-impl<'a> CurveCreator<'a> {
+impl<'a> SpecificCurveCreator<'a> {
 
-    pub fn run_curves(&self) -> FnResult<()> {
-        let mut delay_stats = DelayStatistics::new();
+    pub fn get_specific_curves(&self) -> FnResult<HashMap<String, RouteData>> {
+        let mut map = HashMap::new();
         if let Some(route_ids) = self.args.values_of("route-ids") {
             println!("Handling {} route ids…", route_ids.len());
             for route_id in route_ids {
                 let route_data = self.create_curves_for_route(&String::from(route_id))?;
-                delay_stats.specific.insert(String::from(route_id), route_data);
+                map.insert(String::from(route_id), route_data);
             }
         } else {
             println!("I've got no route!");
             // TODO implement handling the "all" arg
         }
-        //delay_stats.save_tree(self.analyser.args.value_of("dir").unwrap(), "stats", &SerdeFormat::MessagePack, &vec!(/*RouteData::NAME*/))?;
-        delay_stats.save_to_file(self.analyser.args.value_of("dir").unwrap(), "stats", &SerdeFormat::Json)?;
+        
+        Ok(map)
+    }
+
+    pub fn run_specific_curves(&self) -> FnResult<()> {
+        let map = self.get_specific_curves()?;
+        
+        map.save_to_file(&self.analyser.data_dir.as_ref().unwrap(), "specific_curves", &SerdeFormat::Json)?;
         Ok(())
     }
 
     fn create_curves_for_route(&self, route_id: &String)  -> FnResult<RouteData> {
-        let route = self.schedule.get_route(route_id)?;
+        let schedule = &self.analyser.schedule;
+        let route = schedule.get_route(route_id)?;
         let agency_id = route.agency_id.as_ref().unwrap().clone();
-        let agency_name = self.schedule
+        let agency_name = schedule
             .agencies
             .iter()
             .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
@@ -97,7 +106,7 @@ impl<'a> CurveCreator<'a> {
 
         for route_variant in route_variants {
             let variant_as_string = Some(format!("{}", route_variant));
-            let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
+            let trip = schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
 
             match trip {
                 None => {
@@ -198,7 +207,7 @@ impl<'a> CurveCreator<'a> {
         if values.len() < 20 {
             bail!("Less than 20 data rows.");
         }
-        let mut curve = Self::make_curve(&values, None)?.0;
+        let mut curve = make_curve(&values, None)?.0;
         curve.simplify(0.01);
         Ok(curve)
     }
@@ -212,7 +221,7 @@ impl<'a> CurveCreator<'a> {
 
         // Try to make a curve out of initial delays. This curve is different from the actual
         // output curve(s), but is needed as a intermediate result to compute the markers.
-        if let Ok((initial_curve, _sum)) = Self::make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
+        if let Ok((initial_curve, _sum)) = make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
             // We build a list of "markers", which are x-coordinates / initial delays for which we 
             // will build a curve. That curve will consist of rows with "similar" delays.
             // All the "middle" will be inserted in-order by the recurse function. 
@@ -221,7 +230,7 @@ impl<'a> CurveCreator<'a> {
             let mut markers = Vec::<f32>::new();
             markers.push(initial_curve.min_x());
             markers.push(initial_curve.min_x());
-            self.recurse(&initial_curve, &mut markers, initial_curve.min_x(), initial_curve.max_x(), count as f32);
+            recurse(&initial_curve, &mut markers, initial_curve.min_x(), initial_curve.max_x(), count as f32);
             markers.push(initial_curve.max_x());
             markers.push(initial_curve.max_x());
             
@@ -235,7 +244,7 @@ impl<'a> CurveCreator<'a> {
                 let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
                 let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
                 if slice.len() > 1 {
-                    if let Ok((mut curve, _sum)) = Self::make_curve(&slice,  Some(*mid)) {
+                    if let Ok((mut curve, _sum)) = make_curve(&slice,  Some(*mid)) {
                         curve.simplify(0.001);
                         if curve.max_x() <  curve.min_x() + 13.0 {
                             continue;
@@ -249,93 +258,5 @@ impl<'a> CurveCreator<'a> {
         }
 
         bail!("Could not make curve.");
-    }
-
-    // This method determines whether there should be another marker between the ones already present at lower and upper.
-    // Upper and lower are initial delay by seconds.
-    fn recurse(&self, initial_delay_curve: &IrregularDynamicCurve<f32, f32>, markers: &mut Vec<f32>, lower: f32, upper: f32, count: f32) {
-        // let's recap what initial_delay_curve is: Along the x axis, we have the initial delays in seconds. Along the y axis,
-        // we have the share of vehicles which had this delay or less. We need the count to make that into abolute numbers.
-
-        // new marker mus be at least 20 seconds away from the existing ones
-        let min_x_by_delay = lower + 20.0;
-        let max_x_by_delay = upper - 20.0;
-
-        // between the new marker and existing ones, at least 20 data points must exist
-        // this computation is tedious because y is measured relatively but we have an
-        // absolute distance (20 datapoints) to keep. 
-        let lower_y = initial_delay_curve.y_at_x(lower);
-        let upper_y = initial_delay_curve.y_at_x(upper);
-        let min_y_by_count = lower_y + (20.0 / count);
-        let max_y_by_count = upper_y - (20.0 / count);
-       
-        // Also, we need x bounds:
-        let min_x_by_count = initial_delay_curve.x_at_y(min_y_by_count);
-        let max_x_by_count = initial_delay_curve.x_at_y(max_y_by_count);
-        
-        // For the x axis, we have two minimum and two maximum bounds.
-        // Let's find the stricter ones.
-        let min_x = f32::max(min_x_by_delay, min_x_by_count);
-        let max_x = f32::min(max_x_by_delay, max_x_by_count);
-
-        // The bounds might contradict, and in that case, we won't subdivide
-        if min_x <= max_x {
-            let mid_x = (min_x + max_x) / 2.0;
-            self.recurse(initial_delay_curve, markers, lower, mid_x, count);
-            markers.push(mid_x);
-            self.recurse(initial_delay_curve, markers, mid_x, upper, count);
-        }
-    }
-
-    fn get_weight(delay: f32, focus: Option<f32>, min_delay: f32, max_delay: f32) -> f32 {
-        // handling delay values outside of given bounds: always 0.
-        if delay < min_delay || delay > max_delay {
-            return 0.0;
-        }
-
-        if let Some(focus) = focus {
-            // if focus is given, weight is 1 at the focus and goes down to zero 
-            // towards the bounds given by min_delay and max_delay
-            if delay == focus {
-                1.0
-            } else if delay < focus {
-                (delay - min_delay) / (focus - min_delay)
-            } else {
-                1.0 - ((delay - focus) / (max_delay - focus))
-            }
-        } else {
-            1.0
-        }
-    }
-
-    pub fn make_curve(values: &Vec<f32>, focus: Option<f32>) -> FnResult<(IrregularDynamicCurve<f32, f32>, f32)> {
-        let mut own_values = values.clone(); // TODO maybe we don't need to clone this
-        own_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let min_delay = *own_values.first().unwrap();
-        let max_delay = *own_values.last().unwrap();
-      
-        let pairs: Vec<(f32,f32)> = own_values.iter().map(|v| (*v, Self::get_weight(*v, focus, min_delay, max_delay))).collect();
-
-        let sum_of_weights: f32 = pairs.iter().map(|(_v, w)| *w).sum();
-
-        let mut tups = Vec::<Tup<f32, f32>>::with_capacity(own_values.len());
-        let mut last_x :f32 = 0.0;
-        let mut i = 0.0;
-        for (x, w) in pairs.iter() {
-            i += w;
-            if *x != last_x {
-                tups.push(Tup {x: *x, y: (i as f32) / sum_of_weights});
-                last_x = *x;
-            }
-        }
-
-        if tups.len() < 2 {
-            bail!("Curve would have only {} points, skipping.", tups.len());
-        }
-
-        tups.first_mut().unwrap().y = 0.0;
-        tups.last_mut().unwrap().y = 1.0;
-
-        Ok((IrregularDynamicCurve::new(tups), sum_of_weights))
     }
 }

@@ -3,7 +3,7 @@ use std::u16;
 
 use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType, EventPair};
 
-use super::curve_analysis::CurveCreator;
+use super::curve_utils::*;
 
 use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType};
@@ -11,7 +11,7 @@ use mysql::*;
 use mysql::prelude::*;
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::tree::{SerdeFormat, TreeData, NodeData};
+use dystonse_curves::tree::{SerdeFormat, NodeData};
 
 use super::Analyser;
 
@@ -29,13 +29,13 @@ const MIN_DATA_FOR_CURVE : usize = 10;
 pub struct DefaultCurveCreator<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
-    pub schedule: Gtfs,
     pub args: &'a ArgMatches
 }
 
 impl<'a> DefaultCurveCreator<'a> {
 
-    pub fn run_default_curves(&self) -> FnResult<()> {
+    pub fn get_default_curves(&self) -> FnResult<(DefaultCurves)> {
+        let schedule = &self.analyser.schedule;
 
         let route_types = [
             RouteType::Tramway,
@@ -86,7 +86,7 @@ impl<'a> DefaultCurveCreator<'a> {
 
 
                 //find one trip of this variant
-                let trip = self.schedule.trips.values().filter(
+                let trip = schedule.trips.values().filter(
                         |trip| trip.route_variant.as_ref().unwrap() == rv
                     ).next().unwrap();
 
@@ -98,7 +98,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 let mut max_middle_stop : u16 = 0;
 
                 for s in rv_stops {
-                    let sec : RouteSection = RouteSection::get_route_section(&self.schedule, &trip.id, &s.stop.id);
+                    let sec : RouteSection = RouteSection::get_route_section(&schedule, &trip.id, &s.stop.id);
                     if sec == RouteSection::Beginning {
                         max_beginning_stop = s.stop_sequence;
                     }
@@ -135,7 +135,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 // for each time slot in each section, make two curves (delay for arrival and depature)
                 for rs in &route_sections {
                     for ts in &TimeSlot::TIME_SLOTS {
-                        println!("Create curves for section {:?} and time slot {}.", rs, ts.description);
+                        // println!("Create curves for section {:?} and time slot {}.", rs, ts.description);
 
                         // collect delays in vectors:
                         let mut delays : EventPair<Vec<f32>> = EventPair { arrival: Vec::new(), departure: Vec::new() };
@@ -145,7 +145,7 @@ impl<'a> DefaultCurveCreator<'a> {
                         }
                         for e_t in &EventType::TYPES {
                             if delays[**e_t].len() >= MIN_DATA_FOR_CURVE {
-                                if let Ok((mut curve, _)) = CurveCreator::make_curve(&delays[**e_t], None) {
+                                if let Ok((mut curve, _)) = make_curve(&delays[**e_t], None) {
                                     curve.simplify(0.001);
                                     default_curves[**e_t].get_mut(&(rt, rs, *ts)).unwrap().push(curve);
                                 }
@@ -185,15 +185,18 @@ impl<'a> DefaultCurveCreator<'a> {
                 }
             }
         }
-
-
-
         println!("Done with everything but saving. Result: {:?}", dc.all_default_curves);
+
+        Ok(dc)
+    }
+
+    pub fn run_default_curves(&self) -> FnResult<()> {
+        let dc = self.get_default_curves()?;
 
         println!("Saving to binary file.");
 
         // save curve types to a binary file
-        dc.save_to_file("data/curve_data","default_curves", &SerdeFormat::MessagePack)?;
+        dc.save_to_file(&self.analyser.data_dir.as_ref().unwrap(), "default_curves", &SerdeFormat::MessagePack)?;
         
         // The hashmap has tuples as keys, which is not supported by json without manual conversion.
         // println!("Saving to json file.");
@@ -209,7 +212,7 @@ impl<'a> DefaultCurveCreator<'a> {
 
         let mut routes : Vec<&Route> = Vec::new();
 
-        for r in self.schedule.routes.values() {
+        for r in self.analyser.schedule.routes.values() {
             if r.route_type == rt {
                 routes.push(r);
             }
@@ -221,7 +224,7 @@ impl<'a> DefaultCurveCreator<'a> {
 
         let mut variants : HashSet<(String, &str)> = HashSet::new();
 
-        for t in self.schedule.trips.values() {
+        for t in self.analyser.schedule.trips.values() {
             if t.route_id == r.id {
                 variants.insert((r.id.clone(), &t.route_variant.as_ref().unwrap()));
             }
@@ -274,7 +277,7 @@ impl<'a> DefaultCurveCreator<'a> {
     }
 
     fn sort_dbitems_by_timeslot(&self, items: Vec<DbItem>) -> FnResult<HashMap<&TimeSlot, Vec<DbItem>>> {
-        
+        let schedule = &self.analyser.schedule;
         let mut sorted_items = HashMap::new();
 
         // initialize hashmap keys with time slots and values with empty vectors
@@ -284,10 +287,10 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // go through all items and sort them into the vectors
         for i in items {
-            let mut dt = i.get_datetime_from_schedule(&self.schedule, EventType::Arrival);
+            let mut dt = i.get_datetime_from_schedule(schedule, EventType::Arrival);
             // if arrival time is not set, use depature time instead:
             if dt.is_none() {
-                dt = i.get_datetime_from_schedule(&self.schedule, EventType::Departure);
+                dt = i.get_datetime_from_schedule(schedule, EventType::Departure);
             }
             // should always be some now, but to be sure...
             if dt.is_some() {

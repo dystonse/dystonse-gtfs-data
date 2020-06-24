@@ -43,12 +43,12 @@ impl FromRow for DbItem {
 pub struct VisualScheduleCreator<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
-    pub schedule: Gtfs,
     pub args: &'a ArgMatches
 }
 
 impl<'a> VisualScheduleCreator<'a> {
     pub fn run_visual_schedule(&mut self) -> FnResult<()> {
+        let schedule = &self.analyser.schedule;
         if let Some(route_ids) = self.args.values_of("route-ids") {
             println!("Handling {} route ids…", route_ids.len());
             for route_id in route_ids {
@@ -84,7 +84,7 @@ impl<'a> VisualScheduleCreator<'a> {
             println!(
                 "Found data for {} of {} route_ids.",
                 route_ids.len(),
-                self.schedule.routes.len()
+                schedule.routes.len()
             );
 
             let success_counter = AtomicUsize::new(0);
@@ -128,6 +128,7 @@ impl<'a> VisualScheduleCreator<'a> {
     }
 
     fn create_visual_schedule_for_route(&self, route_id: &String) -> FnResult<()> {
+        let schedule = &self.analyser.schedule;
         let mut con = self.main.pool.get_conn()?;
         let stmt = con.prep(
             r"SELECT 
@@ -173,7 +174,7 @@ impl<'a> VisualScheduleCreator<'a> {
         }
 
         // collect trips and route variants for this route
-        let all_trips = &self.schedule.trips;
+        let all_trips = &schedule.trips;
 
         let trips_of_route: Vec<&Trip> = all_trips
             .values()
@@ -218,11 +219,11 @@ impl<'a> VisualScheduleCreator<'a> {
         );
 
         // collect some meta data about the route, which will be used for naming the output files
-        let route = self.schedule.get_route(route_id)?;
+        let route = schedule.get_route(route_id)?;
         let route_name = route.short_name.clone();
         let agency_id = route.agency_id.as_ref().unwrap().clone();
 
-        let agency_name = self.schedule
+        let agency_name = schedule
             .agencies
             .iter()
             .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
@@ -282,7 +283,8 @@ impl<'a> VisualScheduleCreator<'a> {
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
-        let all_trips = &self.schedule.trips;
+        let schedule = &self.analyser.schedule;
+        let all_trips = &schedule.trips;
         let empty_string = String::from("");
 
         // select any trip with the primary route variant as the primary trip (the one that covers all stations in the output image)
@@ -334,7 +336,8 @@ impl<'a> VisualScheduleCreator<'a> {
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
-        let all_trips = &self.schedule.trips;
+        let schedule = &self.analyser.schedule;
+        let all_trips = &schedule.trips;
         let empty_string = String::from("");
         let primary_trip: &Trip = all_trips
             .values()
@@ -370,11 +373,12 @@ impl<'a> VisualScheduleCreator<'a> {
         name: &str,
         db_items: &Vec<DbItem>,
     ) -> FnResult<()> {
+        let schedule = &self.analyser.schedule;
         let mut creator = GraphCreator::new(
             String::from(name),
             primary_trip,
             trips,
-            &self.schedule,
+            schedule,
             self.main,
             db_items,
         );

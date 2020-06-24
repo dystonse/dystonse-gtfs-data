@@ -19,7 +19,6 @@ use crate::Main;
 pub struct CurveDrawer<'a> {
     pub main: &'a Main,
     pub analyser:&'a Analyser<'a>,
-    pub schedule: Gtfs,
     pub args: &'a ArgMatches
 }
 
@@ -37,10 +36,11 @@ impl<'a> CurveDrawer<'a> {
         Ok(())
     }
 
-    fn create_curves_for_route(&self, route_id: &String)  -> FnResult<()> { 
-        let route = self.schedule.get_route(route_id)?;
+    fn create_curves_for_route(&self, route_id: &String)  -> FnResult<()> {
+        let schedule = &self.analyser.schedule;
+        let route = schedule.get_route(route_id)?;
         let agency_id = route.agency_id.as_ref().unwrap().clone();
-        let agency_name = self.schedule
+        let agency_name = schedule
             .agencies
             .iter()
             .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
@@ -63,7 +63,7 @@ impl<'a> CurveDrawer<'a> {
 
         for (route_variant, route_variant_data) in route_data.variants {
             let variant_as_string = Some(format!("{}", route_variant));
-            let trip = self.schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
+            let trip = schedule.trips.values().filter(|trip| trip.route_id == *route.id && trip.route_variant == variant_as_string).next();
 
             match trip {
                 None => {
@@ -320,6 +320,7 @@ impl<'a> CurveDrawer<'a> {
         _trip: &Trip, title_prefix: &str,
         dir_name: &str
     ) -> FnResult<()> {
+        let schedule = &self.analyser.schedule;
         // let stop_count = trip.stop_times.len();
 
         // We need to make an image for each pair of start and end station along the route where
@@ -349,8 +350,8 @@ impl<'a> CurveDrawer<'a> {
             //     self.draw_to_figure(axes_all_stops, &departues, &mut options, None, false, true)?;
             // }
 
-            let st_s = self.schedule.get_stop(&data.stop_ids[i_s as usize]).unwrap();
-            let st_e = self.schedule.get_stop(&data.stop_ids[i_e as usize]).unwrap();
+            let st_s = schedule.get_stop(&data.stop_ids[i_s as usize]).unwrap();
+            let st_e = schedule.get_stop(&data.stop_ids[i_e as usize]).unwrap();
 
             let sub_dir_name = format!("{}/{}", &dir_name, self.get_time_slot_description(&ts));
             fs::create_dir_all(&sub_dir_name)?;

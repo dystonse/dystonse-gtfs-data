@@ -1,7 +1,9 @@
 mod count;
-pub mod curve_analysis;
+mod curve_utils;
 mod curve_visualisation;
+pub mod specific_curves;
 pub mod default_curves;
+pub mod curves;
 mod visual_schedule;
 
 use chrono::NaiveDateTime;
@@ -12,8 +14,9 @@ use regex::Regex;
 use simple_error::SimpleError;
 
 use count::*;
-use curve_analysis::CurveCreator;
+use specific_curves::SpecificCurveCreator;
 use default_curves::DefaultCurveCreator;
+use curves::CurveCreator;
 use curve_visualisation::CurveDrawer;
 use visual_schedule::*;
 
@@ -27,6 +30,7 @@ pub struct Analyser<'a> {
     main: &'a Main,
     args: &'a ArgMatches,
     data_dir: Option<String>,
+    schedule: Gtfs,
 }
 
 impl<'a> Analyser<'a> {
@@ -44,14 +48,7 @@ impl<'a> Analyser<'a> {
             )
             .subcommand(App::new("graph")
                 .about("Draws graphical schedules of planned and actual departures.")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used as a base for the graphical schedule.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
-                ).arg(Arg::new("route-ids")
+                .arg(Arg::new("route-ids")
                     .short('r')
                     .long("route-ids")
                     .about("If provided, graphical schedules will be created for each route variant of each of the selected routes.")
@@ -72,16 +69,9 @@ impl<'a> Analyser<'a> {
                     .conflicts_with("route-ids")
                 )
             )
-            .subcommand(App::new("compute-curves")
-                .about("Generates curve data from realtime data out of the database")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used as a base for the curves.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
-                ).arg(Arg::new("route-ids")
+            .subcommand(App::new("compute-specific-curves")
+                .about("Generates curve data for specific routes from realtime data out of the database")
+                .arg(Arg::new("route-ids")
                     .short('r')
                     .long("route-ids")
                     .about("If provided, curves will be computed for each route variant of each of the selected routes.")
@@ -97,25 +87,26 @@ impl<'a> Analyser<'a> {
             )
             .subcommand(App::new("compute-default-curves")
                 .about("Generates default curve data from realtime data out of the database")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used as a base for the curves.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
+            )
+            .subcommand(App::new("compute-curves")
+                .about("Generates default and specific curve data from realtime data out of the database")
+                .arg(Arg::new("route-ids")
+                    .short('r')
+                    .long("route-ids")
+                    .about("If provided, curves will be computed for each route variant of each of the selected routes.")
+                    .value_name("ROUTE_ID")
+                    .multiple(true)
+                // TODO implement the "all" mode
+                // ).arg(Arg::new("all")
+                //     .short('a')
+                //     .long("all")
+                //     .about("If provided, curves will be computed for each route of the schedule.")
+                //     .conflicts_with("route-ids")
                 )
             )
             .subcommand(App::new("draw-curves")
                 .about("Draws curves out of previously generated curve data without accessing the database")
-                .arg(Arg::new("schedule")
-                    .short('s')
-                    .long("schedule")
-                    .required(true)
-                    .about("The path of the GTFS schedule that is used as a base for the curves.")
-                    .takes_value(true)
-                    .value_name("GTFS_SCHEDULE")
-                ).arg(Arg::new("route-ids")
+                .arg(Arg::new("route-ids")
                     .short('r')
                     .long("route-ids")
                     .about("If provided, curves will be drawn for each route variant of each of the selected routes.")
@@ -138,14 +129,22 @@ impl<'a> Analyser<'a> {
                     "The directory that contains the schedules (located in a subdirectory named 'schedules') \
                     and realtime data (located in a subdirectory named 'rt')."
                 )
-            )
-    }
+            ).arg(Arg::new("schedule")
+                .short('s')
+                .long("schedule")
+                .required(true)
+                .about("The path of the GTFS schedule that is used.")
+                .takes_value(true)
+                .value_name("GTFS_SCHEDULE")
+            )     
+   }
 
     pub fn new(main: &'a Main, args: &'a ArgMatches) -> Analyser<'a> {
         Analyser {
             main,
             args,
             data_dir: Some(String::from(args.value_of("dir").unwrap())),
+            schedule: Self::read_schedule(args).unwrap()
         }
     }
 
@@ -157,43 +156,47 @@ impl<'a> Analyser<'a> {
                 let mut vsc = VisualScheduleCreator { 
                     main: self.main, 
                     analyser: self,
-                    args: sub_args,    
-                    schedule: self.read_schedule(sub_args)?
+                    args: sub_args,
                 };
                 vsc.run_visual_schedule()
+            },
+            ("compute-specific-curves", Some(sub_args)) => {
+                let scc = SpecificCurveCreator {
+                    main: self.main,
+                    analyser: self,
+                    args: sub_args,
+                };
+                scc.run_specific_curves()
+            },
+            ("compute-default-curves", Some(sub_args)) => {
+                let dcc = DefaultCurveCreator {
+                    main: self.main,
+                    analyser: self,
+                    args: sub_args,
+                };
+                dcc.run_default_curves()
             },
             ("compute-curves", Some(sub_args)) => {
                 let cc = CurveCreator {
                     main: self.main,
                     analyser: self,
                     args: sub_args, 
-                    schedule: self.read_schedule(sub_args)?
                 };
                 cc.run_curves()
-            },
-            ("compute-default-curves", Some(sub_args)) => {
-                let dcc = DefaultCurveCreator {
-                    main: self.main,
-                    analyser: self,
-                    args: sub_args, 
-                    schedule: self.read_schedule(sub_args)?
-                };
-                dcc.run_default_curves()
             },
             ("draw-curves", Some(sub_args)) => {
-                let cc = CurveDrawer {
+                let cd = CurveDrawer {
                     main: self.main,
                     analyser: self,
-                    args: sub_args, 
-                    schedule: self.read_schedule(sub_args)?
+                    args: sub_args,
                 };
-                cc.run_curves()
+                cd.run_curves()
             },
             _ => panic!("Invalid arguments."),
         }
     }
 
-    fn read_schedule(&self, sub_args: &ArgMatches) -> FnResult<Gtfs> {
+    fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
         println!("Parsing schedule…");
         let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?; // TODO proper error message if this fails
         println!("Done with parsing schedule.");
