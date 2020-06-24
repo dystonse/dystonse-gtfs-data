@@ -4,15 +4,15 @@ use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType};
 use mysql::*;
+use std::str::FromStr;
+use std::convert::TryInto;
 
-use simple_error::bail;
+use simple_error::SimpleError;
 
 use crate::FnResult;
 use crate::Main;
 
-use dystonse_curves::*;
 use dystonse_curves::tree::{SerdeFormat, NodeData};
-use dystonse_curves::irregular_dynamic::IrregularDynamicCurve;
 
 pub struct Predictor<'a> {
     #[allow(dead_code)]
@@ -116,7 +116,7 @@ impl<'a> Predictor<'a> {
 
     /// keeps running and answering requests for predictions until stopped
     fn run_start(&self, _args: &ArgMatches) -> FnResult<()> {
-        //TODO: everything
+        //TODO: everything !!!
 
         Ok(())
     }
@@ -136,86 +136,123 @@ impl<'a> Predictor<'a> {
         let date_time = NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?;
 
         // data structure to hold the prediction result:
-        let curve : Box<dyn Curve> = self.predict(route_id, trip_id, stop_id, event_type, date_time)?;
+        let prediction : PredictionResult = self.predict(route_id, trip_id, stop_id, event_type, date_time)?;
 
-        // output the resulting curve to the command line
+        // output the resulting curve(s) to the command line
         // TODO: we could probably use more advanced kinds of output here
         println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
-        println!("{:?}", curve);
+        println!("{:?}", prediction);
 
         Ok(())
     }
+    
+    /*
+    NOTE/TODO: THE FOLLOWING STUFF SHOULD BE COMPUTED BY WHOEVER CALLS THIS MODULE:
+    - find out if we have current realtime data of this trip
+    - if yes, find latest stop where we have a delay_departure in the past
+    - get that delay and from which stop it is
+    - put that into [somewhere we can read it from]
+    */
 
     /// finds out which kind of curve can be used for this prediction and looks up the requested curve
-    fn predict(&self, route_id: &str, trip_id: &str, stop_id: &str, et: EventType, date_time: NaiveDateTime) -> FnResult<Box<dyn Curve>> {
+    fn predict(&self, route_id: &str, trip_id: &str, stop_id: &str, et: EventType, date_time: NaiveDateTime) 
+        -> FnResult<PredictionResult> {
 
-        // data structure for holding the lookup's result:
-        //let mut curve : Box<dyn Curve> = Box::new();
-
-        // find out if there are historical realtime data of the requested route_variant
+        // parse lookup parameters from input
+        let ts = TimeSlot::from_datetime(date_time);
         let trip = self.schedule.get_trip(trip_id)?;
-        let route_variant = trip.route_variant.as_ref().unwrap(); //TODO:maybe improve error handling here
-        
-        /*
-        // NOTE: THE FOLLOWING STUFF SHOULD PROBABLY BE COMPUTED BY WHOEVER CALLS THIS MODULE INSTEAD OF HERE:
-        // find out if we have current realtime data of this trip
-        // if yes, find latest stop where we have a delay_departure in the past
-        // get that delay and from which stop it is
-        */
+       
+        let route_variant : u64 = u64::from_str(trip.route_variant.as_ref().unwrap()).unwrap(); 
+        // should never panic because we already checked the validity of 
+        // the trip, and route variants are always numbers.
 
-        // load curve for that start-delay from that stop to the currently requested stop
-        
+        let start : Option<(&str, Option<f32>)> = None;
+        // TODO: fill this option with start-stop_id and start-delay if given !!!!
 
+        // try to find a specific prediction:
+        let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et);
 
-            //curve = predict_specific();
-            // return that curve to [wherever]
+        // unwrap that, or try a default prediction if it failed:
+        let prediction : PredictionResult = if specific_prediction.is_err() {
+            // prepare some more lookup parameters
+            let r = self.schedule.get_route(route_id)?;
+            let rt = r.route_type;
+            let rs = RouteSection::get_route_section(&self.schedule, trip_id, stop_id);
+            // try default prediction
+            self.predict_default(rt, rs, ts, et)?
+        } else {
+            specific_prediction.unwrap() //will not panic because error handling in if branch above
+        };
 
-        // if no, find route type, route section and time slot of requested data
-            // load curve for requested route type, route section, time slot and event type
-            //curve = predict_default();
-            // return that curve to [wherever]
-        bail!("not yet implemented");
+        //return the prediction result
+        Ok(prediction)
     }
 
     // looks up a curve from default curves and returns it
     #[allow(dead_code)]
-    fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: TimeSlot, et: EventType) 
-            -> FnResult<Box<dyn Curve>> {
+    fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
+            -> FnResult<PredictionResult> {
 
-        let curve = self.delay_statistics.general.all_default_curves[&(rt, rs, ts, et)].clone();
-  
-        Ok(Box::new(curve))
+        let curve = self.delay_statistics.general.all_default_curves.get(&(rt, rs.clone(), ts.clone(), et))
+            .ok_or_else(|| SimpleError::new(format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts.id, et)))?;
+
+        Ok(PredictionResult::General(Box::new(curve.clone())))
     }
 
-    // looks up a curve from specific curves and returns it
+    // looks up a curve (or curve set) from specific curves and returns it
     #[allow(dead_code)]
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 
             start: Option<(&str, Option<f32>)>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
-            ts: TimeSlot,
+            ts: &TimeSlot,
             et: EventType) -> FnResult<PredictionResult> {
-        // TODO: actual lookup
-        let curve : IrregularDynamicCurve<f32, f32> = IrregularDynamicCurve::new(Vec::new());
-        
-        //Ok(Box::new(curve))
-        bail!("not yet implemented");
+
+        // find the route variant data that we need:
+        let rvdata = &self.delay_statistics.specific[route_id].variants[&route_variant];
+        // find index of target stop:
+        let target_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == stop_id).unwrap()
+            .try_into().unwrap(); //TODO: Error handling for unwraps
+
+        match start {
+            None => { 
+                // get general curve for target stop:
+                let curve = rvdata.general_delay[et][&target_stop_index].clone();
+                return Ok(PredictionResult::SemiSpecific(Box::new(curve)));
+            },
+            Some((s_id, d)) => {
+                
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
+                    .try_into().unwrap(); //TODO: Error handling for unwraps
+                let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
+                match d {
+                    // get curve set for start-stop:
+                    None => {
+                        return Ok(PredictionResult::SpecificCurveSet(curveset.clone()));
+                    },
+                    // get curve for start-stop and initial delay:
+                    Some(delay) => {
+                        let curve = curveset.curve_at_x_with_continuation(delay);
+                        return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
+                    }
+                };
+            },
+        };
     }
 
     fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
         println!("Parsing schedule…");
-        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?; // TODO proper error message if this fails
+        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?;
         println!("Done with parsing schedule.");
         Ok(schedule)
     }
 
     fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
-        println!("parsing default curves…");
-        let dir_name = format!("{}/curve_data/default_curves", 
-            String::from(sub_args.value_of("dir").unwrap())); //TODO: this could panic!
-        let def_curves = (DelayStatistics::load_from_file(&dir_name, "Default_curves.crv", &SerdeFormat::MessagePack))?;
-        println!("Done with parsing default curves.");
-        Ok(def_curves)
+        println!("parsing delay statistics…");
+        let dir_name = String::from(sub_args.value_of("dir").unwrap());
+        let delay_stats = (DelayStatistics::load_from_file(&dir_name, "stats", &SerdeFormat::MessagePack))?;
+        println!("Done with parsing delay statistics.");
+        Ok(delay_stats)
     }
 }
