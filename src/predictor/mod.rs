@@ -7,14 +7,12 @@ use mysql::*;
 use std::str::FromStr;
 use std::convert::TryInto;
 
-use simple_error::bail;
+use simple_error::SimpleError;
 
 use crate::FnResult;
 use crate::Main;
 
-use dystonse_curves::*;
 use dystonse_curves::tree::{SerdeFormat, NodeData};
-use dystonse_curves::irregular_dynamic::IrregularDynamicCurve;
 
 pub struct Predictor<'a> {
     #[allow(dead_code)]
@@ -195,9 +193,10 @@ impl<'a> Predictor<'a> {
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
             -> FnResult<PredictionResult> {
 
-        let curve = self.delay_statistics.general.all_default_curves[&(rt, rs, ts.clone(), et)].clone();
-  
-        Ok(PredictionResult::General(Box::new(curve)))
+        let curve = self.delay_statistics.general.all_default_curves.get(&(rt, rs.clone(), ts.clone(), et))
+            .ok_or_else(|| SimpleError::new(format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts.id, et)))?;
+
+        Ok(PredictionResult::General(Box::new(curve.clone())))
     }
 
     // looks up a curve (or curve set) from specific curves and returns it
@@ -218,43 +217,42 @@ impl<'a> Predictor<'a> {
 
         match start {
             None => { 
-                    // get general curve for target stop:
-                    let curve = rvdata.general_delay[et][&target_stop_index].clone();
-                    return Ok(PredictionResult::SemiSpecific(Box::new(curve)));
+                // get general curve for target stop:
+                let curve = rvdata.general_delay[et][&target_stop_index].clone();
+                return Ok(PredictionResult::SemiSpecific(Box::new(curve)));
             },
-            Some(t) => match t {
-                // get curve set for start-stop:
-                (s_id, None) => { 
-                    let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
-                        .try_into().unwrap(); //TODO: Error handling for unwraps
-                    let curveset = rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())].clone();
-                    return Ok(PredictionResult::SpecificCurveSet(curveset));
-                },
-                // get curve for start-stop and initial delay:
-                (s_id, Some(delay)) => {
-                    let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
-                        .try_into().unwrap(); //TODO: Error handling for unwraps
-                    let curve = rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())]
-                        .curve_at_x_with_continuation(delay);
-                    return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
-                },
+            Some((s_id, d)) => {
+                
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
+                    .try_into().unwrap(); //TODO: Error handling for unwraps
+                let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
+                match d {
+                    // get curve set for start-stop:
+                    None => {
+                        return Ok(PredictionResult::SpecificCurveSet(curveset.clone()));
+                    },
+                    // get curve for start-stop and initial delay:
+                    Some(delay) => {
+                        let curve = curveset.curve_at_x_with_continuation(delay);
+                        return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
+                    }
+                };
             },
         };
     }
 
     fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
         println!("Parsing schedule…");
-        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?; // TODO proper error message if this fails
+        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?;
         println!("Done with parsing schedule.");
         Ok(schedule)
     }
 
     fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
         println!("parsing delay statistics…");
-        let dir_name = format!("{}/curve_data/default_curves", //TODO: this is a mix of old and new, fix it!
-            String::from(sub_args.value_of("dir").unwrap())); //TODO: this could panic!
-        let def_curves = (DelayStatistics::load_from_file(&dir_name, "Default_curves.crv", &SerdeFormat::MessagePack))?;
-        println!("Done with parsing default curves.");
-        Ok(def_curves)
+        let dir_name = String::from(sub_args.value_of("dir").unwrap());
+        let delay_stats = (DelayStatistics::load_from_file(&dir_name, "stats", &SerdeFormat::MessagePack))?;
+        println!("Done with parsing delay statistics.");
+        Ok(delay_stats)
     }
 }
