@@ -9,6 +9,7 @@ use clap::ArgMatches;
 use gtfs_structures::{Gtfs, Route, RouteType};
 use mysql::*;
 use mysql::prelude::*;
+use rayon::prelude::*;
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::tree::{SerdeFormat, NodeData};
@@ -25,6 +26,11 @@ const MIN_DATA_FOR_CURVE : usize = 10;
 /// and are identified by route_type, time_slot and route_section.
 /// The calculations are based on the routes for which we have historic realtime data, 
 /// but the curves are intended to be used for any prediction, identified by the criteria mentioned above.
+
+type Collection<'a> = EventPair
+<HashMap<(&'a RouteType, &'a RouteSection, &'a TimeSlot), 
+    Vec<IrregularDynamicCurve<f32, f32>>>>;
+
 
 pub struct DefaultCurveCreator<'a> {
     pub main: &'a Main,
@@ -51,23 +57,8 @@ impl<'a> DefaultCurveCreator<'a> {
             RouteSection::End
             ];
 
-        //data structures to collect all default curves:
-        let mut default_curves : EventPair
-            <HashMap<(&RouteType, &RouteSection, &TimeSlot), 
-                Vec<IrregularDynamicCurve<f32, f32>>>> = EventPair { arrival: HashMap::new(), departure: HashMap::new() };
-       
-        // initialize them with empty vectors
-        for rt in &route_types {
-            for rs in &route_sections {
-                for ts in &TimeSlot::TIME_SLOTS {
-                    default_curves.arrival.insert((rt, rs, ts), Vec::new());
-                    default_curves.departure.insert((rt, rs, ts), Vec::new());
-                }
-            }
-        }
-
         //iterate over route types
-        for rt in route_types.iter() {
+        let mut default_curves = route_types.par_iter().map(|rt| {
             println!("Starting with route type {:?}", rt);
 
             //find all routes for this type
@@ -79,12 +70,14 @@ impl<'a> DefaultCurveCreator<'a> {
                 route_variants.extend(self.get_variants_for_route(r));
             }
 
-            println!("Found {} route variants in {} routes", route_variants.len(), routes.len());
+            println!("Found {} route variants in {} {:?} routes", route_variants.len(), routes.len(), rt);
 
             //iterate over route variants
-            for (ri, rv) in route_variants {
+            //for (ri, rv) in route_variants {
 
-
+            let collection_for_route_type: Collection = route_variants.par_iter().map(|(ri, rv)| {
+                let mut collection_for_route_variant = Self::empty_collection();
+                 
                 //find one trip of this variant
                 let trip = schedule.trips.values().filter(
                         |trip| trip.route_variant.as_ref().unwrap() == rv
@@ -108,8 +101,8 @@ impl<'a> DefaultCurveCreator<'a> {
                 }
                 //...now the borders should be known.
 
-                println!("For route variant {} with {} stops, the route sections are at {} and {}.",
-                    rv, rv_stops.len(), max_beginning_stop, max_middle_stop);
+                // println!("For route variant {} with {} stops, the route sections are at {} and {}.",
+                //     rv, rv_stops.len(), max_beginning_stop, max_middle_stop);
 
                 // Get rt data from the database for all route sections in this route variant
                 // TODO: fix this, because it panics if anything went wrong in the database connection etc.!
@@ -147,14 +140,24 @@ impl<'a> DefaultCurveCreator<'a> {
                             if delays[**e_t].len() >= MIN_DATA_FOR_CURVE {
                                 if let Ok((mut curve, _)) = make_curve(&delays[**e_t], None) {
                                     curve.simplify(0.001);
-                                    default_curves[**e_t].get_mut(&(rt, rs, *ts)).unwrap().push(curve);
+                                    // only create vectors that will have entries
+                                    collection_for_route_variant[**e_t].entry((rt, rs, *ts)).or_insert(Vec::new()).push(curve);
                                 }
                             }   
                         }
                     }
                 }
-            }
-        }
+                collection_for_route_variant
+            }).reduce(
+                || Self::empty_collection(),
+                |a, b| Self::merge_collections(a, b)
+            );
+           collection_for_route_type
+        }).reduce(
+            || Self::empty_collection(),
+            |a, b| Self::merge_collections(a, b)
+        );
+
 
         println!("Done with curves for each route variant, now computing average curves…");
 
@@ -173,21 +176,36 @@ impl<'a> DefaultCurveCreator<'a> {
 
                     for e_t in &EventType::TYPES {
                         // curve vectors
-                        let curves = default_curves[**e_t].get_mut(&(rt, rs, *ts)).unwrap();
-                        // interpolate them into one curve each and
-                        // put curves into the final datastructure:
-                        if curves.len() > 0 {
-                            let mut curve = IrregularDynamicCurve::<f32, f32>::average(curves);
-                            curve.simplify(0.001);
-                            dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), curve);
+                        if let Some(curves) = default_curves[**e_t].get_mut(&(rt, rs, *ts)) {
+                            // interpolate them into one curve each and
+                            // put curves into the final datastructure:
+                            if curves.len() > 0 {
+                                let mut curve = IrregularDynamicCurve::<f32, f32>::average(curves);
+                                curve.simplify(0.001);
+                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), curve);
+                            }
                         }
                     }
                 }
             }
         }
-        println!("Done with everything but saving. Result: {:?}", dc.all_default_curves);
+        println!("Done with everything but saving."); // Result: {:?}", dc.all_default_curves);
 
         Ok(dc)
+    }
+
+    pub fn empty_collection() -> Collection<'a> {
+        //data structures to collect all default curves:
+        EventPair { arrival: HashMap::new(), departure: HashMap::new() }
+    }
+
+    pub fn merge_collections(mut c1: Collection<'a>, c2: Collection<'a>) -> Collection<'a> {
+        for e_t in &EventType::TYPES {
+            for (key, value) in c2[**e_t].clone() {
+                c1[**e_t].entry(key).or_insert(Vec::new()).extend(value);
+            }
+        }
+        c1
     }
 
     pub fn run_default_curves(&self) -> FnResult<()> {
