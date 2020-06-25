@@ -94,7 +94,7 @@ impl<'a> Predictor<'a> {
                 .about("The directory which contains schedules and precomputed curves")
                 .long_about(
                     "The directory that contains the schedules (located in a subdirectory named 'schedules') \
-                    and precomputed curve data (located in a subdirectory named 'curve_data')."
+                    and precomputed curve data."
                 )
             ).arg(Arg::new("schedule")
                 .short('s')
@@ -168,8 +168,11 @@ impl<'a> Predictor<'a> {
         // data structure to hold the prediction result:
         let prediction : PredictionResult = self.predict(route_id, trip_id, start, stop_id, event_type, date_time)?;
 
-        // output the resulting curve(s) to the command line
+        // output the resulting curve(s) to the command line:
         // TODO: we could probably use more advanced kinds of output here
+        // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
+        // arrival delay in cases where the result is a curve set or specific curve. 
+        // Event type choice is only used in default and semi specific curves.
         println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
         println!("{:?}", prediction);
 
