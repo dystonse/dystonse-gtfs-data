@@ -6,7 +6,9 @@ This is a Rust crate that works with static gtfs schedules (as zip or directory)
 
 In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
 
-In **analyse** mode, it can count the data entries per time and output some simple statistics. More features are yet to come.
+In **analyse** mode, it can compute delay probability curves both for specific and general data sets, and save them as small machine-readable files or human-readable images in different formats. It can also count the data entries per time and output some simple statistics.
+
+In **predict** mode, it can look up and return the delay probability curve that is most useful for predicting the delay of a specified trip, stop, time, and (optional) delay at a specified earlier stop.
 
 ## How to use this
 
@@ -38,7 +40,9 @@ In automatic mode:
 In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
 
 ## Analysing data
-This has currently only one subcommand: `count`.
+In addition to the global arguments (for database connection etc., see above), the `analyse` command needs `dir` and `schedule` arguments - a directory where data should be read from/written to, and the filename of a schedule file to use for the analyses.
+
+Additional required arguments depend on the subcommand you want to use:
 
 ### `count` mode
 For a given source id, this will count the number of valid real time entries for each time interval. An entry is considered valid if its `delay_arrival` is between -10 hours and +10 hours. The whole time span for which there is real time data will be split into parts of length corresponding  to the `interval` parameter, which has a default value of `1h` (one hour).
@@ -50,6 +54,43 @@ time_min;            time_max;            stop_time update count; average delay;
 2020-03-16 00:41:02; 2020-03-16 04:41:02;                     72;       11.6111;            12;        18279
 [...]
 ```
+### `graph` mode
+This will compute visual schedules of the given `route-ids` (or `all`) and save them as png images in a directory structure sorted by agency and route. See [this post on our blog in german language](http://blog.dystonse.org/opendata/2020/04/20/datensammlung-2.html) for more info about visual schedules (_Bildfahrpläne_).
+
+### `compute-specific-curves` mode
+This will compute specific delay probability curves for a given set of `route-ids` (or for all route-ids available in the schedule, if `all` is used instead). As long as there are enough data points in the database, it creates the following things for each route variant and each time slot:
+ * curves of the general distribution of delays at each stop (one curve each for arrival and one for departure delays)
+ * curve sets of the distribution of arrival delays at each stop, depending on the departure delay at another (earlier) stop (one curve set for each pair of two stops)
+ 
+### `compute-default-curves` mode
+This will compute aggregated delay probability curves divided by the following general categories:
+ * route type: tram/subway/rail/bus/ferry
+ * route section: beginning/middle/end, see [here](https://github.com/dystonse/dystonse-gtfs-data/blob/master/src/types/route_sections.rs) for the specification.
+ * time slot: 11 separate time categories defined by weekdays and hours, see [here](https://github.com/dystonse/dystonse-gtfs-data/blob/master/src/types/time_slots.rs) for the specification.
+
+### `compute-curves` mode
+This will compute delay probability curves, using the collected data in the database. The curves (both specific and default) are saved into a file named "all_curves.exp" in the specified data directory. When the argument `route-ids` is given, the specific curves are only computed for the given route-ids. When the argument `all` is given, all available route-ids from the schedule are used.
+
+### `draw-curves` mode
+This will compute specific delay probability curve sets for the given `route-ids` and output them as diagrams in svg file format with human-readable title (in german) and labels/captions. One file is created for each pair of stops in each route variant and each time slot, sorted into a directory structure.
+
+## Prediction lookup
+In addition to the global arguments (for database connection etc., see above), the `predict` command needs `dir` and `schedule` arguments - a directory where the precomputed curves should be read from, and the filename of a schedule file to use for looking up all data that are not contained in the curve files.
+
+Additional required arguments depend on the subcommand you want to use. Currently, only the `single` subcommand is implemented.
+
+### `single` mode
+This will lookup a single curve or curve set depending on the values of the arguments, and print the output to the command line (we are currently working on a more useful interface for this output).
+The following arguments are needed: 
+ * `route-id`, `trip-id` and `stop-id` (according to the schedule) of where you want to get a prediction for
+ * `event-type`: arrival or departure
+ * `date-time` date and time of when you want to be at the specified stop
+ * (optional) `start-stop-id` of a previous stop where the vehicle has already been
+ * (optional) `initial-delay` at the previous stop. If `start-stop-id` is given, but `initial-delay` is not given, the result will be a curve set instead of a single curve
+ * (optional) `use-realtime`: if given instead of `start-stop-id` and `initial-delay`, the predictor module will try to look up a useful `start-stop-id` and `initial-delay` from the database (if there are current realtime data for this trip) . Obviusly, this works only in a very narrow time window, where the vehicle has already started its trip, but not yet arrived at `stop-id`.
+ 
+ ### `start`mode
+ (not yet implemented.)
 
 ## Docker integration
 
