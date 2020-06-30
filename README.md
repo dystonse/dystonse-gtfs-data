@@ -82,7 +82,7 @@ Additional required arguments depend on the subcommand you want to use. Currentl
 ### `single` mode
 This will lookup a single curve or curve set depending on the values of the arguments, and print the output to the command line (we are currently working on a more useful interface for this output).
 The following arguments are needed: 
- * `route-id`, `trip-id` and `stop-id` (according to the schedule) of where you want to get a prediction for
+ * `route-id`, `trip-id` and (optional) `stop-id` (according to the schedule) of where you want to get a prediction for. If `stop-id` is ommitted, a prediction for each stop of the route is generated.
  * `event-type`: arrival or departure
  * `date-time` date and time of when you want to be at the specified stop
  * (optional) `start-stop-id` of a previous stop where the vehicle has already been

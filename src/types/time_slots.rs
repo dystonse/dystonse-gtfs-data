@@ -4,12 +4,15 @@ use gtfs_structures::Trip;
 use crate::types::{
     EventType, DbItem
 };
+use std::fmt::{Display, Formatter};
+use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 /// Time slots are specific ranges in time that occur repeatedly. 
 /// Any DateTime should be able to be mapped to exactly one TimeSlot constant.
 /// TimeSlots are defined by: id, description, weekday and hour criteria
 
-#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSlot {
     pub id: u8,
     #[serde(skip)]
@@ -179,5 +182,33 @@ impl TimeSlot {
         } else {
             false
         }
+    }
+}
+
+impl Display for TimeSlot {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "on {} to {} from {} to {}", self.min_weekday, self.max_weekday, self.min_hour, self.max_hour)
+    }
+}
+
+impl PartialOrd for TimeSlot {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        let self_key  = ( self.min_weekday.num_days_from_monday(),  self.max_weekday.num_days_from_monday(),  self.min_hour,  self.max_hour);
+        let other_key = (other.min_weekday.num_days_from_monday(), other.max_weekday.num_days_from_monday(), other.min_hour, other.max_hour);
+        return self_key.partial_cmp(&other_key);
+    }
+}
+
+impl Ord for TimeSlot {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_key  = ( self.min_weekday.num_days_from_monday(),  self.max_weekday.num_days_from_monday(),  self.min_hour,  self.max_hour);
+        let other_key = (other.min_weekday.num_days_from_monday(), other.max_weekday.num_days_from_monday(), other.min_hour, other.max_hour);
+        return self_key.cmp(&other_key);
+    }
+}
+
+impl Hash for TimeSlot {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
     }
 }

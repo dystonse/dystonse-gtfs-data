@@ -5,7 +5,7 @@ use simple_error::bail;
 use crate::FnResult;
 use dystonse_curves::tree::{TreeData, LeafData, SerdeFormat, NodeData};
 
-#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum EventType {
     Arrival,
     Departure,

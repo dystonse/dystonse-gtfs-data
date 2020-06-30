@@ -44,7 +44,7 @@ impl TreeData for DefaultCurves {
             self.save_to_file(dir_name, "statistics", format)?;
         } else {
             for ((route_type, route_section, time_slot, event_type), curve) in &self.all_default_curves {
-                let sub_dir_name = format!("{}/{}/{:?}/{:?}/{:?}", dir_name, own_name, route_type, route_section, time_slot);
+                let sub_dir_name = format!("{}/{}/{:?}/{:?}/{}", dir_name, own_name, route_type, route_section, time_slot);
                 let own_name = format!("route_{:?}", event_type);
                 curve.save_to_file(&sub_dir_name, &own_name, format)?;
             }

@@ -5,8 +5,9 @@ use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType};
 use std::str::FromStr;
 use std::convert::TryInto;
+use itertools::Itertools;
 
-use simple_error::SimpleError;
+use simple_error::{SimpleError, bail};
 
 use crate::FnResult;
 use crate::Main;
@@ -49,8 +50,7 @@ impl<'a> Predictor<'a> {
                 ).arg(Arg::new("stop-id")
                     .short('i')
                     .long("stop-id")
-                    .required(true)
-                    .about("Id of the stop for which the prediction shall be made.")
+                    .about("Id of the stop for which the prediction shall be made. May be ommitted to get predictions for all stops of the route.")
                     .takes_value(true)
                     .value_name("STOP_ID")
                 ).arg(Arg::new("event-type")
@@ -138,13 +138,15 @@ impl<'a> Predictor<'a> {
         // parse command line arguments into the right data types
         let route_id = args.value_of("route-id").unwrap();
         let trip_id = args.value_of("trip-id").unwrap();
-        let stop_id = args.value_of("stop-id").unwrap();
+        let potential_stop_id = args.value_of("stop-id");
         let event_type = match args.value_of("event-type").unwrap() {
             "arrival" => EventType::Arrival,
             "departure" => EventType::Departure,
             _ => {panic!("Invalid event type argument!");}
         };
         let date_time = NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?;
+
+        let trip = self.schedule.get_trip(trip_id)?;
 
         // parse optional arguments:
         let start = match args.value_of("start-stop-id") {
@@ -154,7 +156,6 @@ impl<'a> Predictor<'a> {
                         },
             None => {
                 if args.is_present("use-realtime") {
-                    let trip = self.schedule.get_trip(trip_id)?;
                     match real_time::get_realtime_data(self.main, &trip) {
                         Ok((stop_id, delay)) => Some((stop_id.clone(), Some(delay as f32))),
                         _ => None
@@ -164,17 +165,25 @@ impl<'a> Predictor<'a> {
                 }
             },
         };
-        
-        // data structure to hold the prediction result:
-        let prediction : PredictionResult = self.predict(route_id, trip_id, start, stop_id, event_type, date_time)?;
 
-        // output the resulting curve(s) to the command line:
-        // TODO: we could probably use more advanced kinds of output here
-        // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
-        // arrival delay in cases where the result is a curve set or specific curve. 
-        // Event type choice is only used in default and semi specific curves.
-        println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
-        println!("{:?}", prediction);
+        // if no single stop_id is given, iterate over all stop_ids of the trip
+        let stop_ids = match potential_stop_id {
+            Some(stop_id) => vec!{stop_id},
+            None => trip.stop_times.iter().map(|st| st.stop.id.as_str()).collect()
+        };
+
+        for stop_id in stop_ids {
+            // data structure to hold the prediction result:
+            let prediction = self.predict(route_id, trip_id, &start, stop_id, event_type, date_time);
+
+            // output the resulting curve(s) to the command line:
+            // TODO: we could probably use more advanced kinds of output here
+            // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
+            // arrival delay in cases where the result is a curve set or specific curve. 
+            // Event type choice is only used in default and semi specific curves.
+            println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
+            println!("{:?}", prediction);
+        }
 
         Ok(())
     }
@@ -184,7 +193,7 @@ impl<'a> Predictor<'a> {
     fn predict(&self, 
             route_id: &str, 
             trip_id: &str, 
-            start: Option<(String, Option<f32>)>, 
+            start: &Option<(String, Option<f32>)>, 
             stop_id: &str, 
             et: EventType, 
             date_time: NaiveDateTime) -> FnResult<PredictionResult> {
@@ -219,7 +228,7 @@ impl<'a> Predictor<'a> {
             -> FnResult<PredictionResult> {
 
         let curve = self.delay_statistics.general.all_default_curves.get(&(rt, rs.clone(), ts.clone(), et))
-            .ok_or_else(|| SimpleError::new(format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts.id, et)))?;
+            .ok_or_else(|| SimpleError::new(format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts, et)))?;
 
         Ok(PredictionResult::General(Box::new(curve.clone())))
     }
@@ -228,7 +237,7 @@ impl<'a> Predictor<'a> {
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 
-            start: Option<(String, Option<f32>)>, //&str for stop_id, f32 for initial delay
+            start: &Option<(String, Option<f32>)>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
             ts: &TimeSlot,
             et: EventType) -> FnResult<PredictionResult> {
@@ -242,12 +251,15 @@ impl<'a> Predictor<'a> {
         match start {
             None => { 
                 // get general curve for target stop:
-                let curve = rvdata.general_delay[et][&target_stop_index].clone();
-                return Ok(PredictionResult::SemiSpecific(Box::new(curve)));
+                let curve = rvdata.general_delay[et].get(&target_stop_index);
+                if curve.is_none() {
+                    bail!("No curve for stop {}.", stop_id);
+                }
+                return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
             },
             Some((s_id, d)) => {
                 
-                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == &s_id).unwrap()
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
                     .try_into().unwrap(); //TODO: Error handling for unwraps
                 let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
                 // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
@@ -262,7 +274,7 @@ impl<'a> Predictor<'a> {
                     },
                     // get curve for start-stop and initial delay:
                     Some(delay) => {
-                        let curve = curveset.curve_at_x_with_continuation(delay);
+                        let curve = curveset.curve_at_x_with_continuation(*delay);
                         return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
                     }
                 };

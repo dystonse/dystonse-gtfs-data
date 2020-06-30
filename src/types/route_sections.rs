@@ -5,7 +5,7 @@ use crate::FnResult;
 use simple_error::SimpleError;
 
 /// Route sections are sets of stops that form a part of the route (beginning, middle, or end)
-#[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug, Serialize, Deserialize, Clone)]
 pub enum RouteSection {
     Beginning,
     Middle,
