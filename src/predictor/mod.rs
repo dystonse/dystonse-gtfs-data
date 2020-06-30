@@ -201,19 +201,17 @@ impl<'a> Predictor<'a> {
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et);
 
         // unwrap that, or try a default prediction if it failed:
-        let prediction : PredictionResult = if specific_prediction.is_err() {
+        let prediction = specific_prediction.or_else(|_| {
             // prepare some more lookup parameters
             let r = self.schedule.get_route(route_id)?;
             let rt = r.route_type;
             let rs = RouteSection::get_route_section(&self.schedule, trip_id, stop_id)?;
             // try default prediction
-            self.predict_default(rt, rs, ts, et)?
-        } else {
-            specific_prediction.unwrap() //will not panic because error handling in if branch above
-        };
+            self.predict_default(rt, rs, ts, et)
+        });
 
         //return the prediction result
-        Ok(prediction)
+        prediction
     }
 
     // looks up a curve from default curves and returns it
