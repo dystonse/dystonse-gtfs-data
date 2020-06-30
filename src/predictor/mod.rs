@@ -202,7 +202,7 @@ impl<'a> Predictor<'a> {
             // prepare some more lookup parameters
             let r = self.schedule.get_route(route_id)?;
             let rt = r.route_type;
-            let rs = RouteSection::get_route_section(&self.schedule, trip_id, stop_id);
+            let rs = RouteSection::get_route_section(&self.schedule, trip_id, stop_id)?;
             // try default prediction
             self.predict_default(rt, rs, ts, et)?
         } else {
@@ -214,7 +214,6 @@ impl<'a> Predictor<'a> {
     }
 
     // looks up a curve from default curves and returns it
-    #[allow(dead_code)]
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
             -> FnResult<PredictionResult> {
 
@@ -225,7 +224,6 @@ impl<'a> Predictor<'a> {
     }
 
     // looks up a curve (or curve set) from specific curves and returns it
-    #[allow(dead_code)]
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 
@@ -251,6 +249,11 @@ impl<'a> Predictor<'a> {
                 let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == &s_id).unwrap()
                     .try_into().unwrap(); //TODO: Error handling for unwraps
                 let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
+                // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
+                // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
+                // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
+                // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
+                // --date-time 2020-06-24T21:02:47 --use-realtime
                 match d {
                     // get curve set for start-stop:
                     None => {

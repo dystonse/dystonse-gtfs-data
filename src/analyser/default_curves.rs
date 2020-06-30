@@ -91,12 +91,13 @@ impl<'a> DefaultCurveCreator<'a> {
                 let mut max_middle_stop : u16 = 0;
 
                 for s in rv_stops {
-                    let sec : RouteSection = RouteSection::get_route_section(&schedule, &trip.id, &s.stop.id);
-                    if sec == RouteSection::Beginning {
-                        max_beginning_stop = s.stop_sequence;
-                    }
-                    else if sec == RouteSection::Middle {
-                        max_middle_stop = s.stop_sequence;
+                    if let Ok(sec) = RouteSection::get_route_section(&schedule, &trip.id, &s.stop.id) {
+                        if sec == RouteSection::Beginning {
+                            max_beginning_stop = s.stop_sequence;
+                        }
+                        else if sec == RouteSection::Middle {
+                            max_middle_stop = s.stop_sequence;
+                        }
                     }
                 }
                 //...now the borders should be known.
