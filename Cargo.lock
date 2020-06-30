@@ -871,8 +871,7 @@ dependencies = [
 [[package]]
 name = "gtfs-rt"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8363e83f7464eb3ac29a602ed44de5b0fb0c0133da458b384102ac8bec45a917"
+source = "git+https://github.com/dystonse/gtfs-rt.git?branch=extension#7f8346ac22d99622da18e3e26e1250a4fa44e9c5"
 dependencies = [
  "bytes 0.4.12",
  "prost",

@@ -13,6 +13,10 @@ use crate::FnResult;
 use crate::Main;
 
 use dystonse_curves::tree::{SerdeFormat, NodeData};
+use prost::Message;
+use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
 
 mod real_time;
 
@@ -176,6 +180,21 @@ impl<'a> Predictor<'a> {
             // data structure to hold the prediction result:
             let prediction = self.predict(route_id, trip_id, &start, stop_id, event_type, date_time);
 
+            if let Ok(actual_prediction) = &prediction {
+                println!("Got a prediction, try to write GTFS-rt message…");
+                let ext = actual_prediction.to_stop_time_event_extension();
+                let mut vec : Vec<u8> = Vec::new(); 
+                ext.encode(&mut vec)?;
+                let file_path = format!("data/message_{}.pb", stop_id);
+                let mut file = match File::create(&file_path) {
+                    Err(why) => panic!("couldn't create file {}: {}", file_path, why),
+                    Ok(file) => file,
+                };
+                match file.write_all(&vec) {
+                    Err(why) => panic!("couldn't write: {}", why),
+                    Ok(_) => println!("successfully wrote."),
+                }
+            }
             // output the resulting curve(s) to the command line:
             // TODO: we could probably use more advanced kinds of output here
             // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
@@ -261,23 +280,32 @@ impl<'a> Predictor<'a> {
                 
                 let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
                     .try_into().unwrap(); //TODO: Error handling for unwraps
-                let curveset = &rvdata.curve_sets[&(start_stop_index, target_stop_index, ts.clone())];
-                // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
+                let potential_curveset = &rvdata.curve_sets.get(&(start_stop_index, target_stop_index, ts.clone()));
+                if let Some(curveset) = potential_curveset {
+                    // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
+                    // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
                 // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
+                    // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
+                    // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
                 // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
+                    // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
+                    // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
                 // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
-                // --date-time 2020-06-24T21:02:47 --use-realtime
-                match d {
-                    // get curve set for start-stop:
-                    None => {
-                        return Ok(PredictionResult::SpecificCurveSet(curveset.clone()));
-                    },
-                    // get curve for start-stop and initial delay:
-                    Some(delay) => {
-                        let curve = curveset.curve_at_x_with_continuation(*delay);
-                        return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
-                    }
-                };
+                    // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
+                    // --date-time 2020-06-24T21:02:47 --use-realtime
+                    match d {
+                        // get curve set for start-stop:
+                        None => {
+                            return Ok(PredictionResult::SpecificCurveSet((**curveset).clone()));
+                        },
+                        // get curve for start-stop and initial delay:
+                        Some(delay) => {
+                            let curve = curveset.curve_at_x_with_continuation(*delay);
+                            return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
+                        }
+                    };
+                }
+                bail!("No specific curveset found");
             },
         };
     }
