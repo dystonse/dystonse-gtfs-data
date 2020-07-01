@@ -1,4 +1,5 @@
 mod per_schedule_importer;
+mod batched_statements;
 
 use gtfs_structures::Gtfs;
 use mysql::*;

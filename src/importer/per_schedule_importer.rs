@@ -2,17 +2,17 @@ use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use gtfs_rt::FeedMessage as GtfsRealtimeMessage;
 use gtfs_structures::Gtfs;
 use gtfs_structures::Trip as ScheduleTrip;
-use mysql::prelude::*;
 use mysql::*;
 use prost::Message; // need to use this, otherwise GtfsRealtimeMessage won't have a `decode` method
 use simple_error::SimpleError;
 use std::fs::File;
 use std::io::prelude::*;
+use mysql::prelude::*;
+
+use super::batched_statements::BatchedStatements;
 
 use crate::FnResult;
 use crate::types::{EventType, GetByEventType};
-
-const MAX_BATCH_SIZE: usize = 1000;
 
 pub struct PerScheduleImporter<'a> {
     pool: &'a Pool,
@@ -40,13 +40,6 @@ impl EventTimes {
     fn is_empty(&self) -> bool {
         return self.schedule.is_none() && self.estimate.is_none() && self.delay.is_none();
     }
-}
-
-struct BatchedInsertions<'a> {
-    params_vec: Vec<Params>,
-    conn: &'a mut PooledConn,
-    update_statement: Statement,
-    insert_statement: Statement,
 }
 
 impl<'a> PerScheduleImporter<'a> {
@@ -90,8 +83,8 @@ impl<'a> PerScheduleImporter<'a> {
         let mut stop_time_updates_count = 0;
         let mut stop_time_updates_success_count = 0;
 
-        let mut conn = self.pool.get_conn()?;
-        let mut batched = BatchedInsertions::new(&mut conn);
+        let conn = self.pool.get_conn()?;
+        let mut batched = Self::create_statements(conn);
         // `message.entity` is actually a collection of entities
         for entity in message.entity {
             if let Some(trip_update) = entity.trip_update {
@@ -117,7 +110,7 @@ impl<'a> PerScheduleImporter<'a> {
     fn process_trip_update(
         &self,
         trip_update: gtfs_rt::TripUpdate,
-        batched: &mut BatchedInsertions,
+        batched: &mut BatchedStatements,
         time_of_recording: u64,
     ) -> FnResult<(u32, (u32, u32))> {
         let mut stop_time_updates_count = 0;
@@ -184,7 +177,7 @@ impl<'a> PerScheduleImporter<'a> {
         stop_time_update: gtfs_rt::trip_update::StopTimeUpdate,
         start_date: NaiveDateTime,
         schedule_trip: &gtfs_structures::Trip,
-        batched: &mut BatchedInsertions,
+        batched: &mut BatchedStatements,
         trip_id: &String,
         route_id: &String,
         time_of_recording: u64,
@@ -231,7 +224,7 @@ impl<'a> PerScheduleImporter<'a> {
             return Ok(0);
         }
 
-        batched.add_insertion(Params::from(params! {
+        batched.add_paramter_set(Params::from(params! {
             "source" => &self.source,
             "route_id" => &route_id,
             "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
@@ -283,10 +276,8 @@ impl<'a> PerScheduleImporter<'a> {
             estimate: Some(estimate),
         }
     }
-}
 
-impl<'a> BatchedInsertions<'a> {
-    fn new(conn: &mut PooledConn) -> BatchedInsertions {
+    fn create_statements(mut conn: PooledConn) -> BatchedStatements {
         let update_statement = conn.prep(r"UPDATE `realtime`
         SET 
             `stop_id` = :stop_id,
@@ -332,29 +323,6 @@ impl<'a> BatchedInsertions<'a> {
         .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
 
         // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
-
-        BatchedInsertions {
-            params_vec: Vec::with_capacity(MAX_BATCH_SIZE),
-            conn,
-            update_statement,
-            insert_statement
-        }
-    }
-
-    fn add_insertion(&mut self, insertion: Params) -> FnResult<()> {
-        self.params_vec.push(insertion);
-        if self.params_vec.len() > MAX_BATCH_SIZE {
-            self.write_to_database()?;
-        }
-        Ok(())
-    }
-
-    fn write_to_database(&mut self) -> FnResult<()> {
-        let mut tx = self.conn.start_transaction(TxOpts::default())?;
-        tx.exec_batch(&self.update_statement, &self.params_vec)?;
-        tx.exec_batch(&self.insert_statement, &self.params_vec)?;
-        self.params_vec.clear();
-        tx.commit()?;
-        Ok(())
+        BatchedStatements::new(conn, vec![update_statement, insert_statement])
     }
 }
