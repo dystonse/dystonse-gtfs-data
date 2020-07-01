@@ -17,6 +17,7 @@ pub struct DelayStatistics {
 impl DelayStatistics {
     pub const NAME : &'static str = "DelayStatistics";
 
+    #[allow(dead_code)]
     pub fn new() -> Self {
         return Self {
             specific: HashMap::new(),

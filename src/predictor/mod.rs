@@ -14,7 +14,6 @@ use crate::Main;
 
 use dystonse_curves::tree::{SerdeFormat, NodeData};
 use prost::Message;
-use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -24,7 +23,7 @@ pub struct Predictor<'a> {
     #[allow(dead_code)]
     main: &'a Main,
     args: &'a ArgMatches,
-    data_dir: Option<String>,
+    _data_dir: Option<String>,
     schedule: Gtfs,
     delay_statistics: Box<DelayStatistics>,
 }
@@ -114,7 +113,7 @@ impl<'a> Predictor<'a> {
         Predictor {
             main,
             args,
-            data_dir: Some(String::from(args.value_of("dir").unwrap())),
+            _data_dir: Some(String::from(args.value_of("dir").unwrap())),
             schedule: Self::read_schedule(args).unwrap(),
             delay_statistics: Self::read_delay_statistics(args).unwrap(),
         }
@@ -284,13 +283,7 @@ impl<'a> Predictor<'a> {
                 if let Some(curveset) = potential_curveset {
                     // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
                     // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
-                // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
-                    // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
                     // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
-                // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
-                    // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
-                    // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
-                // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
                     // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
                     // --date-time 2020-06-24T21:02:47 --use-realtime
                     match d {
@@ -321,7 +314,10 @@ impl<'a> Predictor<'a> {
         println!("parsing delay statistics…");
         let dir_name = String::from(sub_args.value_of("dir").unwrap());
         let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;
-        println!("Done with parsing delay statistics.");
+        println!("Done with parsing delay statistics, found:");
+        for (rt, rs, ts, et) in delay_stats.general.all_default_curves.keys().sorted() {
+            println!("Curve for {:?}, {:?}, {}, {:?}", rt, rs, ts, et);
+        }
         Ok(delay_stats)
     }
 

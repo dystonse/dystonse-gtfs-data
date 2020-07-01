@@ -6,7 +6,7 @@ use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType, Eve
 use super::curve_utils::*;
 
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, Route, RouteType};
+use gtfs_structures::{Route, RouteType};
 use mysql::*;
 use mysql::prelude::*;
 use rayon::prelude::*;
@@ -40,7 +40,7 @@ pub struct DefaultCurveCreator<'a> {
 
 impl<'a> DefaultCurveCreator<'a> {
 
-    pub fn get_default_curves(&self) -> FnResult<(DefaultCurves)> {
+    pub fn get_default_curves(&self) -> FnResult<DefaultCurves> {
         let schedule = &self.analyser.schedule;
 
         let route_types = [

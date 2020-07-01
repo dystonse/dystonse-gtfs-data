@@ -60,7 +60,7 @@ impl<T> TreeData for EventPair<T>
         Ok(())
     }
 
-    fn load_tree(dir_name: &str, own_name: &str, format: &SerdeFormat, leaves: &Vec<&str>) -> FnResult<Self> {
+    fn load_tree(_dir_name: &str, _own_name: &str, _format: &SerdeFormat, _leaves: &Vec<&str>) -> FnResult<Self> {
         bail!("Nerv nicht.");
     }
 }

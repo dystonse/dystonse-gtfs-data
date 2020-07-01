@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::prelude::*;
 
 use clap::ArgMatches;
-use gtfs_structures::{Gtfs, RouteType, Trip};
+use gtfs_structures::{RouteType, Trip};
 use gnuplot::*;
 
 use dystonse_curves::irregular_dynamic::*;
