@@ -12,7 +12,7 @@ use mysql::prelude::*;
 use super::batched_statements::BatchedStatements;
 use super::Importer;
 
-use crate::FnResult;
+use crate::{FnResult, OrError};
 use crate::types::{EventType, GetByEventType};
 
 pub struct PerScheduleImporter<'a> {
@@ -21,6 +21,10 @@ pub struct PerScheduleImporter<'a> {
     verbose: bool,
     filename: &'a str,
     record_statements: Option<BatchedStatements>,
+    arrival_statements: Option<BatchedStatements>,
+    departure_statements: Option<BatchedStatements>,
+    perform_record: bool,
+    perform_predict: bool
 }
 
 /// For an event (which may be an arrival or a departure), this struct
@@ -59,10 +63,19 @@ impl<'a> PerScheduleImporter<'a> {
             verbose,
             filename,
             record_statements: None,
+            arrival_statements: None,
+            departure_statements: None,
+            perform_record: importer.args.is_present("record"),
+            perform_predict: importer.args.is_present("predict"),
         };
 
+        if instance.perform_record {
+            instance.init_record_statements()?;
         }
-    }
+        if instance.perform_predict {
+            instance.init_arrival_statements()?;
+            instance.init_departure_statements()?;
+        }
 
         Ok(instance)
     }
@@ -90,49 +103,27 @@ impl<'a> PerScheduleImporter<'a> {
         Ok(())
     }
 
-    fn process_message(&self, message: &GtfsRealtimeMessage, time_of_recording: u64) -> FnResult<((u32, u32), (u32, u32))> {
-        let mut trip_updates_count = 0;
-        let mut trip_updates_success_count = 0;
-        let mut stop_time_updates_count = 0;
-        let mut stop_time_updates_success_count = 0;
-        
+    fn process_message(&self, message: &GtfsRealtimeMessage, time_of_recording: u64) -> FnResult<()> { 
         // `message.entity` is actually a collection of entities
         for entity in &message.entity {
             if let Some(trip_update) = &entity.trip_update {
-                trip_updates_count += 1;
-
-                match self.process_trip_update(trip_update, time_of_recording) {
-                    Ok((tusc, (stuc, stusc))) => {
-                        trip_updates_success_count += tusc;
-                        stop_time_updates_count += stuc;
-                        stop_time_updates_success_count += stusc;
-                    },
-                    Err(e) => eprintln!("Error while processing trip update: {}.", e)
-                };
+                if let Err(e) = self.process_trip_update(trip_update, time_of_recording) {
+                    eprintln!("Error while processing trip update: {}.", e);
+                }
             }
-
-            // write the last data rows
             self.record_statements.as_ref().unwrap().write_to_database()?;
         }
-
-        Ok(((trip_updates_count, trip_updates_success_count), (stop_time_updates_count, stop_time_updates_success_count)))
+        Ok(())
     }
 
     fn process_trip_update(
         &self,
         trip_update: &gtfs_rt::TripUpdate,
         time_of_recording: u64,
-    ) -> FnResult<(u32, (u32, u32))> {
-        let mut stop_time_updates_count = 0;
-        let mut stop_time_updates_success_count = 0;
-
+    ) -> FnResult<()> {
         let realtime_trip = &trip_update.trip;
-        let route_id = &realtime_trip
-            .route_id.as_ref()
-            .ok_or(SimpleError::new("Trip needs route_id"))?;
-        let trip_id = &realtime_trip
-            .trip_id.as_ref()
-            .ok_or(SimpleError::new("Trip needs id"))?;
+        let route_id = &realtime_trip.route_id.as_ref().or_error("Trip needs route_id")?;
+        let trip_id = &realtime_trip.trip_id.as_ref().or_error("Trip needs id")?;
 
         let start_date = if let Some(datestring) = &realtime_trip.start_date {
             NaiveDate::parse_from_str(&datestring, "%Y%m%d")?.and_hms(0, 0, 0)
@@ -140,17 +131,9 @@ impl<'a> PerScheduleImporter<'a> {
             bail!("Trip without start date. Skipping.");
         };
 
-        // TODO check if we actually need this
-        let realtime_schedule_start_time = if let Some(timestring) = &realtime_trip.start_time {
-            NaiveTime::parse_from_str(&timestring, "%H:%M:%S")?
-        } else {
-            bail!("Trip without start time. Skipping.");
-        };
-        let schedule_trip = if let Ok(trip) = self.gtfs_schedule.get_trip(&trip_id) {
-            trip
-        } else {
-           bail!("Did not find trip {} in schedule. Skipping.", trip_id);
-        };
+        let realtime_schedule_start_time = NaiveTime::parse_from_str(&realtime_trip.start_time.as_ref().or_error("Trip without start time. Skipping.")?, "%H:%M:%S")?;
+
+        let schedule_trip = self.gtfs_schedule.get_trip(&trip_id).or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
 
         let schedule_start_time = schedule_trip.stop_times[0].departure_time;
         let time_difference =
@@ -160,8 +143,7 @@ impl<'a> PerScheduleImporter<'a> {
         }
 
         for stop_time_update in &trip_update.stop_time_update {
-            stop_time_updates_count += 1;
-            stop_time_updates_success_count += self.process_stop_time_update(
+            self.process_stop_time_update(
                 stop_time_update,
                 start_date,
                 schedule_trip,
@@ -171,7 +153,7 @@ impl<'a> PerScheduleImporter<'a> {
             )?;
         }
 
-        Ok((1, (stop_time_updates_count, stop_time_updates_success_count)))
+        Ok(())
     }
 
     fn process_stop_time_update(
@@ -183,12 +165,8 @@ impl<'a> PerScheduleImporter<'a> {
         route_id: &String,
         time_of_recording: u64,
     ) -> FnResult<u32> {
-        let stop_id = &stop_time_update
-            .stop_id.as_ref()
-            .ok_or(SimpleError::new("no stop_id"))?;
-        let stop_sequence = stop_time_update
-            .stop_sequence
-            .ok_or(SimpleError::new("no stop_sequence"))?;
+        let stop_id = &stop_time_update.stop_id.as_ref().or_error("no stop_id")?;
+        let stop_sequence = stop_time_update.stop_sequence.or_error("no stop_sequence")?;
 
         let arrival = PerScheduleImporter::get_event_times(
             stop_time_update.arrival.as_ref(),
@@ -209,19 +187,21 @@ impl<'a> PerScheduleImporter<'a> {
             return Ok(0);
         }
 
-        self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
-            "source" => &self.importer.main.source,
-            "route_id" => &route_id,
-            "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
-            "trip_id" => &trip_id,
-            "date" => start_date,
-            stop_sequence,
-            stop_id,
-            time_of_recording,
-            "delay_arrival" => arrival.delay,
-            "delay_departure" => departure.delay,
-            "schedule_file_name" => self.filename
-        }))?;
+        if self.perform_record {
+            self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+                "source" => &self.importer.main.source,
+                "route_id" => &route_id,
+                "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
+                "trip_id" => &trip_id,
+                "date" => start_date,
+                stop_sequence,
+                stop_id,
+                time_of_recording,
+                "delay_arrival" => arrival.delay,
+                "delay_departure" => departure.delay,
+                "schedule_file_name" => self.filename
+            }))?;
+        }
 
         Ok(1)
     }
@@ -311,9 +291,15 @@ impl<'a> PerScheduleImporter<'a> {
         // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
         self.record_statements = Some(BatchedStatements::new(conn, vec![update_statement, insert_statement]));
         Ok(())
-    
+    }
 
-    
+    fn init_arrival_statements(&self) -> FnResult<()> {
+        let mut conn = self.importer.main.pool.get_conn()?;
+        bail!("Not yet implemented.");
+    }
 
+    fn init_departure_statements(&self) -> FnResult<()> {
+        let mut conn = self.importer.main.pool.get_conn()?;
+        bail!("Not yet implemented.");
     }
 }

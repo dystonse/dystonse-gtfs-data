@@ -9,9 +9,8 @@ mod visual_schedule;
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::Gtfs;
-use mysql::*;
 use regex::Regex;
-use simple_error::SimpleError;
+use simple_error::bail;
 
 use count::*;
 use specific_curves::SpecificCurveCreator;
@@ -20,7 +19,7 @@ use curves::CurveCreator;
 use curve_visualisation::CurveDrawer;
 use visual_schedule::*;
 
-use crate::FnResult;
+use crate::{FnResult, OrError};
 use crate::Main;
 
 use std::str::FromStr;
@@ -205,13 +204,7 @@ impl<'a> Analyser<'a> {
         lazy_static! {
             static ref FIND_DATE: Regex = Regex::new(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})").unwrap(); // can't fail because our hard-coded regex is known to be ok
         }
-        let date_element_captures =
-            FIND_DATE
-                .captures(&filename)
-                .ok_or(SimpleError::new(format!(
-                "File name does not contain a valid date (does not match format YYYY-MM-DD): {}",
-                filename
-            )))?;
+        let date_element_captures = FIND_DATE.captures(&filename).or_error("File name does not contain a valid date (does not match format YYYY-MM-DD): {}")?;
         Ok(NaiveDateTime::from_str(&date_element_captures[1])?)
     }
 }

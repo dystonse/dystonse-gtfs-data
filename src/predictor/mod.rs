@@ -7,10 +7,9 @@ use std::str::FromStr;
 use std::convert::TryInto;
 use itertools::Itertools;
 
-use simple_error::{SimpleError, bail};
+use simple_error::bail;
 
-use crate::FnResult;
-use crate::Main;
+use crate::{Main, FnResult, OrError};
 
 use dystonse_curves::tree::{SerdeFormat, NodeData};
 use prost::Message;
@@ -246,7 +245,7 @@ impl<'a> Predictor<'a> {
             -> FnResult<PredictionResult> {
 
         let curve = self.delay_statistics.general.all_default_curves.get(&(rt, rs.clone(), ts.clone(), et))
-            .ok_or_else(|| SimpleError::new(format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts, et)))?;
+            .or_error(&format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts, et))?;
 
         Ok(PredictionResult::General(Box::new(curve.clone())))
     }

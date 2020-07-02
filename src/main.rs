@@ -11,6 +11,7 @@ use clap::{App, Arg, ArgMatches};
 use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
+use simple_error::bail;
 
 use importer::Importer;
 use analyser::Analyser;
@@ -31,6 +32,29 @@ fn main() -> FnResult<()> {
     let mut instance = Main::new()?;
     instance.run()?;
     Ok(())
+}
+
+
+trait OrError<T> {
+    fn or_error(self, message: &str) -> FnResult<T>;
+}
+
+impl<T> OrError<T> for Option<T> {
+    fn or_error(self, message: &str) -> FnResult<T> {
+        if self.is_none() {
+            bail!(message);
+        }
+        Ok(self.unwrap())
+    }
+}
+
+impl<T, E> OrError<T> for std::result::Result<T, E> {
+    fn or_error(self, message: &str) -> FnResult<T> {
+        match self {
+            Err(_) => bail!(message),
+            Ok(t) => Ok(t)
+        }
+    }
 }
 
 fn parse_args() -> ArgMatches {

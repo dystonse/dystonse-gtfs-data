@@ -3,8 +3,8 @@ mod batched_statements;
 
 use gtfs_structures::Gtfs;
 use mysql::*;
-use simple_error::SimpleError;
-use clap::{App, Arg, ArgMatches};
+use simple_error::{SimpleError, bail};
+use clap::{App, Arg, ArgMatches, ArgGroup};
 use chrono::NaiveDate;
 use rayon::prelude::*;
 use regex::Regex;
@@ -13,8 +13,7 @@ use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
 
-use crate::FnResult;
-use crate::Main;
+use crate::{Main, FnResult, OrError};
 
 use per_schedule_importer::PerScheduleImporter;
 
@@ -34,7 +33,20 @@ pub struct Importer<'a>  {
 impl<'a> Importer<'a>  {
     pub fn get_subcommand() -> App<'a> {
         App::new("import")
-            .about("Combines data from GTFS schedules and GTFS realtime files and writes them into a database.")
+            .about("Processes GTFS realtime files in multiple ways and writes the results into a database. See long help for more information.")
+            .long_about("Processes GTFS realtime files in multiple ways and writes the results into a database.
+            
+            The realtime data is interpreted in relation to a GTFS schedule.
+            
+            Processing can involve:
+             - *record*ing for later analysis
+             - creating updated *predict*ions
+             - both")
+            .group(ArgGroup::new("processing")
+                .args(&["record", "predict"])
+                .required(true)
+                .multiple(true)
+            )
             .subcommand(App::new("automatic")
                 .about("Runs forever, importing all files which are present or become present during the run.")
                 .arg(Arg::new("dir")
@@ -123,20 +135,13 @@ impl<'a> Importer<'a>  {
             .unwrap() // already validated by clap
             .map(|s| String::from(s))
             .collect();
-        let statistics = match 
-            self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames) {
-                Ok(tuple) => ((1, 1), tuple.0, tuple.1, tuple.2),
-                Err(e) => {
-                    eprintln!("Error while processing schedule and realtimes: {}.", e);
-                    ((1, 0), (0, 0), (0, 0), (0, 0))
-                }
-            };
-        self.output_statistics(statistics);
-
+        if let Err(e) = self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames) {
+            eprintln!("Error while processing schedule and realtimes: {}.", e);
+        }
         Ok(())
     }
 
-    fn output_statistics(&self, statistics: ((u32, u32), (u32, u32), (u32, u32), (u32, u32))) {
+    fn _output_statistics(&self, statistics: ((u32, u32), (u32, u32), (u32, u32), (u32, u32))) {
         if self.verbose {
             println!("Finished processing files.");
             println!(
@@ -184,10 +189,10 @@ impl<'a> Importer<'a>  {
         let date_element_captures =
             FIND_DATE
                 .captures(&filename)
-                .ok_or(SimpleError::new(format!(
+                .or_error(&format!(
                 "File name does not contain a valid date (does not match format YYYY-MM-DD): {}",
                 filename
-            )))?;
+            ))?;
         let date_option = NaiveDate::from_ymd_opt(
             date_element_captures[1].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
             date_element_captures[2].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
@@ -273,13 +278,11 @@ impl<'a> Importer<'a>  {
         let rt_filenames = Importer::read_dir_simple(&self.rt_dir.as_ref().unwrap())?;
 
         if rt_filenames.is_empty() {
-            return Err(Box::from(SimpleError::new("No realtime data.")));
+            bail!("No realtime data.");
         }
 
         if schedule_filenames.is_empty() {
-            return Err(Box::from(SimpleError::new(
-                "No schedule data (but real time data is present).",
-            )));
+            bail!("No schedule data (but real time data is present).");
         }
 
         // get the date of the earliest schedule, then reverse the list to start searching with the latest schedule
@@ -289,15 +292,6 @@ impl<'a> Importer<'a>  {
         // data structures to collect the files to work on in the current iteration (one schedule and all its corresponding rt files)
         let mut current_schedule_file = String::new();
         let mut realtime_files_for_current_schedule: Vec<String> = Vec::new();
-
-        let mut schedules_count = 0;
-        let mut schedules_success_count = 0;
-        let mut real_time_files_count = 0;
-        let mut real_time_files_success_count = 0;
-        let mut trip_updates_count = 0;
-        let mut trip_updates_success_count = 0;
-        let mut stop_time_updates_count = 0;
-        let mut stop_time_updates_success_count = 0;
 
         // Iterate over all rt files (oldest first), collecting all rt files that belong to the same schedule to process them in batch.
         for rt_filename in rt_filenames {
@@ -314,7 +308,6 @@ impl<'a> Importer<'a>  {
                             rt_filename, e
                         ),
                     }
-                    real_time_files_count += 1;
                     continue;
                 }
             };
@@ -324,10 +317,6 @@ impl<'a> Importer<'a>  {
                     "Realtime data {} is older than any schedule, skipping.",
                     rt_filename
                 );
-                // Don't increment count because this is not really a problem, 
-                // and because we don't move those files into fail_dir,
-                // we would count them as an error over and over again.
-                // real_time_files_count += 1;
                 continue;
             }
 
@@ -354,25 +343,12 @@ impl<'a> Importer<'a>  {
                     // process the current schedule's collection before going to next schedule
                     if *schedule_filename != current_schedule_file {
                         if !realtime_files_for_current_schedule.is_empty() {
-                            schedules_count += 1;
-                            match self.process_schedule_and_realtimes(
+                            if let Err(e) = self.process_schedule_and_realtimes(
                                 &current_schedule_file,
                                 &realtime_files_for_current_schedule,
                             ) {
-                                Ok(((rtc, rtsc), (tuc, tusc), (stuc, stusc))) => {
-                                    schedules_success_count += 1;
-                                    real_time_files_count += rtc;
-                                    real_time_files_success_count += rtsc;
-                                    trip_updates_count += tuc;
-                                    trip_updates_success_count += tusc;
-                                    stop_time_updates_count += stuc;
-                                    stop_time_updates_success_count += stusc;
-                                }
-                                Err(e) => eprintln!(
-                                    "Error in schedule file {}: {}",
-                                    current_schedule_file, e
-                                ),
-                            };
+                                 eprintln!("Error in schedule file {}: {}", current_schedule_file, e);
+                            }
                         }
                         // go on with the next schedule
                         current_schedule_file = schedule_filename.clone();
@@ -387,29 +363,10 @@ impl<'a> Importer<'a>  {
 
         // process last schedule's collection
         if !realtime_files_for_current_schedule.is_empty() {
-            schedules_count += 1;
-            match self.process_schedule_and_realtimes(
-                &current_schedule_file,
-                &realtime_files_for_current_schedule,
-            ) {
-                Ok(((rtc, rtsc), (tuc, tusc), (stuc, stusc))) => {
-                    schedules_success_count += 1;
-                    real_time_files_count += rtc;
-                    real_time_files_success_count += rtsc;
-                    trip_updates_count += tuc;
-                    trip_updates_success_count += tusc;
-                    stop_time_updates_count += stuc;
-                    stop_time_updates_success_count += stusc;
-                }
-                Err(e) => eprintln!("Error in schedule file {}: {}", current_schedule_file, e),
+            if let Err(e) = self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_current_schedule) {
+                eprintln!("Error in schedule file {}: {}", current_schedule_file, e);
             };
         }
-        self.output_statistics((
-            (schedules_count, schedules_success_count),
-            (real_time_files_count, real_time_files_success_count),
-            (trip_updates_count, trip_updates_success_count),
-            (stop_time_updates_count, stop_time_updates_success_count),
-        ));
         Ok(())
     }
 
@@ -418,7 +375,7 @@ impl<'a> Importer<'a>  {
         &self,
         gtfs_schedule_filename: &str,
         gtfs_realtime_filenames: &Vec<String>,
-    ) -> FnResult<((u32, u32), (u32, u32), (u32, u32))> {
+    ) -> FnResult<()> {
         if self.verbose {
             println!("Parsing schedule…");
         }
@@ -436,9 +393,7 @@ impl<'a> Importer<'a>  {
                         gtfs_schedule_filename, e
                     ),
                 }
-                return Err(Box::from(SimpleError::new(
-                    "Schedule file could not be parsed.",
-                )));
+                bail!("Schedule file could not be parsed.");
             }
         };
 
@@ -449,33 +404,27 @@ impl<'a> Importer<'a>  {
         let short_filename = &gtfs_schedule_filename[gtfs_schedule_filename.rfind('/').unwrap() + 1 ..];
 
         // create importer for this schedule and iterate over all given realtime files
-        let imp = PerScheduleImporter::new(&schedule, &self.main.pool, self.verbose, &self.main.source, short_filename);
+        let imp = PerScheduleImporter::new(&schedule, &self, self.verbose, short_filename)?;
 
-        let (rt, tu, stu) = gtfs_realtime_filenames
+        let (success, total) = gtfs_realtime_filenames
             .par_iter()
             .map(|gtfs_realtime_filename| {
                 match self.process_realtime(&gtfs_realtime_filename, &imp) {
-                    Ok(tuple) => ((1,1), tuple.0, tuple.1),
+                    Ok(()) => (1,1),
                     Err(e) => {
                         eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e);
-                        ((1, 0), (0, 0), (0, 0))
+                        (0,1)
                     }
                 }
             })
             .reduce(
-                || ((0, 0), (0, 0), (0, 0)),
-                |a, b| {
-                    (
-                        ((a.0).0 + (b.0).0, (a.0).1 + (b.0).1),
-                        ((a.1).0 + (b.1).0, (a.1).1 + (b.1).1),
-                        ((a.2).0 + (b.2).0, (a.2).1 + (b.2).1),
-                    )
-                },
+                || (0, 0),
+                |(a_s, a_t), (b_s, b_t)| (a_s + b_s, a_t + b_t),
             );
         if self.verbose {
-            println!("Done!");
+            println!("Done with realtime files, {} of {} successfull!", success, total);
         }
-        Ok((rt, tu, stu))
+        Ok(())
     }
 
     /// Process a single realtime file on the given Importer
@@ -483,17 +432,14 @@ impl<'a> Importer<'a>  {
         &self,
         gtfs_realtime_filename: &str,
         imp: &PerScheduleImporter,
-    ) -> FnResult<((u32, u32), (u32, u32))> {
-        let statistics = match imp.import_realtime_into_database(&gtfs_realtime_filename) {
-            Ok(s) => s,
-            Err(e) => {
-                // Don't print the error, because it will be handled by the calling function
-                eprintln!("Error in realtime file, moving to fail_dir…");
-                if let Some(dir) = &self.fail_dir {
-                    Importer::move_file_to_dir(gtfs_realtime_filename, &dir)?;
-                }
-                return Err(e);
+    ) -> FnResult<()> {
+        if let Err(e) = imp.handle_realtime_file(&gtfs_realtime_filename) {
+            // Don't print the error itself, because it will be handled by the calling function
+            eprintln!("Error in realtime file, moving to fail_dir…");
+            if let Some(dir) = &self.fail_dir {
+                Importer::move_file_to_dir(gtfs_realtime_filename, &dir)?;
             }
+            return Err(e);
         };
         // TODO possibly make an error file per failed file to capture the error in place
         if self.verbose {
@@ -505,7 +451,7 @@ impl<'a> Importer<'a>  {
         if let Some(dir) = &self.target_dir {
             Importer::move_file_to_dir(gtfs_realtime_filename, &dir)?;
         }
-        Ok(statistics)
+        Ok(())
     }
 
     fn move_file_to_dir(filename: &str, dir: &String) -> FnResult<()> {
