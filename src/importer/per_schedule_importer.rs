@@ -4,24 +4,28 @@ use gtfs_structures::Gtfs;
 use gtfs_structures::Trip as ScheduleTrip;
 use mysql::*;
 use prost::Message; // need to use this, otherwise GtfsRealtimeMessage won't have a `decode` method
-use simple_error::SimpleError;
+use simple_error::{SimpleError, bail};
 use std::fs::File;
 use std::io::prelude::*;
 use mysql::prelude::*;
 
 use super::batched_statements::BatchedStatements;
+use super::Importer;
 
 use crate::FnResult;
 use crate::types::{EventType, GetByEventType};
 
 pub struct PerScheduleImporter<'a> {
-    pool: &'a Pool,
+    importer: &'a Importer<'a>,
     gtfs_schedule: &'a Gtfs,
     verbose: bool,
-    source: &'a str,
     filename: &'a str,
+    record_statements: Option<BatchedStatements>,
 }
 
+/// For an event (which may be an arrival or a departure), this struct
+/// contains the three possible times, where (logically) estimate = schedule + delay.
+/// No checkts are performed though.
 struct EventTimes {
     schedule: Option<i64>,
     estimate: Option<i64>,
@@ -45,21 +49,25 @@ impl EventTimes {
 impl<'a> PerScheduleImporter<'a> {
     pub fn new(
         gtfs_schedule: &'a Gtfs,
-        pool: &'a Pool,
+        importer: &'a Importer,
         verbose: bool,
-        source: &'a str,
         filename: &'a str,
-    ) -> PerScheduleImporter<'a> {
-        PerScheduleImporter {
+    ) -> FnResult<PerScheduleImporter<'a>> {
+        let mut instance = PerScheduleImporter {
             gtfs_schedule,
-            pool,
+            importer,
             verbose,
-            source,
             filename,
+            record_statements: None,
+        };
+
         }
     }
 
-    pub fn import_realtime_into_database(&self, path: &str) -> FnResult<((u32, u32), (u32, u32))> {
+        Ok(instance)
+    }
+
+    pub fn handle_realtime_file(&self, path: &str) -> FnResult<()> {
         let mut file = File::open(path)?;
         let mut vec = Vec::<u8>::new();
         if path.ends_with(".zip") {
@@ -78,19 +86,22 @@ impl<'a> PerScheduleImporter<'a> {
             "No global timestamp in realtime data, skipping.",
         ))?;
 
+        self.process_message(&message, time_of_recording)?;
+        Ok(())
+    }
+
+    fn process_message(&self, message: &GtfsRealtimeMessage, time_of_recording: u64) -> FnResult<((u32, u32), (u32, u32))> {
         let mut trip_updates_count = 0;
         let mut trip_updates_success_count = 0;
         let mut stop_time_updates_count = 0;
         let mut stop_time_updates_success_count = 0;
-
-        let conn = self.pool.get_conn()?;
-        let mut batched = Self::create_statements(conn);
+        
         // `message.entity` is actually a collection of entities
-        for entity in message.entity {
-            if let Some(trip_update) = entity.trip_update {
+        for entity in &message.entity {
+            if let Some(trip_update) = &entity.trip_update {
                 trip_updates_count += 1;
 
-                match self.process_trip_update(trip_update, &mut batched, time_of_recording) {
+                match self.process_trip_update(trip_update, time_of_recording) {
                     Ok((tusc, (stuc, stusc))) => {
                         trip_updates_success_count += tusc;
                         stop_time_updates_count += stuc;
@@ -101,7 +112,7 @@ impl<'a> PerScheduleImporter<'a> {
             }
 
             // write the last data rows
-            batched.write_to_database()?;
+            self.record_statements.as_ref().unwrap().write_to_database()?;
         }
 
         Ok(((trip_updates_count, trip_updates_success_count), (stop_time_updates_count, stop_time_updates_success_count)))
@@ -109,44 +120,36 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn process_trip_update(
         &self,
-        trip_update: gtfs_rt::TripUpdate,
-        batched: &mut BatchedStatements,
+        trip_update: &gtfs_rt::TripUpdate,
         time_of_recording: u64,
     ) -> FnResult<(u32, (u32, u32))> {
         let mut stop_time_updates_count = 0;
         let mut stop_time_updates_success_count = 0;
 
-        let realtime_trip = trip_update.trip;
-        let route_id = realtime_trip
-            .route_id
+        let realtime_trip = &trip_update.trip;
+        let route_id = &realtime_trip
+            .route_id.as_ref()
             .ok_or(SimpleError::new("Trip needs route_id"))?;
-        let trip_id = realtime_trip
-            .trip_id
+        let trip_id = &realtime_trip
+            .trip_id.as_ref()
             .ok_or(SimpleError::new("Trip needs id"))?;
 
-        let start_date = if let Some(datestring) = realtime_trip.start_date {
+        let start_date = if let Some(datestring) = &realtime_trip.start_date {
             NaiveDate::parse_from_str(&datestring, "%Y%m%d")?.and_hms(0, 0, 0)
         } else {
-            return Err(Box::from(SimpleError::new(
-                "Trip without start date. Skipping.",
-            )));
+            bail!("Trip without start date. Skipping.");
         };
 
         // TODO check if we actually need this
-        let realtime_schedule_start_time = if let Some(timestring) = realtime_trip.start_time {
+        let realtime_schedule_start_time = if let Some(timestring) = &realtime_trip.start_time {
             NaiveTime::parse_from_str(&timestring, "%H:%M:%S")?
         } else {
-            return Err(Box::from(SimpleError::new(
-                "Trip without start time. Skipping.",
-            )));
+            bail!("Trip without start time. Skipping.");
         };
         let schedule_trip = if let Ok(trip) = self.gtfs_schedule.get_trip(&trip_id) {
             trip
         } else {
-            return Err(Box::from(SimpleError::new(format!(
-                "Did not find trip {} in schedule. Skipping.",
-                trip_id
-            ))));
+           bail!("Did not find trip {} in schedule. Skipping.", trip_id);
         };
 
         let schedule_start_time = schedule_trip.stop_times[0].departure_time;
@@ -156,13 +159,12 @@ impl<'a> PerScheduleImporter<'a> {
             eprintln!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
         }
 
-        for stop_time_update in trip_update.stop_time_update {
+        for stop_time_update in &trip_update.stop_time_update {
             stop_time_updates_count += 1;
             stop_time_updates_success_count += self.process_stop_time_update(
                 stop_time_update,
                 start_date,
                 schedule_trip,
-                batched,
                 &trip_id,
                 &route_id,
                 time_of_recording,
@@ -174,46 +176,29 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn process_stop_time_update(
         &self,
-        stop_time_update: gtfs_rt::trip_update::StopTimeUpdate,
+        stop_time_update: &gtfs_rt::trip_update::StopTimeUpdate,
         start_date: NaiveDateTime,
         schedule_trip: &gtfs_structures::Trip,
-        batched: &mut BatchedStatements,
         trip_id: &String,
         route_id: &String,
         time_of_recording: u64,
     ) -> FnResult<u32> {
-        let stop_id = stop_time_update
-            .stop_id
+        let stop_id = &stop_time_update
+            .stop_id.as_ref()
             .ok_or(SimpleError::new("no stop_id"))?;
         let stop_sequence = stop_time_update
             .stop_sequence
             .ok_or(SimpleError::new("no stop_sequence"))?;
 
-        // let mode = if let Ok(mode_enum) = self.gtfs_schedule.get_route(&route_id) {
-        //     match mode_enum.route_type {
-        //         gtfs_structures::RouteType::Tramway => 0,
-        //         gtfs_structures::RouteType::Subway => 1,
-        //         gtfs_structures::RouteType::Rail => 2,
-        //         gtfs_structures::RouteType::Bus => 3,
-        //         gtfs_structures::RouteType::Ferry => 4,
-        //         gtfs_structures::RouteType::CableCar => 5,
-        //         gtfs_structures::RouteType::Gondola => 6,
-        //         gtfs_structures::RouteType::Funicular => 7,
-        //         gtfs_structures::RouteType::Other(x) => x,
-        //     }
-        // } else {
-        //     99
-        // };
-
-        let arrival = PerScheduleImporter::handle_stop_time_update(
-            stop_time_update.arrival,
+        let arrival = PerScheduleImporter::get_event_times(
+            stop_time_update.arrival.as_ref(),
             start_date,
             EventType::Arrival,
             &schedule_trip,
             stop_sequence,
         );
-        let departure = PerScheduleImporter::handle_stop_time_update(
-            stop_time_update.departure,
+        let departure = PerScheduleImporter::get_event_times(
+            stop_time_update.departure.as_ref(),
             start_date,
             EventType::Departure,
             &schedule_trip,
@@ -224,8 +209,8 @@ impl<'a> PerScheduleImporter<'a> {
             return Ok(0);
         }
 
-        batched.add_paramter_set(Params::from(params! {
-            "source" => &self.source,
+        self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+            "source" => &self.importer.main.source,
             "route_id" => &route_id,
             "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
             "trip_id" => &trip_id,
@@ -241,8 +226,8 @@ impl<'a> PerScheduleImporter<'a> {
         Ok(1)
     }
 
-    fn handle_stop_time_update(
-        event: Option<gtfs_rt::trip_update::StopTimeEvent>,
+    fn get_event_times(
+        event: Option<&gtfs_rt::trip_update::StopTimeEvent>,
         start_date: NaiveDateTime,
         event_type: EventType,
         schedule_trip: &ScheduleTrip,
@@ -277,7 +262,8 @@ impl<'a> PerScheduleImporter<'a> {
         }
     }
 
-    fn create_statements(mut conn: PooledConn) -> BatchedStatements {
+    fn init_record_statements(&mut self) -> FnResult<()> {
+        let mut conn = self.importer.main.pool.get_conn()?;
         let update_statement = conn.prep(r"UPDATE `realtime`
         SET 
             `stop_id` = :stop_id,
@@ -323,6 +309,11 @@ impl<'a> PerScheduleImporter<'a> {
         .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
 
         // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
-        BatchedStatements::new(conn, vec![update_statement, insert_statement])
+        self.record_statements = Some(BatchedStatements::new(conn, vec![update_statement, insert_statement]));
+        Ok(())
+    
+
+    
+
     }
 }

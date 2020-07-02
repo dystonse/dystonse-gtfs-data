@@ -1,6 +1,7 @@
 use mysql::prelude::*;
 use mysql::*;
 use crate::FnResult;
+use std::sync::Mutex;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
@@ -14,35 +15,42 @@ const MAX_BATCH_SIZE: usize = 1000;
 /// 
 /// When finished, you have to call write_to_database to handle the leftover parameter_sets.
 pub struct BatchedStatements {
-    params_vec: Vec<Params>,
-    conn: PooledConn,
+    params_vec_mutex: Mutex<Vec<Params>>,
+    conn_mutex: Mutex<PooledConn>,
     statements: Vec<Statement>,
 }
 
 impl<'a> BatchedStatements {
     pub fn new(conn: PooledConn, statements: Vec<Statement>) -> Self {
         BatchedStatements {
-            params_vec: Vec::with_capacity(MAX_BATCH_SIZE),
-            conn,
+            params_vec_mutex: Mutex::new(Vec::with_capacity(MAX_BATCH_SIZE)),
+            conn_mutex: Mutex::new(conn),
             statements
         }
     }
 
-    pub fn add_paramter_set(&mut self, paramter_set: Params) -> FnResult<()> {
-        self.params_vec.push(paramter_set);
-        if self.params_vec.len() >= MAX_BATCH_SIZE {
-            self.write_to_database()?;
+    pub fn add_paramter_set(&self, paramter_set: Params) -> FnResult<()> {
+        let mut params_vec = self.params_vec_mutex.lock().unwrap();
+        params_vec.push(paramter_set);
+        if params_vec.len() >= MAX_BATCH_SIZE {
+            self.write_to_database_internal(params_vec)?;
         }
         Ok(())
     }
 
-    pub fn write_to_database(&mut self) -> FnResult<()> {
-        let mut tx = self.conn.start_transaction(TxOpts::default())?;
+    fn write_to_database_internal(&self, mut params_vec: std::sync::MutexGuard<Vec<Params>>) -> FnResult<()> {
+        let mut conn = self.conn_mutex.lock().unwrap();
+        let mut tx = conn.start_transaction(TxOpts::default())?;
         for statement in &self.statements {
-            tx.exec_batch(statement, &self.params_vec)?;
+            tx.exec_batch(statement, params_vec.iter())?;
         }
-        self.params_vec.clear();
+        params_vec.clear();
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn write_to_database(&self) -> FnResult<()> {
+        let params_vec = self.params_vec_mutex.lock().unwrap();
+        self.write_to_database_internal(params_vec)
     }
 }
