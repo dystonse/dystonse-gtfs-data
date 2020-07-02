@@ -25,7 +25,8 @@ rand = "0.7.3"
 rand_xorshift = "0.2.0"
 rand_distr = "0.2.2"
 itertools = "0.9.0"
-dystonse-curves = { git = "https://github.com/dystonse/dystonse-curves.git" }
+dystonse-curves =  { git = "https://github.com/dystonse/dystonse-curves.git" }
+# dystonse-curves =  { path = "../dystonse-curves" }
 gnuplot = "0.0.36"
 colorous = "1.0.2"
 rmp-serde = "0.14.3"

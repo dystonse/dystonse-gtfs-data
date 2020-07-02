@@ -12,6 +12,7 @@ use std::fs;
 use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
+use std::sync::Arc;
 
 use crate::{Main, FnResult, OrError};
 
@@ -42,6 +43,18 @@ impl<'a> Importer<'a>  {
              - *record*ing for later analysis
              - creating updated *predict*ions
              - both")
+            .arg(Arg::new("record")
+                .about("Indicates that realtime data shall be recorded for later analysis.")
+                .short('r')
+                .long("record")
+                .takes_value(false)
+            )
+            .arg(Arg::new("predict")
+                .about("Indicates that realtime data shall be used to update current predictions.")
+                .short('p')
+                .long("predict")
+                .takes_value(false)
+            )
             .group(ArgGroup::new("processing")
                 .args(&["record", "predict"])
                 .required(true)
@@ -404,7 +417,7 @@ impl<'a> Importer<'a>  {
         let short_filename = &gtfs_schedule_filename[gtfs_schedule_filename.rfind('/').unwrap() + 1 ..];
 
         // create importer for this schedule and iterate over all given realtime files
-        let imp = PerScheduleImporter::new(&schedule, &self, self.verbose, short_filename)?;
+        let imp = PerScheduleImporter::new(Arc::new(schedule), &self, self.verbose, short_filename)?;
 
         let (success, total) = gtfs_realtime_filenames
             .par_iter()

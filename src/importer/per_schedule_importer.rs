@@ -8,23 +8,26 @@ use simple_error::{SimpleError, bail};
 use std::fs::File;
 use std::io::prelude::*;
 use mysql::prelude::*;
+use std::sync::Arc;
 
 use super::batched_statements::BatchedStatements;
 use super::Importer;
 
 use crate::{FnResult, OrError};
 use crate::types::{EventType, GetByEventType};
+use crate::predictor::Predictor;
 
 pub struct PerScheduleImporter<'a> {
     importer: &'a Importer<'a>,
-    gtfs_schedule: &'a Gtfs,
+    gtfs_schedule: Arc<Gtfs>,
     verbose: bool,
     filename: &'a str,
     record_statements: Option<BatchedStatements>,
     arrival_statements: Option<BatchedStatements>,
     departure_statements: Option<BatchedStatements>,
     perform_record: bool,
-    perform_predict: bool
+    perform_predict: bool,
+    predictor: Option<Predictor<'a>>
 }
 
 /// For an event (which may be an arrival or a departure), this struct
@@ -52,13 +55,13 @@ impl EventTimes {
 
 impl<'a> PerScheduleImporter<'a> {
     pub fn new(
-        gtfs_schedule: &'a Gtfs,
+        gtfs_schedule: Arc<Gtfs>,
         importer: &'a Importer,
         verbose: bool,
         filename: &'a str,
     ) -> FnResult<PerScheduleImporter<'a>> {
         let mut instance = PerScheduleImporter {
-            gtfs_schedule,
+            gtfs_schedule: Arc::clone(&gtfs_schedule),
             importer,
             verbose,
             filename,
@@ -67,12 +70,20 @@ impl<'a> PerScheduleImporter<'a> {
             departure_statements: None,
             perform_record: importer.args.is_present("record"),
             perform_predict: importer.args.is_present("predict"),
+            predictor: None
         };
 
         if instance.perform_record {
             instance.init_record_statements()?;
         }
         if instance.perform_predict {
+            instance.predictor = Some(Predictor {
+                main: importer.main,
+                args: &importer.main.args,
+                _data_dir: None,
+                schedule: Arc::clone(&gtfs_schedule),
+                delay_statistics: Predictor::read_delay_statistics(&importer.main.args).unwrap()
+            });
             instance.init_arrival_statements()?;
             instance.init_departure_statements()?;
         }
@@ -191,7 +202,7 @@ impl<'a> PerScheduleImporter<'a> {
             self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
                 "source" => &self.importer.main.source,
                 "route_id" => &route_id,
-                "route_variant" => &schedule_trip.route_variant.as_ref().ok_or(SimpleError::new("no route variant"))?,
+                "route_variant" => &schedule_trip.route_variant.as_ref().or_error("no route variant")?,
                 "trip_id" => &trip_id,
                 "date" => start_date,
                 stop_sequence,

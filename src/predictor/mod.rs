@@ -15,16 +15,17 @@ use dystonse_curves::tree::{SerdeFormat, NodeData};
 use prost::Message;
 use std::fs::File;
 use std::io::prelude::*;
+use std::sync::Arc;
 
 mod real_time;
 
 pub struct Predictor<'a> {
     #[allow(dead_code)]
-    main: &'a Main,
-    args: &'a ArgMatches,
-    _data_dir: Option<String>,
-    schedule: Gtfs,
-    delay_statistics: Box<DelayStatistics>,
+    pub main: &'a Main,
+    pub args: &'a ArgMatches,
+    pub _data_dir: Option<String>,
+    pub schedule: Arc<Gtfs>,
+    pub delay_statistics: Box<DelayStatistics>,
 }
 
 impl<'a> Predictor<'a> {
@@ -113,7 +114,7 @@ impl<'a> Predictor<'a> {
             main,
             args,
             _data_dir: Some(String::from(args.value_of("dir").unwrap())),
-            schedule: Self::read_schedule(args).unwrap(),
+            schedule: Arc::new(Self::read_schedule(args).unwrap()),
             delay_statistics: Self::read_delay_statistics(args).unwrap(),
         }
     }
@@ -309,7 +310,7 @@ impl<'a> Predictor<'a> {
         Ok(schedule)
     }
 
-    fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
+    pub fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
         println!("parsing delay statistics…");
         let dir_name = String::from(sub_args.value_of("dir").unwrap());
         let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;

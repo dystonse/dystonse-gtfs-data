@@ -19,4 +19,4 @@ WORKDIR /
 ENV TZ=Europe/Berlin
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-CMD dystonse-gtfs-data -v import automatic /files/$GTFS_DATA_SOURCE_ID/
+CMD dystonse-gtfs-data -v import --record automatic /files/$GTFS_DATA_SOURCE_ID/

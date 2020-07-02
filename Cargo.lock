@@ -549,7 +549,7 @@ dependencies = [
 [[package]]
 name = "dystonse-curves"
 version = "0.1.0"
-source = "git+https://github.com/dystonse/dystonse-curves.git#06f3cc576ca33dfe8bccae1b79b8af56f1b7767f"
+source = "git+https://github.com/dystonse/dystonse-curves.git#4ab0f6b4761686252744712dfc33561ff68c791d"
 dependencies = [
  "assert_approx_eq",
  "fixed",
@@ -882,7 +882,7 @@ dependencies = [
 [[package]]
 name = "gtfs-structures"
 version = "0.20.1"
-source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#40c062c04243c1feb7ea28d5b57c2b4060a0b542"
+source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#363f70f5890664ebbafb2a9c6368674385ef6aab"
 dependencies = [
  "bytes 0.4.12",
  "chrono",
@@ -2538,7 +2538,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bfd5b7557925ce778ff9b9ef90e3ade34c524b5ff10e239c69a42d546d2af56"
 dependencies = [
- "rand 0.4.6",
+ "rand 0.7.3",
 ]
 
 [[package]]
