@@ -154,6 +154,9 @@ impl<'a> Importer<'a>  {
         Ok(())
     }
 
+    // this has been used in the past, but the code which was used to create those tuples
+    // was *very* ugly and has been deleted. We need a new way to handle success statistics
+    // now that there are multiple possible import targets (record and/or predict). 
     fn _output_statistics(&self, statistics: ((u32, u32), (u32, u32), (u32, u32), (u32, u32))) {
         if self.verbose {
             println!("Finished processing files.");

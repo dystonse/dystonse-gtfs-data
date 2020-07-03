@@ -4,18 +4,33 @@ use gtfs_structures::Gtfs;
 use gtfs_structures::Trip as ScheduleTrip;
 use mysql::*;
 use prost::Message; // need to use this, otherwise GtfsRealtimeMessage won't have a `decode` method
-use simple_error::{SimpleError, bail};
+use simple_error::bail;
 use std::fs::File;
 use std::io::prelude::*;
 use mysql::prelude::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use super::batched_statements::BatchedStatements;
 use super::Importer;
 
 use crate::{FnResult, OrError};
-use crate::types::{EventType, GetByEventType};
+use crate::types::{EventType, GetByEventType, DelayStatistics};
 use crate::predictor::Predictor;
+use dystonse_curves::tree::{NodeData, SerdeFormat};
+
+#[derive(PartialEq, Eq, Clone)]
+struct PredictionBasis {
+    stop_id: String,
+    delay_departure: i32
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct VehicleIdentifier {
+    trip_id: String,
+    start_time: NaiveTime,
+    start_date: NaiveDate
+}
 
 pub struct PerScheduleImporter<'a> {
     importer: &'a Importer<'a>,
@@ -27,7 +42,8 @@ pub struct PerScheduleImporter<'a> {
     departure_statements: Option<BatchedStatements>,
     perform_record: bool,
     perform_predict: bool,
-    predictor: Option<Predictor<'a>>
+    predictor: Option<Predictor<'a>>,
+    current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>>
 }
 
 /// For an event (which may be an arrival or a departure), this struct
@@ -70,22 +86,27 @@ impl<'a> PerScheduleImporter<'a> {
             departure_statements: None,
             perform_record: importer.args.is_present("record"),
             perform_predict: importer.args.is_present("predict"),
-            predictor: None
+            predictor: None,
+            current_prediction_basis: Mutex::new(HashMap::new())
         };
 
         if instance.perform_record {
             instance.init_record_statements()?;
         }
         if instance.perform_predict {
+            let dir_name = String::from(importer.args.subcommand_matches("automatic").unwrap().value_of("dir").unwrap());
+            println!("Reading delay statistics from dir: {}", dir_name);
+            let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;    
+
             instance.predictor = Some(Predictor {
                 main: importer.main,
                 args: &importer.main.args,
                 _data_dir: None,
                 schedule: Arc::clone(&gtfs_schedule),
-                delay_statistics: Predictor::read_delay_statistics(&importer.main.args).unwrap()
+                delay_statistics: delay_stats
             });
-            instance.init_arrival_statements()?;
-            instance.init_departure_statements()?;
+            //instance.init_arrival_statements()?;
+            //instance.init_departure_statements()?;
         }
 
         Ok(instance)
@@ -95,8 +116,8 @@ impl<'a> PerScheduleImporter<'a> {
         let mut file = File::open(path)?;
         let mut vec = Vec::<u8>::new();
         if path.ends_with(".zip") {
-            let mut archive = zip::ZipArchive::new(file).unwrap();
-            let mut zipped_file = archive.by_index(0).unwrap();
+            let mut archive = zip::ZipArchive::new(file).or_error("Zip file not found.")?;
+            let mut zipped_file = archive.by_index(0).or_error("Zip file was empty")?;
             if self.verbose {
                 println!("Reading {} from zip…", zipped_file.name());
             }
@@ -106,9 +127,9 @@ impl<'a> PerScheduleImporter<'a> {
         }
         // suboptimal, I'd rather not read the whole file into memory, but maybe Prost just works like this
         let message = GtfsRealtimeMessage::decode(&vec)?;
-        let time_of_recording = message.header.timestamp.ok_or(SimpleError::new(
-            "No global timestamp in realtime data, skipping.",
-        ))?;
+        let time_of_recording = message.header.timestamp.or_error(
+            "No global timestamp in realtime data, skipping."
+        )?;
 
         self.process_message(&message, time_of_recording)?;
         Ok(())
@@ -122,7 +143,13 @@ impl<'a> PerScheduleImporter<'a> {
                     eprintln!("Error while processing trip update: {}.", e);
                 }
             }
-            self.record_statements.as_ref().unwrap().write_to_database()?;
+            if self.perform_record {
+                self.record_statements.as_ref().unwrap().write_to_database()?;
+            }
+            if self.perform_predict {
+                self.arrival_statements.as_ref().unwrap().write_to_database()?;
+                self.departure_statements.as_ref().unwrap().write_to_database()?;
+            }
         }
         Ok(())
     }
@@ -136,31 +163,34 @@ impl<'a> PerScheduleImporter<'a> {
         let route_id = &realtime_trip.route_id.as_ref().or_error("Trip needs route_id")?;
         let trip_id = &realtime_trip.trip_id.as_ref().or_error("Trip needs id")?;
 
-        let start_date = if let Some(datestring) = &realtime_trip.start_date {
-            NaiveDate::parse_from_str(&datestring, "%Y%m%d")?.and_hms(0, 0, 0)
-        } else {
-            bail!("Trip without start date. Skipping.");
-        };
+        let start_date = NaiveDate::parse_from_str(&realtime_trip.start_date.as_ref()
+            .or_error("Trip without start date. Skipping.")?, "%Y%m%d")?;
 
-        let realtime_schedule_start_time = NaiveTime::parse_from_str(&realtime_trip.start_time.as_ref().or_error("Trip without start time. Skipping.")?, "%H:%M:%S")?;
+        let realtime_schedule_start_time = NaiveTime::parse_from_str(&realtime_trip.start_time.as_ref()
+            .or_error("Trip without start time. Skipping.")?, "%H:%M:%S")?;
 
-        let schedule_trip = self.gtfs_schedule.get_trip(&trip_id).or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
+        let schedule_trip = self.gtfs_schedule.get_trip(&trip_id)
+            .or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
 
-        let schedule_start_time = schedule_trip.stop_times[0].departure_time;
+        let schedule_start_time = schedule_trip.stop_times[0].departure_time.unwrap();
         let time_difference =
-            realtime_schedule_start_time.num_seconds_from_midnight() as i32 - schedule_start_time.unwrap() as i32;
+            realtime_schedule_start_time.num_seconds_from_midnight() as i32 - schedule_start_time as i32;
         if time_difference != 0 {
             eprintln!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
         }
 
+        let mut prediction_done = false;
         for stop_time_update in &trip_update.stop_time_update {
+            
             self.process_stop_time_update(
                 stop_time_update,
                 start_date,
+                realtime_schedule_start_time,
                 schedule_trip,
                 &trip_id,
                 &route_id,
                 time_of_recording,
+                &mut prediction_done
             )?;
         }
 
@@ -170,32 +200,34 @@ impl<'a> PerScheduleImporter<'a> {
     fn process_stop_time_update(
         &self,
         stop_time_update: &gtfs_rt::trip_update::StopTimeUpdate,
-        start_date: NaiveDateTime,
+        start_date: NaiveDate,
+        start_time: NaiveTime,
         schedule_trip: &gtfs_structures::Trip,
         trip_id: &String,
         route_id: &String,
         time_of_recording: u64,
-    ) -> FnResult<u32> {
-        let stop_id = &stop_time_update.stop_id.as_ref().or_error("no stop_id")?;
+        prediction_done: &mut bool
+    ) -> FnResult<()> {
+        let stop_id : String = stop_time_update.stop_id.as_ref().or_error("no stop_id")?.clone();
         let stop_sequence = stop_time_update.stop_sequence.or_error("no stop_sequence")?;
-
+        let start_date_time = start_date.and_time(start_time);
         let arrival = PerScheduleImporter::get_event_times(
             stop_time_update.arrival.as_ref(),
-            start_date,
+            start_date_time,
             EventType::Arrival,
             &schedule_trip,
             stop_sequence,
         );
         let departure = PerScheduleImporter::get_event_times(
             stop_time_update.departure.as_ref(),
-            start_date,
+            start_date_time,
             EventType::Departure,
             &schedule_trip,
             stop_sequence,
         );
 
         if arrival.is_empty() && departure.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
         if self.perform_record {
@@ -206,7 +238,7 @@ impl<'a> PerScheduleImporter<'a> {
                 "trip_id" => &trip_id,
                 "date" => start_date,
                 stop_sequence,
-                stop_id,
+                "stop_id" => &stop_id,
                 time_of_recording,
                 "delay_arrival" => arrival.delay,
                 "delay_departure" => departure.delay,
@@ -214,12 +246,65 @@ impl<'a> PerScheduleImporter<'a> {
             }))?;
         }
 
-        Ok(1)
+        if self.perform_predict && !*prediction_done && !departure.is_empty() {
+            // we will try to do a prediction. We set this flag so that we 
+            // don't do it again for the following stop_time_updates
+            *prediction_done = true;
+            let basis = PredictionBasis { 
+                stop_id: stop_id.clone(),
+                 delay_departure: departure.delay.unwrap() as i32
+            };
+            let vehicle_id = VehicleIdentifier {
+                trip_id: trip_id.clone(),
+                start_date: start_date,
+                start_time: start_time
+            };
+
+            {
+                let mut cpr = self.current_prediction_basis.lock().unwrap();
+
+                // check if we already made a prediction for this vehicle, and if, what was the basis
+                if let Some(previous_basis) = cpr.get(&vehicle_id) {
+                    // if we used the same basis, no need to do the same prediction again
+                    if *previous_basis == basis {
+                        return Ok(());
+                    }
+                }
+                // update the prediction basis for this vehicle
+                cpr.insert(vehicle_id, basis.clone());
+            }
+
+            for stop_time in &schedule_trip.stop_times {
+                if stop_time.stop_sequence as u32 > stop_sequence {
+
+                    let arrival_prediction = self.predictor.as_ref().unwrap().predict(
+                        &route_id,
+                        &trip_id, 
+                        &Some((basis.stop_id.clone(), Some(basis.delay_departure as f32))),
+                        &stop_time.stop.id, 
+                        EventType::Arrival, 
+                        NaiveDateTime::from_timestamp(departure.schedule.unwrap(), 0));
+                    
+                        
+                    if arrival_prediction.is_ok() {
+                        println!("Made a prediction for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.unwrap());
+                        // TODO write to DB
+                    } else {
+                        println!("Prediction error for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.err().unwrap())
+                    }
+
+                    // TODO do the smae for departute_prediction as soon as the
+                    // predictor can do departure-to-departure-predictions
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn get_event_times(
         event: Option<&gtfs_rt::trip_update::StopTimeEvent>,
-        start_date: NaiveDateTime,
+        start_date_time: NaiveDateTime,
         event_type: EventType,
         schedule_trip: &ScheduleTrip,
         stop_sequence: u32,
@@ -243,7 +328,7 @@ impl<'a> PerScheduleImporter<'a> {
             // TODO return Error or something
             return EventTimes::empty();
         };
-        let schedule = start_date.timestamp() + event_time.expect("no arrival time") as i64;
+        let schedule = start_date_time.timestamp() + event_time.expect("no arrival/departure time") as i64;
         let estimate = schedule + delay;
 
         EventTimes {

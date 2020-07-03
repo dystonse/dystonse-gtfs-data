@@ -208,7 +208,7 @@ impl<'a> Predictor<'a> {
 
 
     /// finds out which kind of curve can be used for this prediction and looks up the requested curve
-    fn predict(&self, 
+    pub fn predict(&self, 
             route_id: &str, 
             trip_id: &str, 
             start: &Option<(String, Option<f32>)>, 
@@ -310,7 +310,7 @@ impl<'a> Predictor<'a> {
         Ok(schedule)
     }
 
-    pub fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
+    fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
         println!("parsing delay statistics…");
         let dir_name = String::from(sub_args.value_of("dir").unwrap());
         let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;

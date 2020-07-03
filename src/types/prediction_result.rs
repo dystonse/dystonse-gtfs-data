@@ -1,6 +1,7 @@
 use dystonse_curves::{Curve, CurveSet, IrregularDynamicCurve};
 use gtfs_rt::{StopTimeEventExtension, PredictionType};
 use itertools::multizip;
+use std::fmt::{Debug, Display, Formatter};
 
 #[allow(dead_code)] 
 #[derive(Debug)]
@@ -39,5 +40,17 @@ impl PredictionResult {
 
     fn points_from_curve(curve: &Box<dyn Curve>) -> Vec<gtfs_rt::Point> {
         multizip(curve.get_values_as_vectors()).map(|(x, y)| gtfs_rt::Point {time: x, probability: y} ).collect()
+    }
+}
+
+impl Display for PredictionResult
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::General(curve)               => write!(f, "General ({})", curve),
+            Self::SemiSpecific(curve)          => write!(f, "SemiSpecific ({})", curve),
+            Self::SpecificCurve(curve)         => write!(f, "SpecificCurve ({})", curve),
+            Self::SpecificCurveSet(curve_set)  => write!(f, "SpecificCurveSet ({})", curve_set),
+        }
     }
 }
