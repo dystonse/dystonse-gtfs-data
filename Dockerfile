@@ -4,11 +4,11 @@ RUN apt-get update && apt-get install -y protobuf-compiler
 COPY ./Cargo.* ./
 RUN mkdir src && echo "fn main() { println!(\"Hello, world!\"); }" > src/main.rs
 RUN cargo fetch
-RUN cargo build --release
+RUN RUSTFLAGS=-g cargo build --release
 RUN rm src/main.rs 
 COPY . .
 RUN touch src/main.rs
-RUN cargo build --release
+RUN RUSTFLAGS=-g cargo build --release
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y libssl1.1 libfontconfig gnuplot-nox
@@ -19,4 +19,5 @@ WORKDIR /
 ENV TZ=Europe/Berlin
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-CMD dystonse-gtfs-data -v import --record automatic /files/$GTFS_DATA_SOURCE_ID/
+ENV RUST_BACKTRACE=full
+CMD dystonse-gtfs-data -v import --record --predict automatic /files/$GTFS_DATA_SOURCE_ID/

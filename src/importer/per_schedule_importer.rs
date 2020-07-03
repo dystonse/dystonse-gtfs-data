@@ -340,7 +340,7 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn init_record_statements(&mut self) -> FnResult<()> {
         let mut conn = self.importer.main.pool.get_conn()?;
-        let update_statement = conn.prep(r"UPDATE `realtime`
+        let update_statement = conn.prep(r"UPDATE `records`
         SET 
             `stop_id` = :stop_id,
             `time_of_recording` = FROM_UNIXTIME(:time_of_recording),
@@ -357,7 +357,7 @@ impl<'a> PerScheduleImporter<'a> {
             `time_of_recording` < FROM_UNIXTIME(:time_of_recording);").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
 
         
-        let insert_statement = conn.prep(r"INSERT IGNORE INTO `realtime` (
+        let insert_statement = conn.prep(r"INSERT IGNORE INTO `records` (
             `source`, 
             `route_id`,
             `route_variant`,
