@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 /// Any DateTime should be able to be mapped to exactly one TimeSlot constant.
 /// TimeSlots are defined by: id, description, weekday and hour criteria
 
-#[derive(Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Eq, Debug, Serialize, Deserialize, Clone)]
 pub struct TimeSlot {
     pub id: u8,
     #[serde(skip)]
@@ -210,5 +210,11 @@ impl Ord for TimeSlot {
 impl Hash for TimeSlot {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
+    }
+}
+
+impl PartialEq for TimeSlot {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
     }
 }

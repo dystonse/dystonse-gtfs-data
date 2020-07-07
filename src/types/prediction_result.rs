@@ -47,9 +47,10 @@ impl Display for PredictionResult
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::General(curve)               => write!(f, "General ({})", curve),
-            Self::SemiSpecific(curve)          => write!(f, "SemiSpecific ({})", curve),
-            Self::SpecificCurve(curve)         => write!(f, "SpecificCurve ({})", curve),
+            // Aligned output is nice for debugging / logs.
+            Self::General(curve)               => write!(f, "General          ({})", curve),
+            Self::SemiSpecific(curve)          => write!(f, "SemiSpecific     ({})", curve),
+            Self::SpecificCurve(curve)         => write!(f, "SpecificCurve    ({})", curve),
             Self::SpecificCurveSet(curve_set)  => write!(f, "SpecificCurveSet ({})", curve_set),
         }
     }

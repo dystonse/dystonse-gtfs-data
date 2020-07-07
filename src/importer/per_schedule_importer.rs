@@ -147,8 +147,9 @@ impl<'a> PerScheduleImporter<'a> {
                 self.record_statements.as_ref().unwrap().write_to_database()?;
             }
             if self.perform_predict {
-                self.arrival_statements.as_ref().unwrap().write_to_database()?;
-                self.departure_statements.as_ref().unwrap().write_to_database()?;
+                // Will panic with "not yet implemented":
+                // self.arrival_statements.as_ref().unwrap().write_to_database()?;
+                // self.departure_statements.as_ref().unwrap().write_to_database()?;
             }
         }
         Ok(())
@@ -172,6 +173,13 @@ impl<'a> PerScheduleImporter<'a> {
         let schedule_trip = self.gtfs_schedule.get_trip(&trip_id)
             .or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
 
+        let stu_count = trip_update.stop_time_update.len();
+        if let Ok(route) = self.gtfs_schedule.get_route(&schedule_trip.route_id) {
+            println!("Trip update with {} s.t.u. for route {} to {:?}:", stu_count, route.short_name, schedule_trip.trip_headsign);
+        } else {
+            println!("Trip update with {} s.t.u. for unknown route to {:?}:", stu_count, schedule_trip.trip_headsign);
+        }
+
         let schedule_start_time = schedule_trip.stop_times[0].departure_time.unwrap();
         let time_difference =
             realtime_schedule_start_time.num_seconds_from_midnight() as i32 - schedule_start_time as i32;
@@ -182,7 +190,7 @@ impl<'a> PerScheduleImporter<'a> {
         let mut prediction_done = false;
         for stop_time_update in &trip_update.stop_time_update {
             
-            self.process_stop_time_update(
+            let res = self.process_stop_time_update(
                 stop_time_update,
                 start_date,
                 realtime_schedule_start_time,
@@ -191,7 +199,16 @@ impl<'a> PerScheduleImporter<'a> {
                 &route_id,
                 time_of_recording,
                 &mut prediction_done
-            )?;
+            );
+            if let Err(e) = res {
+                println!("Error with stop_time_update: {}", e);
+            }
+            if prediction_done {
+                break;
+            }
+        }
+        if !prediction_done {
+            println!("At the end, still no prediction.");
         }
 
         Ok(())
@@ -246,13 +263,17 @@ impl<'a> PerScheduleImporter<'a> {
             }))?;
         }
 
+        if departure.is_empty() {
+            println!("Skip stop_sequence {} for predictions, because departure is empty.", stop_sequence);
+        }
+
         if self.perform_predict && !*prediction_done && !departure.is_empty() {
             // we will try to do a prediction. We set this flag so that we 
             // don't do it again for the following stop_time_updates
             *prediction_done = true;
             let basis = PredictionBasis { 
                 stop_id: stop_id.clone(),
-                 delay_departure: departure.delay.unwrap() as i32
+                delay_departure: departure.delay.unwrap() as i32
             };
             let vehicle_id = VehicleIdentifier {
                 trip_id: trip_id.clone(),
@@ -267,12 +288,16 @@ impl<'a> PerScheduleImporter<'a> {
                 if let Some(previous_basis) = cpr.get(&vehicle_id) {
                     // if we used the same basis, no need to do the same prediction again
                     if *previous_basis == basis {
+                        println!("Didn't make new prediction, because we already have one with the same basis.");
                         return Ok(());
                     }
                 }
-                // update the prediction basis for this vehicle
-                cpr.insert(vehicle_id, basis.clone());
             }
+            let stop_count_estimate = schedule_trip.stop_times.iter().last().unwrap().stop_sequence as u32 - stop_sequence;
+            println!("Trying to make predictions based on {} delay at stop sequence {} (about {} stops ahead).", 
+                basis.delay_departure, stop_sequence, stop_count_estimate);
+
+            let mut actual_success = false;
 
             for stop_time in &schedule_trip.stop_times {
                 if stop_time.stop_sequence as u32 > stop_sequence {
@@ -288,14 +313,20 @@ impl<'a> PerScheduleImporter<'a> {
                         
                     if arrival_prediction.is_ok() {
                         println!("Made a prediction for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.unwrap());
+                        actual_success = true;
                         // TODO write to DB
                     } else {
                         println!("Prediction error for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.err().unwrap())
                     }
 
-                    // TODO do the smae for departute_prediction as soon as the
+                    // TODO do the same for departute_prediction as soon as the
                     // predictor can do departure-to-departure-predictions
                 }
+            }
+
+            if actual_success {
+                let mut cpr = self.current_prediction_basis.lock().unwrap();
+                cpr.insert(vehicle_id, basis.clone());
             }
         }
 

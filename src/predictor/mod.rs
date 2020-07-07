@@ -245,10 +245,29 @@ impl<'a> Predictor<'a> {
     fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
             -> FnResult<PredictionResult> {
 
-        let curve = self.delay_statistics.general.all_default_curves.get(&(rt, rs.clone(), ts.clone(), et))
-            .or_error(&format!("No default curve found for {:?}, {:?}, {}, {:?}", rt, rs, ts, et))?;
+        let key = (rt, rs.clone(), ts.clone(), et);
+        let potential_curve = self.delay_statistics.general.all_default_curves.get(&key);
+        
+        if let Some(curve) = potential_curve {
+            Ok(PredictionResult::General(Box::new(curve.clone())))
+        } else {
+            // Once we hat the problem that default curves could not be found even though they existed.
+            // The following code helps to debug this, in case it happens again. You also need this:
+            // use std::hash::{Hash, Hasher};
+            // use std::collections::hash_map::DefaultHasher;
 
-        Ok(PredictionResult::General(Box::new(curve.clone())))
+            // let mut hasher = DefaultHasher::new();
+            // key.hash(&mut hasher);
+            // println!("No default curve found for {:?} with hash {}.", key, hasher.finish());
+            // for (p_key, _p_val) in &self.delay_statistics.general.all_default_curves {
+            //     let mut hasher = DefaultHasher::new();
+            //     p_key.hash(&mut hasher);
+            //     println!("Instead, found key {:?} with hash {}.", p_key, hasher.finish());
+            // }
+
+            bail!("No default curve.");
+        }
+        
     }
 
     // looks up a curve (or curve set) from specific curves and returns it
@@ -261,10 +280,11 @@ impl<'a> Predictor<'a> {
             et: EventType) -> FnResult<PredictionResult> {
 
         // find the route variant data that we need:
-        let rvdata = &self.delay_statistics.specific[route_id].variants[&route_variant];
+        let rvdata = &self.delay_statistics.specific.get(route_id).or_error("No specific statistics for route_id")?.variants.get(&route_variant).or_error("No specific statistics for route_variant")?;
         // find index of target stop:
-        let target_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == stop_id).unwrap()
-            .try_into().unwrap(); //TODO: Error handling for unwraps
+        // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
+        let target_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == stop_id).or_error("U1")?
+            .try_into().or_error("U2")?; // TODO: Better Error handling
 
         match start {
             None => { 
@@ -276,16 +296,14 @@ impl<'a> Predictor<'a> {
                 return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
             },
             Some((s_id, d)) => {
-                
-                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).unwrap()
-                    .try_into().unwrap(); //TODO: Error handling for unwraps
+                // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).or_error("U3")?
+                    .try_into().or_error("U4")?; //TODO: Better Error handling
                 let potential_curveset = &rvdata.curve_sets.get(&(start_stop_index, target_stop_index, ts.clone()));
                 if let Some(curveset) = potential_curveset {
-                    // TODO we get an "thread 'main' panicked at 'no entry found for key'" error in the line above when we run this command:
-                    // cargo build && RUST_BACKTRACE=full time cargo run -- --source vbn --host macmini.local 
-                    // -p "<censored>" predict data --schedule data/schedule/gtfs-schedule-2020-06-23.zip single 
-                    // --route-id 35729_3 --trip-id 133010796 --stop-id 000009014277 --event-type arrival 
-                    // --date-time 2020-06-24T21:02:47 --use-realtime
+                    if curveset.curves.is_empty() {
+                        bail!("Found specific curveset, but it was empty.");
+                    }
                     match d {
                         // get curve set for start-stop:
                         None => {
