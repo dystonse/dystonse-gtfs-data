@@ -13,6 +13,13 @@ pub enum EventType {
 
 impl EventType {
     pub const TYPES: [&'static EventType; 2] = [&EventType::Arrival, &EventType::Departure];
+    
+    pub fn to_int(&self) -> u8 {
+        match self {
+            EventType::Arrival => 1,
+            EventType::Departure => 2
+        }
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]
