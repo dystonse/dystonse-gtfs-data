@@ -131,23 +131,32 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn process_message(&self, message: &GtfsRealtimeMessage, time_of_recording: u64) -> FnResult<()> { 
         // `message.entity` is actually a collection of entities
-        for entity in &message.entity {
-            if let Some(trip_update) = &entity.trip_update {
-                if let Err(e) = self.process_trip_update(trip_update, time_of_recording) {
-                    eprintln!("Error while processing trip update: {}.", e);
+        println!("Processing {} entitites in prallel.", message.entity.len());
+        let (success, total) = message.entity.par_iter().map(
+            |entity| {
+                if let Some(trip_update) = &entity.trip_update {
+                    match self.process_trip_update(trip_update, time_of_recording) {
+                        Ok(()) => (1, 1),
+                        Err(e) => {
+                            println!("Error in process_trip_update: {}", e);
+                            (0, 1)
+                        }
+                    }
+                } else {
+                    (0, 0)
                 }
             }
-            if self.perform_record {
-                self.record_statements.as_ref().unwrap().write_to_database()?;
-            }
+        ).reduce(
+            || (0, 0),
+            |(a_s, a_t), (b_s, b_t)| (a_s + b_s, a_t + b_t),
+        );
+        println!("Finished message, {} of {} successful.", success, total);
+
+        if self.perform_record {
+            self.record_statements.as_ref().unwrap().write_to_database()?;
         }
         if self.perform_predict {
-            // Will panic with "not yet implemented":
-            // self.arrival_statements.as_ref().unwrap().write_to_database()?;
-            
-            println!("Writing predictions to database…");
-            self.departure_statements.as_ref().unwrap().write_to_database()?;
-            println!("…done.");
+            self.predictions_statements.as_ref().unwrap().write_to_database()?;
         }
         Ok(())
     }
