@@ -32,7 +32,6 @@ impl<'a> BatchedStatements {
     pub fn add_paramter_set(&self, paramter_set: Params) -> FnResult<()> {
         let mut params_vec = self.params_vec_mutex.lock().unwrap();
         params_vec.push(paramter_set);
-        println!("Add params, len is now: {}.", params_vec.len());
         if params_vec.len() >= MAX_BATCH_SIZE {
             self.write_to_database_internal(params_vec)?;
         }
@@ -42,7 +41,6 @@ impl<'a> BatchedStatements {
     fn write_to_database_internal(&self, mut params_vec: std::sync::MutexGuard<Vec<Params>>) -> FnResult<()> {
         let mut conn = self.conn_mutex.lock().unwrap();
         let mut tx = conn.start_transaction(TxOpts::default())?;
-        println!("Have {} records to write.", params_vec.len());
         for statement in &self.statements {
             tx.exec_batch(statement, params_vec.iter())?;
         }

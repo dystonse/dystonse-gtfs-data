@@ -16,16 +16,10 @@ use super::Importer;
 use crate::types::PredictionResult;
 
 use crate::{FnResult, OrError};
-use crate::types::{EventType, GetByEventType, DelayStatistics};
+use crate::types::{EventType, GetByEventType, DelayStatistics, PredictionBasis};
 use crate::predictor::Predictor;
 use dystonse_curves::tree::{NodeData, SerdeFormat};
 use dystonse_curves::Curve;
-
-#[derive(PartialEq, Eq, Clone)]
-struct PredictionBasis {
-    stop_id: String,
-    delay_departure: i32
-}
 
 #[derive(Hash, PartialEq, Eq)]
 struct VehicleIdentifier {
@@ -287,23 +281,21 @@ impl<'a> PerScheduleImporter<'a> {
             };
 
             {
-                let mut cpr = self.current_prediction_basis.lock().unwrap();
+                let cpr = self.current_prediction_basis.lock().unwrap();
 
                 // check if we already made a prediction for this vehicle, and if, what was the basis
                 if let Some(previous_basis) = cpr.get(&vehicle_id) {
                     // if we used the same basis, no need to do the same prediction again
                     if *previous_basis == basis {
-                        println!("Didn't make new prediction, because we already have one with the same basis.");
                         return Ok(());
                     }
                 }
             }
-            let stop_count_estimate = schedule_trip.stop_times.iter().last().unwrap().stop_sequence as u32 - stop_sequence;
-            println!("Trying to make predictions based on {} delay at stop sequence {} (about {} stops ahead).", 
-                basis.delay_departure, stop_sequence, stop_count_estimate);
-
             let mut actual_success = false;
 
+            let mut general_count = 0;
+            let mut specific_count = 0;
+            let mut error_count = 0;
             for stop_time in &schedule_trip.stop_times {
                 if stop_time.stop_sequence as u32 > stop_sequence {
 
@@ -317,13 +309,12 @@ impl<'a> PerScheduleImporter<'a> {
                     
                         
                     if let Ok(arrival_prediction) = potential_arrival_prediction {
-                        println!("Made a prediction for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction);
                         actual_success = true;
                         
                         let type_int = arrival_prediction.to_type_int();
                         let curve : Box<dyn Curve> = match arrival_prediction {
-                            PredictionResult::General(curve) => curve,
-                            PredictionResult::SpecificCurve(curve) => curve,
+                            PredictionResult::General(curve) => { general_count += 1; curve },
+                            PredictionResult::SpecificCurve(curve) => { specific_count += 1; curve },
                             _ => bail!("Result of unexpected type, can't write to DB!")
                         };
 
@@ -353,6 +344,7 @@ impl<'a> PerScheduleImporter<'a> {
                             "curve_departure" => curve.serialize_compact_limited(120)
                         }))?;
                     } else {
+                        error_count += 1;
                         println!("Prediction error for stop_sequence {}: {}", stop_time.stop_sequence, potential_arrival_prediction.err().unwrap())
                     }
 
@@ -360,6 +352,7 @@ impl<'a> PerScheduleImporter<'a> {
                     // predictor can do departure-to-departure-predictions
                 }
             }
+            println!("Stats: {} general, {} specific and {} errors.", general_count, specific_count, error_count);
 
             if actual_success {
                 let mut cpr = self.current_prediction_basis.lock().unwrap();

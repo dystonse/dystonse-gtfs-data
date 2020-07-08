@@ -17,6 +17,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::sync::Arc;
 
+use crate::types::PredictionBasis;
+
 mod real_time;
 
 pub struct Predictor<'a> {
@@ -154,13 +156,13 @@ impl<'a> Predictor<'a> {
         // parse optional arguments:
         let start = match args.value_of("start-stop-id") {
             Some(s) => match args.value_of("initial-delay") {
-                            Some(d) => Some ((s.to_string(), Some(f32::from_str(d).unwrap()))),
-                            None => Some((s.to_string(), None)),
+                            Some(d) => Some (PredictionBasis {stop_id: s.to_string(), delay_departure: Some(i64::from_str(d).unwrap())}),
+                            None => Some(PredictionBasis {stop_id: s.to_string(), delay_departure: None}),
                         },
             None => {
                 if args.is_present("use-realtime") {
                     match real_time::get_realtime_data(self.main, &trip) {
-                        Ok((stop_id, delay)) => Some((stop_id.clone(), Some(delay as f32))),
+                        Ok((stop_id, delay)) => Some(PredictionBasis{ stop_id: stop_id.clone(), delay_departure: Some(delay as i64)}),
                         _ => None
                     }
                 } else {
@@ -211,7 +213,7 @@ impl<'a> Predictor<'a> {
     pub fn predict(&self, 
             route_id: &str, 
             trip_id: &str, 
-            start: &Option<(String, Option<f32>)>, 
+            start: &Option<PredictionBasis>, 
             stop_id: &str, 
             et: EventType, 
             date_time: NaiveDateTime) -> FnResult<PredictionResult> {
@@ -274,7 +276,7 @@ impl<'a> Predictor<'a> {
     fn predict_specific(&self, 
             route_id: &str, 
             route_variant: u64, 
-            start: &Option<(String, Option<f32>)>, //&str for stop_id, f32 for initial delay
+            start: &Option<PredictionBasis>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
             ts: &TimeSlot,
             et: EventType) -> FnResult<PredictionResult> {
@@ -295,23 +297,23 @@ impl<'a> Predictor<'a> {
                 }
                 return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
             },
-            Some((s_id, d)) => {
+            Some(actual_start) => {
                 // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
-                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == s_id).or_error("U3")?
+                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| *e == actual_start.stop_id).or_error("U3")?
                     .try_into().or_error("U4")?; //TODO: Better Error handling
                 let potential_curveset = &rvdata.curve_sets.get(&(start_stop_index, target_stop_index, ts.clone()));
                 if let Some(curveset) = potential_curveset {
                     if curveset.curves.is_empty() {
                         bail!("Found specific curveset, but it was empty.");
                     }
-                    match d {
+                    match actual_start.delay_departure {
                         // get curve set for start-stop:
                         None => {
                             return Ok(PredictionResult::SpecificCurveSet((**curveset).clone()));
                         },
                         // get curve for start-stop and initial delay:
                         Some(delay) => {
-                            let curve = curveset.curve_at_x_with_continuation(*delay);
+                            let curve = curveset.curve_at_x_with_continuation(delay as f32);
                             return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
                         }
                     };

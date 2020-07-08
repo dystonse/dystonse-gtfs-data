@@ -19,6 +19,12 @@ pub use route_sections::RouteSection;
 pub use route_variant_data::RouteVariantData;
 pub use time_slots::TimeSlot;
 
+#[derive(PartialEq, Eq, Clone)]
+pub struct PredictionBasis {
+    pub stop_id: String,
+    pub delay_departure: Option<i64>
+}
+
 #[cfg(test)]
 mod tests {
 
