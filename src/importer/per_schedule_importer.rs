@@ -13,11 +13,13 @@ use std::collections::HashMap;
 
 use super::batched_statements::BatchedStatements;
 use super::Importer;
+use crate::types::PredictionResult;
 
 use crate::{FnResult, OrError};
 use crate::types::{EventType, GetByEventType, DelayStatistics};
 use crate::predictor::Predictor;
 use dystonse_curves::tree::{NodeData, SerdeFormat};
+use dystonse_curves::Curve;
 
 #[derive(PartialEq, Eq, Clone)]
 struct PredictionBasis {
@@ -106,7 +108,7 @@ impl<'a> PerScheduleImporter<'a> {
                 delay_statistics: delay_stats
             });
             //instance.init_arrival_statements()?;
-            //instance.init_departure_statements()?;
+            instance.init_departure_statements()?;
         }
 
         Ok(instance)
@@ -146,11 +148,14 @@ impl<'a> PerScheduleImporter<'a> {
             if self.perform_record {
                 self.record_statements.as_ref().unwrap().write_to_database()?;
             }
-            if self.perform_predict {
-                // Will panic with "not yet implemented":
-                // self.arrival_statements.as_ref().unwrap().write_to_database()?;
-                // self.departure_statements.as_ref().unwrap().write_to_database()?;
-            }
+        }
+        if self.perform_predict {
+            // Will panic with "not yet implemented":
+            // self.arrival_statements.as_ref().unwrap().write_to_database()?;
+            
+            println!("Writing predictions to database…");
+            self.departure_statements.as_ref().unwrap().write_to_database()?;
+            println!("…done.");
         }
         Ok(())
     }
@@ -302,7 +307,7 @@ impl<'a> PerScheduleImporter<'a> {
             for stop_time in &schedule_trip.stop_times {
                 if stop_time.stop_sequence as u32 > stop_sequence {
 
-                    let arrival_prediction = self.predictor.as_ref().unwrap().predict(
+                    let potential_arrival_prediction = self.predictor.as_ref().unwrap().predict(
                         &route_id,
                         &trip_id, 
                         &Some((basis.stop_id.clone(), Some(basis.delay_departure as f32))),
@@ -311,12 +316,44 @@ impl<'a> PerScheduleImporter<'a> {
                         NaiveDateTime::from_timestamp(departure.schedule.unwrap(), 0));
                     
                         
-                    if arrival_prediction.is_ok() {
-                        println!("Made a prediction for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.unwrap());
+                    if let Ok(arrival_prediction) = potential_arrival_prediction {
+                        println!("Made a prediction for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction);
                         actual_success = true;
-                        // TODO write to DB
+                        
+                        let type_int = arrival_prediction.to_type_int();
+                        let curve : Box<dyn Curve> = match arrival_prediction {
+                            PredictionResult::General(curve) => curve,
+                            PredictionResult::SpecificCurve(curve) => curve,
+                            _ => bail!("Result of unexpected type, can't write to DB!")
+                        };
+
+                        let min_dep = NaiveTime::from_num_seconds_from_midnight_opt((stop_time.departure_time.unwrap() as i32 + curve.min_x() as i32) as u32, 0);
+                        let max_dep = NaiveTime::from_num_seconds_from_midnight_opt((stop_time.departure_time.unwrap() as i32 + curve.max_x() as i32) as u32, 0);
+
+                        if min_dep.is_none() {
+                            println!("min_dep is invalid: {}", stop_time.departure_time.unwrap() as i32 + curve.min_x() as i32);
+                            continue;
+                        }
+                        if max_dep.is_none() {
+                            println!("max_dep is invalid: {}", stop_time.departure_time.unwrap() as i32 + curve.max_x() as i32);
+                            continue;
+                        }
+                        // TODO / FIXME: We use ARRIVAL predictions and write them to the DEPARTURE table
+                        // for testing purposes, because that's what we have right now.
+                        self.departure_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+                            "stop_id" => stop_id.clone(),
+                            "min_departure" => start_date.and_time(min_dep.unwrap()),
+                            "max_departure" => start_date.and_time(max_dep.unwrap()),
+                            "route_id" => route_id,
+                            "trip_id" => trip_id,
+                            "start_date" => start_date,
+                            "start_time" => start_time,
+                            "stop_sequence" => stop_sequence,
+                            "prediction_type" => type_int,
+                            "curve_departure" => curve.serialize_compact_limited(120)
+                        }))?;
                     } else {
-                        println!("Prediction error for stop_sequence {}: {}", stop_time.stop_sequence, arrival_prediction.err().unwrap())
+                        println!("Prediction error for stop_sequence {}: {}", stop_time.stop_sequence, potential_arrival_prediction.err().unwrap())
                     }
 
                     // TODO do the same for departute_prediction as soon as the
@@ -425,8 +462,49 @@ impl<'a> PerScheduleImporter<'a> {
         bail!("Not yet implemented.");
     }
 
-    fn init_departure_statements(&self) -> FnResult<()> {
+    fn init_departure_statements(&mut self) -> FnResult<()> {
         let mut conn = self.importer.main.pool.get_conn()?;
-        bail!("Not yet implemented.");
+        let update_statement = conn.prep(r"UPDATE `prediction_departure`
+        SET 
+            `stop_id` = :stop_id,
+            `min_departure` = :min_departure,
+            `max_departure` = :max_departure,
+            `prediction_type` = :prediction_type,
+            `curve_departure` = :curve_departure
+            WHERE 
+            `stop_sequence` = :stop_sequence AND
+            `route_id` = :route_id AND
+            `trip_id` = :trip_id AND
+            `start_date` = :start_date AND
+            `start_time` = :start_time;").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
+
+        let insert_statement = conn.prep(r"INSERT IGNORE INTO `prediction_departure` (
+            `stop_id`,
+            `min_departure`,
+            `max_departure`,
+            `route_id`,
+            `trip_id`,
+            `start_date`,
+            `start_time`,
+            `stop_sequence`,
+            `prediction_type`,
+            `curve_departure`
+        ) VALUES ( 
+            :stop_id,
+            :min_departure,
+            :max_departure,
+            :route_id,
+            :trip_id,
+            :start_date,
+            :start_time,
+            :stop_sequence,
+            :prediction_type,
+            :curve_departure
+        );")
+        .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
+
+        // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
+        self.departure_statements = Some(BatchedStatements::new(conn, vec![update_statement, insert_statement]));
+        Ok(())
     }
 }

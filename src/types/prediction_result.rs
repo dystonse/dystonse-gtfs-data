@@ -41,6 +41,15 @@ impl PredictionResult {
     fn points_from_curve(curve: &Box<dyn Curve>) -> Vec<gtfs_rt::Point> {
         multizip(curve.get_values_as_vectors()).map(|(x, y)| gtfs_rt::Point {time: x, probability: y} ).collect()
     }
+
+    pub fn to_type_int(&self) -> u8 {
+        match self {
+            Self::General(_) => 1,
+            Self::SemiSpecific(_) => 2,
+            Self::SpecificCurve(_) => 3,
+            Self::SpecificCurveSet(_) => 4,
+        }
+    }
 }
 
 impl Display for PredictionResult
