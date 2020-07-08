@@ -342,7 +342,7 @@ impl<'a> CurveDrawer<'a> {
         // axes_all_stops.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true).set_y_grid(true);
 
         // Iterate over all start stations
-        for ((i_s, i_e, ts), stop_pair_data) in data.curve_sets {
+        for ((i_s, i_e, ts), stop_pair_data) in data.curve_sets.arrival.map {
             // let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
             // if departues.len() > 5 {
             //     let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));

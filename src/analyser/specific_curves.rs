@@ -11,7 +11,7 @@ use dystonse_curves::tree::{SerdeFormat, NodeData};
 
 use super::Analyser;
 use super::curve_utils::*;
-use crate::types::{TimeSlot, EventType, RouteData, DbItem, RouteVariantData};
+use crate::types::{TimeSlot, EventType, EventPair, RouteData, DbItem, RouteVariantData};
 
 use crate::{ FnResult, Main };
 
@@ -137,7 +137,7 @@ impl<'a> SpecificCurveCreator<'a> {
         let mut route_variant_data = RouteVariantData::new();
         route_variant_data.stop_ids = trip.stop_times.iter().map(|st| st.stop.id.clone()).collect();
 
-        // threshold of delay secends that will be considered. 
+        // threshold of delay (in seconds) that will be considered. 
         // Every stop with more than t or less then -t delay will be ignored.
         let t = 3000; 
 
@@ -150,6 +150,7 @@ impl<'a> SpecificCurveCreator<'a> {
                 // Locally select the rows which match the start station
                 let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
 
+                // this is where the general_delay curves are created
                 for e_t in &EventType::TYPES {
                     if let Ok(res) = self.generate_delay_curve(&rows_matching_start, **e_t) {
                         route_variant_data.general_delay[**e_t].insert(i_s as u32, res);
@@ -163,25 +164,36 @@ impl<'a> SpecificCurveCreator<'a> {
                         let rows_matching_end : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
                         
                         // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
-                        // which is given by (data, trip_id).
-                        let mut matching_pairs = Vec::<(f32, f32)>::with_capacity(usize::min(rows_matching_start.len(), rows_matching_end.len()));
+                        // which is given by (date, trip_id).
+                        // TODO: also match start_time? 
+                        // TODO: use VehicleIdentifier from PerScheduleImporter (should be moved to types)
+
+                        let vec_size = usize::min(rows_matching_start.len(), rows_matching_end.len());
+
+                        let mut matching_pairs : EventPair<Vec<(f32, f32)>> = EventPair{
+                            arrival: Vec::<(f32, f32)>::with_capacity(vec_size), 
+                            departure: Vec::<(f32, f32)>::with_capacity(vec_size)
+                        };
                         for row_s in &rows_matching_start {
                             for row_e in &rows_matching_end {
                                 if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
                                     // Only use rows where delay is not None
                                     // TODO filter those out at the DB level or in the above filter expressions
                                     if let Some(d_s) = row_s.delay.departure {
-                                        if let Some(d_e) = row_e.delay.arrival {
-                                            // Filter out rows with too much positive or negative delay
-                                            if d_s < t && d_s > -t && d_e < t && d_e > -t {
-                                                // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
-                                                // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
-                                                // kinds of problems.
-                                                let rounded_d_s = (d_s / 12) * 12;
-                                                let rounded_d_e = (d_e / 12) * 12;
-                                                matching_pairs.push((rounded_d_s as f32, rounded_d_e as f32));
+                                        for et in &EventType::TYPES {
+                                            if let Some(d_e) = row_e.delay[**et] {
+                                                // Filter out rows with too much positive or negative delay
+                                                if d_s < t && d_s > -t && d_e < t && d_e > -t {
+                                                    // Now we round the delays to multiples of 12. Much of the data that we get from the agencies
+                                                    // tends to be rounded that way, and mixing up rounded and non-rounded data leads to all
+                                                    // kinds of problems.
+                                                    let rounded_d_s = (d_s / 12) * 12;
+                                                    let rounded_d_e = (d_e / 12) * 12;
+                                                    matching_pairs[**et].push((rounded_d_s as f32, rounded_d_e as f32));
+                                                }
                                             }
                                         }
+                                        
                                     }
                                     break;
                                 }
@@ -193,11 +205,13 @@ impl<'a> SpecificCurveCreator<'a> {
 
                         // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
                         
-                        // Don't generate a graphic if we have too few pairs.
-                        if matching_pairs.len() > 20 {
-                            let stop_pair_data = self.generate_curves_for_stop_pair(matching_pairs);
-                            if let Ok(actual_data) = stop_pair_data {
-                                route_variant_data.curve_sets.insert((i_s as u32, i_e as u32, (**ts).clone()), actual_data);
+                        for et in &EventType::TYPES {
+                            // Don't generate a graphic if we have too few pairs.
+                            if matching_pairs[**et].len() > 20 {
+                                let stop_pair_data = self.generate_curves_for_stop_pair(&matching_pairs[**et]);
+                                if let Ok(actual_data) = stop_pair_data {
+                                    route_variant_data.curve_sets[**et].map.insert((i_s as u32, i_e as u32, (**ts).clone()), actual_data);
+                                }
                             }
                         }
                     }
@@ -218,7 +232,7 @@ impl<'a> SpecificCurveCreator<'a> {
         Ok(curve)
     }
 
-    fn generate_curves_for_stop_pair(&self, pairs: Vec<(f32, f32)>) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {
+    fn generate_curves_for_stop_pair(&self, pairs: &Vec<(f32, f32)>) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
         // because we will group them by that criterion.
         let mut own_pairs = pairs.clone();

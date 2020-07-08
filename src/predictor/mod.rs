@@ -301,7 +301,7 @@ impl<'a> Predictor<'a> {
                 // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
                 let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| *e == actual_start.stop_id).or_error("U3")?
                     .try_into().or_error("U4")?; //TODO: Better Error handling
-                let potential_curveset = &rvdata.curve_sets.get(&(start_stop_index, target_stop_index, ts.clone()));
+                let potential_curveset = &rvdata.curve_sets[et].map.get(&(start_stop_index, target_stop_index, ts.clone()));
                 if let Some(curveset) = potential_curveset {
                     if curveset.curves.is_empty() {
                         bail!("Found specific curveset, but it was empty.");
