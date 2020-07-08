@@ -170,10 +170,29 @@ impl<'a> DefaultCurveCreator<'a> {
         // new datastructure for all the default curves:
         let mut dc : DefaultCurves = DefaultCurves::new();
 
+        // temporary collection for building broader defaults (only sorted by route_type and EventType) as a fallback
+        let mut broad_default_curves : HashMap<(RouteType, EventType), Vec<IrregularDynamicCurve<f32,f32>>> = HashMap::new();
+        // collect allll the curves in that hashmap
+        for rt in &route_types {
+            for et in &EventType::TYPES {
+                for rs in &route_sections {
+                    for ts in &TimeSlot::TIME_SLOTS {
+                        if let Some(curves) = default_curves[**et].get_mut(&(rt, rs, *ts)) {
+                            // put any curves found here into the broad defaults:
+                            for c in curves.iter() {
+                                broad_default_curves.entry((*rt, **et)).or_insert(Vec::new()).push(c.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // now back to the actual default curves...
         for rt in &route_types {
             for rs in &route_sections {
                 for ts in &TimeSlot::TIME_SLOTS {
-                    println!("Create average curve for route type {:?}, route section {:?} and time slot {}", rt, rs, ts.description);
+                    println!("Create average curves for route type {:?}, route section {:?} and time slot {}", rt, rs, ts.description);
 
                     for e_t in &EventType::TYPES {
                         // curve vectors
@@ -185,6 +204,19 @@ impl<'a> DefaultCurveCreator<'a> {
                                 curve.simplify(0.001);
                                 dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), curve);
                             }
+                        } else {
+                            // if there is no entry for this (rt, rs, ts) combination in this e_t,
+                            // we need something to fill that gap
+                            // so we use the fallback that is only split up by route type and event type:
+
+                            println!("No data for {:?} at {:?}, {:?}, {}. Using fallback instead: {:?} for {:?}.", e_t, rt, rs, ts.description, e_t, rt);
+
+                            let fc = broad_default_curves.get_mut(&(*rt, **e_t)).unwrap(); //might panic if we still don't have enough data
+
+                            let mut fallback_curve = IrregularDynamicCurve::<f32, f32>::average(fc);
+                            fallback_curve.simplify(0.001);
+                            dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), fallback_curve);
+                            
                         }
                     }
                 }
