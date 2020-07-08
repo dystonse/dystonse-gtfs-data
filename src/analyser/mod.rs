@@ -10,7 +10,6 @@ use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::Gtfs;
 use regex::Regex;
-use simple_error::bail;
 
 use count::*;
 use specific_curves::SpecificCurveCreator;
