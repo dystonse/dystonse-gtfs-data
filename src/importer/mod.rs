@@ -328,7 +328,7 @@ impl<'a> Importer<'a>  {
                 }
             };
 
-            if rt_date <= oldest_schedule_date {
+            if rt_date < oldest_schedule_date {
                 eprintln!(
                     "Realtime data {} is older than any schedule, skipping.",
                     rt_filename
@@ -355,7 +355,7 @@ impl<'a> Importer<'a>  {
                     }
                 };
                 // Assume we found the right schedule if this is the newest schedule that is older than the realtime file:
-                if rt_date > schedule_date {
+                if rt_date >= schedule_date {
                     // process the current schedule's collection before going to next schedule
                     if *schedule_filename != current_schedule_file {
                         if !realtime_files_for_current_schedule.is_empty() {
@@ -363,7 +363,7 @@ impl<'a> Importer<'a>  {
                                 &current_schedule_file,
                                 &realtime_files_for_current_schedule,
                             ) {
-                                 eprintln!("Error in schedule file {}: {}", current_schedule_file, e);
+                                 eprintln!("Error while working with schedule file {}: {}", current_schedule_file, e);
                             }
                         }
                         // go on with the next schedule
@@ -380,7 +380,7 @@ impl<'a> Importer<'a>  {
         // process last schedule's collection
         if !realtime_files_for_current_schedule.is_empty() {
             if let Err(e) = self.process_schedule_and_realtimes(&current_schedule_file, &realtime_files_for_current_schedule) {
-                eprintln!("Error in schedule file {}: {}", current_schedule_file, e);
+                eprintln!("Error while working with schedule file {}: {}", current_schedule_file, e);
             };
         }
         Ok(())
