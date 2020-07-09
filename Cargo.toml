@@ -4,6 +4,10 @@ version = "1.0.0"
 authors = ["Lena Schimmel <mail@lenaschimmel.de>", "Kirstin Rohwer <mail@metakiki.net>"]
 edition = "2018"
 
+[features]
+default = []
+visual-schedule = ["plotters"]
+
 [dependencies]
 gtfs-rt = { git = "https://github.com/dystonse/gtfs-rt.git", branch = "extension", version = "0.1.0" }
 prost = "0.4"
@@ -20,7 +24,7 @@ retry = "1.0.0"
 simple-error = "0.2.1"
 ureq = "0.11.4"
 parse_duration = "2.1.0"
-plotters = "0.2.12"
+plotters = { version = "0.2.12", optional = true }
 rand = "0.7.3"
 rand_xorshift = "0.2.0"
 rand_distr = "0.2.2"

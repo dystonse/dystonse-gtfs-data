@@ -4,6 +4,8 @@ mod curve_visualisation;
 pub mod specific_curves;
 pub mod default_curves;
 pub mod curves;
+
+#[cfg(feature = "visual-schedule")]
 mod visual_schedule;
 
 use chrono::NaiveDateTime;
@@ -16,6 +18,8 @@ use specific_curves::SpecificCurveCreator;
 use default_curves::DefaultCurveCreator;
 use curves::CurveCreator;
 use curve_visualisation::CurveDrawer;
+
+#[cfg(feature = "visual-schedule")]
 use visual_schedule::*;
 
 use crate::{FnResult, OrError};
@@ -33,7 +37,7 @@ pub struct Analyser<'a> {
 
 impl<'a> Analyser<'a> {
     pub fn get_subcommand() -> App<'a> {
-        App::new("analyse")
+        let mut analyse = App::new("analyse")
             .subcommand(App::new("count")
                 .arg(Arg::new("interval")
                     .short('i')
@@ -42,29 +46,6 @@ impl<'a> Analyser<'a> {
                     .about("Sets the step size for counting entries. The value will be parsed by the `parse_duration` crate, which acceps a superset of the `systemd.time` syntax.")
                     .value_name("INTERVAL")
                     .takes_value(true)
-                )
-            )
-            .subcommand(App::new("graph")
-                .about("Draws graphical schedules of planned and actual departures.")
-                .arg(Arg::new("route-ids")
-                    .short('r')
-                    .long("route-ids")
-                    .about("If provided, graphical schedules will be created for each route variant of each of the selected routes.")
-                    .value_name("ROUTE_ID")
-                    .multiple(true)
-                    .conflicts_with("shape-ids")
-                ).arg(Arg::new("shape-ids")
-                    .short('p')
-                    .long("shape-ids")
-                    .about("If provided, graphical schedules will be created for each route variant that has the selected shape-id.")
-                    .value_name("SHAPE_ID")
-                    .multiple(true)
-                    .conflicts_with("route-ids")
-                ).arg(Arg::new("all")
-                    .short('a')
-                    .long("all")
-                    .about("If provided, graphical schedules will be created for each route of the schedule.")
-                    .conflicts_with("route-ids")
                 )
             )
             .subcommand(App::new("compute-specific-curves")
@@ -132,7 +113,35 @@ impl<'a> Analyser<'a> {
                 .about("The path of the GTFS schedule that is used.")
                 .takes_value(true)
                 .value_name("GTFS_SCHEDULE")
-            )     
+            );
+
+            if cfg!(feature = "visual-schedule") {
+                analyse = analyse.subcommand(App::new("graph")
+                    .about("Draws graphical schedules of planned and actual departures.")
+                    .arg(Arg::new("route-ids")
+                        .short('r')
+                        .long("route-ids")
+                        .about("If provided, graphical schedules will be created for each route variant of each of the selected routes.")
+                        .value_name("ROUTE_ID")
+                        .multiple(true)
+                        .conflicts_with("shape-ids")
+                    ).arg(Arg::new("shape-ids")
+                        .short('p')
+                        .long("shape-ids")
+                        .about("If provided, graphical schedules will be created for each route variant that has the selected shape-id.")
+                        .value_name("SHAPE_ID")
+                        .multiple(true)
+                        .conflicts_with("route-ids")
+                    ).arg(Arg::new("all")
+                        .short('a')
+                        .long("all")
+                        .about("If provided, graphical schedules will be created for each route of the schedule.")
+                        .conflicts_with("route-ids")
+                    )
+                );
+            }
+            
+            return analyse;
    }
 
     pub fn new(main: &'a Main, args: &'a ArgMatches) -> Analyser<'a> {
@@ -148,6 +157,7 @@ impl<'a> Analyser<'a> {
     pub fn run(&mut self) -> FnResult<()> {
         match self.args.clone().subcommand() {
             ("count", Some(_sub_args)) => run_count(&self),
+            #[cfg(feature = "visual-schedule")]
             ("graph", Some(sub_args)) => {
                 let mut vsc = VisualScheduleCreator { 
                     main: self.main, 
