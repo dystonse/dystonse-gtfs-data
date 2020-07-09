@@ -22,7 +22,7 @@ use curve_visualisation::CurveDrawer;
 #[cfg(feature = "visual-schedule")]
 use visual_schedule::*;
 
-use crate::{FnResult, OrError};
+use crate::{FnResult, OrError, read_dir_simple};
 use crate::Main;
 
 use std::str::FromStr;
@@ -109,7 +109,7 @@ impl<'a> Analyser<'a> {
             ).arg(Arg::new("schedule")
                 .short('s')
                 .long("schedule")
-                .required(true)
+                //.required(true)
                 .about("The path of the GTFS schedule that is used.")
                 .takes_value(true)
                 .value_name("GTFS_SCHEDULE")
@@ -203,8 +203,20 @@ impl<'a> Analyser<'a> {
     }
 
     fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
-        println!("Parsing schedule…");
-        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?; // TODO proper error message if this fails
+        // find out if schedule arg is given:
+        let schedule_filename : String = 
+        if let Some(filename) = sub_args.value_of("schedule") {
+            filename.to_string()
+        } else {
+            // if the arg is not given, look up the newest schedule file:
+            println!("No schedule file name given, looking up the most recent schedule file…");
+            let dir = sub_args.value_of("dir").unwrap(); // already validated by clap
+            let schedule_dir = format!("{}/schedule", dir);
+            let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
+            schedule_filenames.last().unwrap().clone() //return the newest file (last filename)
+        };
+        println!("Parsing schedule file {} …", schedule_filename);
+        let schedule = Gtfs::new(&schedule_filename)?; // TODO proper error message if this fails
         println!("Done with parsing schedule.");
         Ok(schedule)
     }

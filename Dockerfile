@@ -20,4 +20,3 @@ ENV TZ=Europe/Berlin
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 ENV RUST_BACKTRACE=full
-CMD dystonse-gtfs-data -v import --record --predict automatic /files/$GTFS_DATA_SOURCE_ID/

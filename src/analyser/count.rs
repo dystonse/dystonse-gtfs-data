@@ -6,13 +6,13 @@ use simple_error::SimpleError;
 use super::Analyser;
 
 use crate::FnResult;
-use crate::importer::Importer;
+use crate::read_dir_simple;
 
 use std::fs;
 
 pub fn run_count(analyser: &Analyser) -> FnResult<()> {
     let imported_dir = format!("{}/imported", &analyser.data_dir.as_ref().unwrap());
-    let rt_filenames = Importer::read_dir_simple(&imported_dir)?;
+    let rt_filenames = read_dir_simple(&imported_dir)?;
 
     if rt_filenames.is_empty() {
         return Err(Box::from(SimpleError::new("No realtime data.")));

@@ -11,7 +11,10 @@ use clap::{App, Arg, ArgMatches};
 use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
-use simple_error::bail;
+use simple_error::{SimpleError, bail};
+use chrono::NaiveDate;
+use regex::Regex;
+use std::fs;
 
 use importer::Importer;
 use analyser::Analyser;
@@ -55,6 +58,40 @@ impl<T, E> OrError<T> for std::result::Result<T, E> {
             Ok(t) => Ok(t)
         }
     }
+}
+
+/// Reads contents of the given directory and returns an alphabetically sorted list of included files / subdirectories as Vector of Strings.
+pub fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
+    let mut path_list: Vec<String> = fs::read_dir(path)?
+        .filter_map(|r| r.ok()) // unwraps Options and ignores any None values
+        .map(|d| {
+            String::from(d.path().to_str().expect(&format!(
+                "Found file with invalid UTF8 in file name in directory {}.",
+                &path
+            )))
+        })
+        .collect();
+    path_list.sort();
+    Ok(path_list)
+}
+
+pub fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
+    lazy_static! {
+        static ref FIND_DATE: Regex = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap(); // can't fail because our hard-coded regex is known to be ok
+    }
+    let date_element_captures =
+        FIND_DATE
+            .captures(&filename)
+            .or_error(&format!(
+            "File name does not contain a valid date (does not match format YYYY-MM-DD): {}",
+            filename
+        ))?;
+    let date_option = NaiveDate::from_ymd_opt(
+        date_element_captures[1].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
+        date_element_captures[2].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
+        date_element_captures[3].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
+    );
+    Ok (date_option.ok_or(SimpleError::new(format!("File name does not contain a valid date (format looks ok, but values are out of bounds): {}", filename)))?)
 }
 
 fn parse_args() -> ArgMatches {
