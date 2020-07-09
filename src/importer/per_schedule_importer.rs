@@ -213,7 +213,7 @@ impl<'a> PerScheduleImporter<'a> {
                 break;
             }
         }
-        if !prediction_done {
+        if self.perform_predict && !prediction_done {
             println!("At the end, still no prediction.");
         }
 
