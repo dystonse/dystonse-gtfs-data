@@ -72,7 +72,7 @@ impl<'a> VisualScheduleCreator<'a> {
 
             let mut con = self.main.pool.get_conn()?;
 
-            let stmt = con.prep(r"SELECT DISTINCT route_id FROM realtime WHERE `source`=?")?;
+            let stmt = con.prep(r"SELECT DISTINCT route_id FROM records WHERE `source`=?")?;
             let result = con.exec_iter(&stmt, (&self.main.source,))?;
             let route_ids: Vec<String> = result
                 .map(|row| {
@@ -138,7 +138,7 @@ impl<'a> VisualScheduleCreator<'a> {
                 trip_id,
                 stop_id
             FROM 
-                realtime 
+                records 
             WHERE 
                 source=:source AND 
                 route_id=:routeid

@@ -81,7 +81,7 @@ impl<'a> SpecificCurveCreator<'a> {
                 stop_id,
                 route_variant
             FROM 
-                realtime 
+                records 
             WHERE 
                 source=:source AND 
                 route_id=:routeid

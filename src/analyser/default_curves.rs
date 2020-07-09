@@ -295,7 +295,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 stop_id,
                 route_variant
             FROM 
-                realtime 
+                records 
             WHERE 
                 source=:source AND 
                 route_id = :route_id AND

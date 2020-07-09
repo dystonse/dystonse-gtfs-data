@@ -20,7 +20,7 @@ pub fn run_count(analyser: &Analyser) -> FnResult<()> {
 
     let mut con = analyser.main.pool.get_conn()?;
     let (start, end): (mysql::chrono::NaiveDateTime, mysql::chrono::NaiveDateTime) = con
-        .exec_first("SELECT MIN(time_of_recording), MAX(time_of_recording) FROM realtime WHERE `source` = ?", (&analyser.main.source,))?
+        .exec_first("SELECT MIN(time_of_recording), MAX(time_of_recording) FROM records WHERE `source` = ?", (&analyser.main.source,))?
         .unwrap();
 
     let std_date = parse(
@@ -42,7 +42,7 @@ pub fn run_count(analyser: &Analyser) -> FnResult<()> {
         let row: mysql::Row = con
             .exec_first(
                 "SELECT COUNT(*), AVG(delay_arrival) 
-                FROM realtime 
+                FROM records 
                 WHERE (`time_of_recording` BETWEEN ? AND ?) 
                 AND (delay_arrival BETWEEN - 36000 AND 36000) 
                 AND source = ?",
