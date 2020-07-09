@@ -18,7 +18,7 @@ regex = "1"
 lazy_static = "1.4.0"
 retry = "1.0.0"
 simple-error = "0.2.1"
-reqwest = { version = "0.10.4", features = ["blocking"] }
+ureq = "0.11.4"
 parse_duration = "2.1.0"
 plotters = "0.2.12"
 rand = "0.7.3"

@@ -13,6 +13,7 @@ use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
 use std::sync::Arc;
+use ureq::get;
 
 use crate::{Main, FnResult, OrError};
 
@@ -230,20 +231,11 @@ impl<'a> Importer<'a>  {
     }
 
     fn ping_url(&self) {
-        lazy_static! {
-            static ref HTTP_CLIENT: reqwest::blocking::Client = reqwest::blocking::Client::builder()
-            .timeout(time::Duration::from_secs(10))
-            .build().expect("Error while initializing http client.");
-        }
-
-        
         if let Some(url) = self.args.subcommand_matches("automatic").unwrap().value_of("pingurl") {
             if self.verbose {
                 println!("Pinging URL {}", url);
             }
-            if let Err(e) = HTTP_CLIENT.get(url).send() {
-                eprintln!("Error while pinging url {}: {}", url, e);
-            }
+            get(url).call();
         }
     }
 
