@@ -338,6 +338,7 @@ impl<'a> PerScheduleImporter<'a> {
             &vehicle_id.trip_id, 
             &Some(actual_begin),
             &scheduled_end.stop.id, 
+            scheduled_end.stop_sequence,
             event_type, 
             NaiveDateTime::from_timestamp(scheduled_end.departure_time.unwrap() as i64, 0))?;
             

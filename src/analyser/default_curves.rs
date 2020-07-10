@@ -91,7 +91,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 let mut max_middle_stop : u16 = 0;
 
                 for s in rv_stops {
-                    if let Ok(sec) = RouteSection::get_route_section(&schedule, &trip.id, &s.stop.id) {
+                    if let Ok(sec) = RouteSection::get_route_section_by_stop_sequence(&schedule, &trip.id, s.stop_sequence) {
                         if sec == RouteSection::Beginning {
                             max_beginning_stop = s.stop_sequence;
                         }

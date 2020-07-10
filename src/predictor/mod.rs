@@ -143,6 +143,10 @@ impl<'a> Predictor<'a> {
         let route_id = args.value_of("route-id").unwrap();
         let trip_id = args.value_of("trip-id").unwrap();
         let potential_stop_id = args.value_of("stop-id");
+        let potential_stop_sequence : Option<u16> = match args.value_of("stop-sequence") {
+            None => None,
+            Some(sss) => Some(str::parse::<u16>(sss)?)
+        };
         let event_type = match args.value_of("event-type").unwrap() {
             "arrival" => EventType::Arrival,
             "departure" => EventType::Departure,
@@ -170,22 +174,25 @@ impl<'a> Predictor<'a> {
             },
         };
 
-        // if no single stop_id is given, iterate over all stop_ids of the trip
-        let stop_ids = match potential_stop_id {
-            Some(stop_id) => vec!{stop_id},
-            None => trip.stop_times.iter().map(|st| st.stop.id.as_str()).collect()
+
+        // if no single stop_sequence is given, iterate over all stop_sequences of the trip
+        // TODO we currently ignore the stop_id from the args
+        let stop_sequences : Vec<u16> = match potential_stop_sequence {
+            Some(stop_sequence) => vec!{stop_sequence},
+            None => trip.stop_times.iter().map(|st| st.stop_sequence).collect()
         };
 
-        for stop_id in stop_ids {
+        for stop_sequence in stop_sequences {
+            let stop_id = &trip.get_stop_time_by_sequence(stop_sequence)?.stop.id;
             // data structure to hold the prediction result:
-            let prediction = self.predict(route_id, trip_id, &start, stop_id, event_type, date_time);
+            let prediction = self.predict(route_id, trip_id, &start, stop_id, stop_sequence, event_type, date_time);
 
             if let Ok(actual_prediction) = &prediction {
                 println!("Got a prediction, try to write GTFS-rt message…");
                 let ext = actual_prediction.to_stop_time_event_extension();
                 let mut vec : Vec<u8> = Vec::new(); 
                 ext.encode(&mut vec)?;
-                let file_path = format!("data/message_{}.pb", stop_id);
+                let file_path = format!("data/message_{}.pb", stop_sequence);
                 let mut file = match File::create(&file_path) {
                     Err(why) => panic!("couldn't create file {}: {}", file_path, why),
                     Ok(file) => file,
@@ -197,9 +204,6 @@ impl<'a> Predictor<'a> {
             }
             // output the resulting curve(s) to the command line:
             // TODO: we could probably use more advanced kinds of output here
-            // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
-            // arrival delay in cases where the result is a curve set or specific curve. 
-            // Event type choice is only used in default and semi specific curves.
             println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
             println!("{:?}", prediction);
         }
@@ -213,7 +217,8 @@ impl<'a> Predictor<'a> {
             route_id: &str, 
             trip_id: &str, 
             start: &Option<PredictionBasis>, 
-            stop_id: &str, 
+            stop_id: &str,
+            stop_sequence: u16,
             et: EventType, 
             date_time: NaiveDateTime) -> FnResult<PredictionResult> {
 
@@ -233,7 +238,7 @@ impl<'a> Predictor<'a> {
             // prepare some more lookup parameters
             let r = self.schedule.get_route(route_id)?;
             let rt = r.route_type;
-            let rs = RouteSection::get_route_section(&self.schedule, trip_id, stop_id)?;
+            let rs = RouteSection::get_route_section_by_stop_sequence(&self.schedule, trip_id, stop_sequence)?;
             // try default prediction
             self.predict_default(rt, rs, ts, et)
         });
