@@ -2,9 +2,8 @@ use crate::types::{EventType, TimeSlot, RouteSection, PredictionResult, DelaySta
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
-use gtfs_structures::{Gtfs, RouteType};
+use gtfs_structures::{Gtfs, RouteType, Trip};
 use std::str::FromStr;
-use std::convert::TryInto;
 use itertools::Itertools;
 
 use simple_error::bail;
@@ -227,7 +226,7 @@ impl<'a> Predictor<'a> {
         // the trip, and route variants are always numbers.
 
         // try to find a specific prediction:
-        let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et);
+        let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et, &trip);
 
         // unwrap that, or try a default prediction if it failed:
         let prediction = specific_prediction.or_else(|_| {
@@ -279,15 +278,15 @@ impl<'a> Predictor<'a> {
             start: &Option<PredictionBasis>, //&str for stop_id, f32 for initial delay
             stop_id: &str, 
             ts: &TimeSlot,
-            et: EventType) -> FnResult<PredictionResult> {
+            et: EventType,
+            trip: &Trip) -> FnResult<PredictionResult> {
 
         // find the route variant data that we need:
         let rvdata = &self.delay_statistics.specific.get(route_id).or_error("No specific statistics for route_id")?.variants.get(&route_variant).or_error("No specific statistics for route_variant")?;
         // find index of target stop:
-        // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
-        let target_stop_index : u32 = rvdata.stop_ids.iter().position(|e| e == stop_id).or_error("U1")?
-            .try_into().or_error("U2")?; // TODO: Better Error handling
-
+        // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
+        let target_stop_index = trip.get_stop_index_by_id(stop_id)? as u32;
+        
         match start {
             None => { 
                 // get general curve for target stop:
@@ -298,9 +297,8 @@ impl<'a> Predictor<'a> {
                 return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
             },
             Some(actual_start) => {
-                // TODO use the code that asserts the stop_id being unique here. It's in RouteSection::get_route_section
-                let start_stop_index : u32 = rvdata.stop_ids.iter().position(|e| *e == actual_start.stop_id).or_error("U3")?
-                    .try_into().or_error("U4")?; //TODO: Better Error handling
+                // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
+                let start_stop_index = trip.get_stop_index_by_id(&actual_start.stop_id)? as u32;
                 let potential_curveset = &rvdata.curve_sets[et].map.get(&(start_stop_index, target_stop_index, ts.clone()));
                 if let Some(curveset) = potential_curveset {
                     if curveset.curves.is_empty() {

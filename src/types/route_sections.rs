@@ -24,10 +24,8 @@ impl RouteSection {
         let stop_count = trip.stop_times.len();
 
         // Find the index of the stop in question
-        let stop_index = trip.stop_times.iter().enumerate().filter_map
-            (|(i, st)| if st.stop.id == stop_id {Some(i)} else {None}).exactly_one().
-            or_else(|s| Err(SimpleError::new(format!("Stop id {} occurs {} times in trip {}", stop_id, s.count(), trip_id))))?;
-
+        let stop_index = trip.get_stop_index_by_id(stop_id)?;
+        
         // define the length of the beginning and end sections:
         // 1/3 of the trip for trips shorter than 15 stops, 5 stops for longer trips.
         let section_size = usize::min(5, stop_count/3);

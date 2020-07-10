@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "gtfs-structures"
 version = "0.20.1"
-source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#363f70f5890664ebbafb2a9c6368674385ef6aab"
+source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#ddaf005905345001f11e10b923985774d2690b49"
 dependencies = [
  "bytes 0.4.12",
  "chrono",
@@ -840,6 +840,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "sha2",
+ "simple-error",
  "thiserror",
  "zip",
 ]
