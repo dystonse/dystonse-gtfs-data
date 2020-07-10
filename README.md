@@ -18,17 +18,19 @@ There are a lot of database parameters to be defined globally. Those `DB_…`par
 
 You can also use `dystonse-gtfs-data [command [subcommand]] --help` to get information about the command syntax.
 
-## Importing data
+## Importing data / making predictions
+This tool can write incoming realtime data into the `records` table and/or use it to update its own predictions, which are written into the `predictions` table. The outcome is quite different, but the way the incoming data is processed is similar. This is why both actions are part of the `import` subcommmand and can be performed in one go. You select them with the `--record` and/or `--predict` flag.
+
 ### `import manual` mode
 
-`DB_PASSWORD=<password> dystonse-gtfs-data [-v] --source <source> import manual <gtfs file path> <gfts-rt file path(s)>`
+`DB_PASSWORD=<password> dystonse-gtfs-data [-v] --source <source> import --record manual <gtfs file path> <gfts-rt file path(s)>`
 
 without `-v`, the only output on stdout is a list of the gtfs-realtime filenames that have been parsed successfully.
 
 ### `import automatic` and `import batch` mode
 Instead of `manual` mode, you can use `automatic` or `batch` mode:
 
-`DB_PASSWORD=<password> dystonse-gtfs-data -- [-v] --source <source> import automatic <dir>`
+`DB_PASSWORD=<password> dystonse-gtfs-data -- [-v] --source <source> import --record automatic <dir>`
 
 In automatic mode:
 
@@ -40,7 +42,7 @@ In automatic mode:
 In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
 
 ## Analysing data
-In addition to the global arguments (for database connection etc., see above), the `analyse` command needs `dir` and `schedule` arguments - a directory where data should be read from/written to, and the filename of a schedule file to use for the analyses.
+In addition to the global arguments (for database connection etc., see above), the `analyse` command handles the `dir` and `schedule` arguments. `dir`  is mandatory and names a directory where data should be read from/written to. `schedule` is optional and points to a schedule file to use for the analyses. If no schedule file is given, the newest available schedule is used.
 
 Additional required arguments depend on the subcommand you want to use:
 
@@ -55,7 +57,7 @@ time_min;            time_max;            stop_time update count; average delay;
 [...]
 ```
 ### `graph` mode
-This will compute visual schedules of the given `route-ids` (or `all`) and save them as png images in a directory structure sorted by agency and route. See [this post on our blog in german language](http://blog.dystonse.org/opendata/2020/04/20/datensammlung-2.html) for more info about visual schedules (_Bildfahrpläne_).
+Graph mode is only available if you compile with `--features visual-schedule`. This will compute visual schedules of the given `route-ids` (or `all`) and save them as png images in a directory structure sorted by agency and route. See [this post on our blog in german language](http://blog.dystonse.org/opendata/2020/04/20/datensammlung-2.html) for more info about visual schedules (_Bildfahrpläne_).
 
 ### `compute-specific-curves` mode
 This will compute specific delay probability curves for a given set of `route-ids` (or for all route-ids available in the schedule, if `all` is used instead). As long as there are enough data points in the database, it creates the following things for each route variant and each time slot:
