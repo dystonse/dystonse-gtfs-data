@@ -170,9 +170,11 @@ impl<'a> DefaultCurveCreator<'a> {
         // new datastructure for all the default curves:
         let mut dc : DefaultCurves = DefaultCurves::new();
 
-        // temporary collection for building broader defaults (only sorted by route_type and EventType) as a fallback
+        // temporary collections for building broader defaults 
+        // (one only sorted by route_type and EventType, and one completely unsorted) as a fallback
         let mut broad_default_curves : HashMap<(RouteType, EventType), Vec<IrregularDynamicCurve<f32,f32>>> = HashMap::new();
-        // collect allll the curves in that hashmap
+        let mut super_default_curves : Vec<IrregularDynamicCurve<f32,f32>> = Vec::new();
+        // collect allll the curves in there
         for rt in &route_types {
             for et in &EventType::TYPES {
                 for rs in &route_sections {
@@ -181,6 +183,10 @@ impl<'a> DefaultCurveCreator<'a> {
                             // put any curves found here into the broad defaults:
                             for c in curves.iter() {
                                 broad_default_curves.entry((*rt, **et)).or_insert(Vec::new()).push(c.clone());
+                                // simplified version for building the super default curve:
+                                let mut sc = c.clone();
+                                sc.simplify(0.01);
+                                super_default_curves.push(sc):
                             }
                         }
                     }
@@ -208,13 +214,16 @@ impl<'a> DefaultCurveCreator<'a> {
                             // if there is no entry for this (rt, rs, ts) combination in this e_t,
                             // we need something to fill that gap
                             // so we use the fallback that is only split up by route type and event type:
+                            println!("No data for {:?} at {:?}, {:?}, {}. Looking up fallback instead: {:?} for {:?}.", e_t, rt, rs, ts.description, e_t, rt);
                             if let Some(fc) = broad_default_curves.get_mut(&(*rt, **e_t)) {
-                                println!("No data for {:?} at {:?}, {:?}, {}. Using fallback instead: {:?} for {:?}.", e_t, rt, rs, ts.description, e_t, rt);
                                 let mut fallback_curve = IrregularDynamicCurve::<f32, f32>::average(fc);
                                 fallback_curve.simplify(0.001);
                                 dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), fallback_curve);
                             } else {
-                                println!("No data for {:?} at {:?}, {:?}, {}. Also no data for the fallback. No default curve for this case generated.", e_t, rt, rs, ts.description);
+                                println!("No data for fallback {:?} for {:?}. Using super default curve instead.", e_t, rt);
+                                let mut super_default_curve = IrregularDynamicCurve::<f32, f32>::average(&super_default_curves);
+                                super_default_curve.simplify(0.001);
+                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), super_default_curve);
                             }
                         }
                     }
