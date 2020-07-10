@@ -16,6 +16,8 @@ Basic syntax is `dystonse-gtfs-data [global options] <command> <subcommand> [ar
 
 There are a lot of database parameters to be defined globally. Those `DB_…`parameters can either be defined as environment variables (using the upper case names like `DB_PASSWORD`) or as command line parameters (using lower-case variants without the `db`-prefix, e.g. `--password`). Default values are provided for `DB_USER`, `DB_HOST`, `DB_PORT` and `DB_DATABASE`. In contrast, `DB_PASSWORD` and `GTFS_DATA_SOURCE_ID` always have to be specified when running this, where `GTFS_DATA_SOURCE_ID` is a string identifier that will be written as-is into the database for each entry. In the syntax examples below, we use a mix of env vars and command line parameters.
 
+The most important args are `dir` and `schedule`. `dir` is mandatory and names a directory where data should be read from/written to. `schedule` is optional and points to a schedule file to use for the analyses/predictions. If no schedule file is given, the newest available schedule is used.
+
 You can also use `dystonse-gtfs-data [command [subcommand]] --help` to get information about the command syntax.
 
 ## Importing data / making predictions
@@ -42,7 +44,6 @@ In automatic mode:
 In `batch` mode, it works exactly as in `automatic` mode, but the importer exits after step 2.
 
 ## Analysing data
-In addition to the global arguments (for database connection etc., see above), the `analyse` command handles the `dir` and `schedule` arguments. `dir`  is mandatory and names a directory where data should be read from/written to. `schedule` is optional and points to a schedule file to use for the analyses. If no schedule file is given, the newest available schedule is used.
 
 Additional required arguments depend on the subcommand you want to use:
 
@@ -77,8 +78,6 @@ This will compute delay probability curves, using the collected data in the data
 This will compute specific delay probability curve sets for the given `route-ids` and output them as diagrams in svg file format with human-readable title (in german) and labels/captions. One file is created for each pair of stops in each route variant and each time slot, sorted into a directory structure.
 
 ## Prediction lookup
-In addition to the global arguments (for database connection etc., see above), the `predict` command needs `dir` and `schedule` arguments - a directory where the precomputed curves should be read from, and the filename of a schedule file to use for looking up all data that are not contained in the curve files.
-
 Additional required arguments depend on the subcommand you want to use. Currently, only the `single` subcommand is implemented.
 
 ### `single` mode
