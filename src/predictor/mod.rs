@@ -48,12 +48,12 @@ impl<'a> Predictor<'a> {
                     .about("Id of the trip for which the prediction shall be made.")
                     .takes_value(true)
                     .value_name("TRIP_ID")
-                ).arg(Arg::new("stop-id")
-                    .short('i')
-                    .long("stop-id")
-                    .about("Id of the stop for which the prediction shall be made. May be ommitted to get predictions for all stops of the route.")
+                ).arg(Arg::new("stop-sequence")
+                    .short('s')
+                    .long("stop-sequence")
+                    .about("Sequence number of the stop for which the prediction shall be made. May be ommitted to get predictions for all stops of the route.")
                     .takes_value(true)
-                    .value_name("STOP_ID")
+                    .value_name("STOP_SEQUENCE")
                 ).arg(Arg::new("event-type")
                     .short('e')
                     .long("event-type")
@@ -121,7 +121,6 @@ impl<'a> Predictor<'a> {
         // parse command line arguments into the right data types
         let route_id = args.value_of("route-id").unwrap();
         let trip_id = args.value_of("trip-id").unwrap();
-        let potential_stop_id = args.value_of("stop-id");
         let potential_stop_sequence : Option<u16> = match args.value_of("stop-sequence") {
             None => None,
             Some(sss) => Some(str::parse::<u16>(sss)?)
@@ -142,6 +141,7 @@ impl<'a> Predictor<'a> {
                             None => Some(PredictionBasis {stop_id: s.to_string(), delay_departure: None}),
                         },
             None => {
+                // TODO move or delete everything related to db access for realtime data
                 if args.is_present("use-realtime") {
                     match real_time::get_realtime_data(self.main, &trip) {
                         Ok((stop_id, delay)) => Some(PredictionBasis{ stop_id: stop_id.clone(), delay_departure: Some(delay as i64)}),
@@ -153,7 +153,6 @@ impl<'a> Predictor<'a> {
             },
         };
 
-
         // if no single stop_sequence is given, iterate over all stop_sequences of the trip
         // TODO we currently ignore the stop_id from the args
         let stop_sequences : Vec<u16> = match potential_stop_sequence {
@@ -164,23 +163,8 @@ impl<'a> Predictor<'a> {
         for stop_sequence in stop_sequences {
             let stop_id = &trip.get_stop_time_by_sequence(stop_sequence)?.stop.id;
             // data structure to hold the prediction result:
-            let prediction = self.predict(route_id, trip_id, &start, stop_id, stop_sequence, event_type, date_time);
+            let prediction = self.predict(route_id, trip_id, &start, stop_sequence, event_type, date_time);
 
-            if let Ok(actual_prediction) = &prediction {
-                println!("Got a prediction, try to write GTFS-rt message…");
-                let ext = actual_prediction.to_stop_time_event_extension();
-                let mut vec : Vec<u8> = Vec::new(); 
-                ext.encode(&mut vec)?;
-                let file_path = format!("data/message_{}.pb", stop_sequence);
-                let mut file = match File::create(&file_path) {
-                    Err(why) => panic!("couldn't create file {}: {}", file_path, why),
-                    Ok(file) => file,
-                };
-                match file.write_all(&vec) {
-                    Err(why) => panic!("couldn't write: {}", why),
-                    Ok(_) => println!("successfully wrote."),
-                }
-            }
             // output the resulting curve(s) to the command line:
             // TODO: we could probably use more advanced kinds of output here
             println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
@@ -196,7 +180,6 @@ impl<'a> Predictor<'a> {
             route_id: &str, 
             trip_id: &str, 
             start: &Option<PredictionBasis>, 
-            stop_id: &str,
             stop_sequence: u16,
             et: EventType, 
             date_time: NaiveDateTime) -> FnResult<PredictionResult> {
@@ -210,7 +193,7 @@ impl<'a> Predictor<'a> {
         // the trip, and route variants are always numbers.
 
         // try to find a specific prediction:
-        let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_id, ts, et, &trip);
+        let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
         // unwrap that, or try a default prediction if it failed:
         let prediction = specific_prediction.or_else(|_| {
@@ -260,7 +243,7 @@ impl<'a> Predictor<'a> {
             route_id: &str, 
             route_variant: u64, 
             start: &Option<PredictionBasis>, //&str for stop_id, f32 for initial delay
-            stop_id: &str, 
+            stop_sequence: u16, 
             ts: &TimeSlot,
             et: EventType,
             trip: &Trip) -> FnResult<PredictionResult> {
@@ -269,21 +252,21 @@ impl<'a> Predictor<'a> {
         let rvdata = &self.delay_statistics.specific.get(route_id).or_error("No specific statistics for route_id")?.variants.get(&route_variant).or_error("No specific statistics for route_variant")?;
         // find index of target stop:
         // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
-        let target_stop_index = trip.get_stop_index_by_id(stop_id)? as u32;
+        let dest_stop_index = trip.get_stop_index_by_stop_sequence(stop_sequence)? as u32;
         
         match start {
             None => { 
                 // get general curve for target stop:
-                let curve = rvdata.general_delay[et].get(&target_stop_index);
+                let curve = rvdata.general_delay[et].get(&dest_stop_index);
                 if curve.is_none() {
-                    bail!("No curve for stop {}.", stop_id);
+                    bail!("No curve for stop_sequence {}.", stop_sequence);
                 }
                 return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
             },
             Some(actual_start) => {
                 // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
                 let start_stop_index = trip.get_stop_index_by_id(&actual_start.stop_id)? as u32;
-                let potential_curveset = &rvdata.curve_sets[et].map.get(&(start_stop_index, target_stop_index, ts.clone()));
+                let potential_curveset = &rvdata.curve_sets[et].map.get(&(start_stop_index, dest_stop_index, ts.clone()));
                 if let Some(curveset) = potential_curveset {
                     if curveset.curves.is_empty() {
                         bail!("Found specific curveset, but it was empty.");
