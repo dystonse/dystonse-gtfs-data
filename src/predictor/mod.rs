@@ -4,8 +4,6 @@ use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType, Trip};
 use std::str::FromStr;
-use itertools::Itertools;
-use std::convert::TryInto;
 
 use simple_error::bail;
 
@@ -178,9 +176,6 @@ impl<'a> Predictor<'a> {
             }
             // output the resulting curve(s) to the command line:
             // TODO: we could probably use more advanced kinds of output here
-            // TODO / FIXME: if event type is departure, we say "departure" here but actually return the 
-            // arrival delay in cases where the result is a curve set or specific curve. 
-            // Event type choice is only used in default and semi specific curves.
             println!("prediction of {:?} delay at stop {} for route {}, trip {} on {:?}:", event_type, stop_id, route_id, trip_id, date_time);
             println!("{:?}", prediction);
         }
