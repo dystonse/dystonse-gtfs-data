@@ -35,7 +35,7 @@ impl<'a> CurveCreator<'a> {
             general: dcc.get_default_curves()?
         };
        
-        delay_stats.save_to_file(&self.analyser.data_dir.as_ref().unwrap(), "all_curves", &SerdeFormat::MessagePack)?;
+        delay_stats.save_to_file(&self.analyser.main.dir, "all_curves", &SerdeFormat::MessagePack)?;
         Ok(())
     }
 

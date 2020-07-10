@@ -22,17 +22,16 @@ use curve_visualisation::CurveDrawer;
 #[cfg(feature = "visual-schedule")]
 use visual_schedule::*;
 
-use crate::{FnResult, OrError, read_dir_simple};
-use crate::Main;
+use crate::{Main, FnResult, OrError};
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 pub struct Analyser<'a> {
     #[allow(dead_code)]
     main: &'a Main,
     args: &'a ArgMatches,
-    data_dir: Option<String>,
-    schedule: Gtfs,
+    schedule: Arc<Gtfs>,
 }
 
 impl<'a> Analyser<'a> {
@@ -96,23 +95,6 @@ impl<'a> Analyser<'a> {
                 //     .about("If provided, curves will be drawn for each route of the schedule.")
                 //     .conflicts_with("route-ids")
                 )
-            )
-            .arg(Arg::new("dir")
-                .index(1)
-                .value_name("DIRECTORY")
-                .required_unless("help")
-                .about("The directory which contains schedules and realtime data")
-                .long_about(
-                    "The directory that contains the schedules (located in a subdirectory named 'schedules') \
-                    and realtime data (located in a subdirectory named 'rt')."
-                )
-            ).arg(Arg::new("schedule")
-                .short('s')
-                .long("schedule")
-                //.required(true)
-                .about("The path of the GTFS schedule that is used.")
-                .takes_value(true)
-                .value_name("GTFS_SCHEDULE")
             );
 
             if cfg!(feature = "visual-schedule") {
@@ -148,8 +130,7 @@ impl<'a> Analyser<'a> {
         Analyser {
             main,
             args,
-            data_dir: Some(String::from(args.value_of("dir").unwrap())),
-            schedule: Self::read_schedule(args).unwrap()
+            schedule: main.get_schedule().unwrap(),
         }
     }
 
@@ -200,25 +181,6 @@ impl<'a> Analyser<'a> {
             },
             _ => panic!("Invalid arguments."),
         }
-    }
-
-    fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
-        // find out if schedule arg is given:
-        let schedule_filename : String = 
-        if let Some(filename) = sub_args.value_of("schedule") {
-            filename.to_string()
-        } else {
-            // if the arg is not given, look up the newest schedule file:
-            println!("No schedule file name given, looking up the most recent schedule file…");
-            let dir = sub_args.value_of("dir").unwrap(); // already validated by clap
-            let schedule_dir = format!("{}/schedule", dir);
-            let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
-            schedule_filenames.last().unwrap().clone() //return the newest file (last filename)
-        };
-        println!("Parsing schedule file {} …", schedule_filename);
-        let schedule = Gtfs::new(&schedule_filename)?; // TODO proper error message if this fails
-        println!("Done with parsing schedule.");
-        Ok(schedule)
     }
 
     pub fn date_time_from_filename(filename: &str) -> FnResult<NaiveDateTime> {

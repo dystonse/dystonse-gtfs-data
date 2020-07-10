@@ -4,13 +4,11 @@ use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, RouteType, Trip};
 use std::str::FromStr;
-use itertools::Itertools;
 
 use simple_error::bail;
 
-use crate::{Main, FnResult, OrError};
+use crate::{Main, FileCache, FnResult, OrError};
 
-use dystonse_curves::tree::{SerdeFormat, NodeData};
 use prost::Message;
 use std::fs::File;
 use std::io::prelude::*;
@@ -24,9 +22,8 @@ pub struct Predictor<'a> {
     #[allow(dead_code)]
     pub main: &'a Main,
     pub args: &'a ArgMatches,
-    pub _data_dir: Option<String>,
     pub schedule: Arc<Gtfs>,
-    pub delay_statistics: Box<DelayStatistics>,
+    pub delay_statistics: Arc<DelayStatistics>,
 }
 
 impl<'a> Predictor<'a> {
@@ -91,32 +88,14 @@ impl<'a> Predictor<'a> {
                     .takes_value(false)
                 )
             )
-            .arg(Arg::new("dir")
-                .index(1)
-                .value_name("DIRECTORY")
-                .required_unless("help")
-                .about("The directory which contains schedules and precomputed curves")
-                .long_about(
-                    "The directory that contains the schedules (located in a subdirectory named 'schedules') \
-                    and precomputed curve data."
-                )
-            ).arg(Arg::new("schedule")
-                .short('s')
-                .long("schedule")
-                .required(true)
-                .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
-                .takes_value(true)
-                .value_name("GTFS_SCHEDULE")
-            )
     }
 
     pub fn new(main: &'a Main, args: &'a ArgMatches) -> Predictor<'a> {
         Predictor {
             main,
             args,
-            _data_dir: Some(String::from(args.value_of("dir").unwrap())),
-            schedule: Arc::new(Self::read_schedule(args).unwrap()),
-            delay_statistics: Self::read_delay_statistics(args).unwrap(),
+            schedule: main.get_schedule().unwrap(),
+            delay_statistics: FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).unwrap(),
         }
     }
 
@@ -325,23 +304,4 @@ impl<'a> Predictor<'a> {
             },
         };
     }
-
-    fn read_schedule(sub_args: &ArgMatches) -> FnResult<Gtfs> {
-        println!("Parsing schedule…");
-        let schedule = Gtfs::new(sub_args.value_of("schedule").unwrap())?;
-        println!("Done with parsing schedule.");
-        Ok(schedule)
-    }
-
-    fn read_delay_statistics(sub_args: &ArgMatches) -> FnResult<Box<DelayStatistics>> {
-        println!("parsing delay statistics…");
-        let dir_name = String::from(sub_args.value_of("dir").unwrap());
-        let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;
-        println!("Done with parsing delay statistics, found:");
-        for (rt, rs, ts, et) in delay_stats.general.all_default_curves.keys().sorted() {
-            println!("Curve for {:?}, {:?}, {}, {:?}", rt, rs, ts, et);
-        }
-        Ok(delay_stats)
-    }
-
 }
