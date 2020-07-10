@@ -11,7 +11,7 @@ use crate::read_dir_simple;
 use std::fs;
 
 pub fn run_count(analyser: &Analyser) -> FnResult<()> {
-    let imported_dir = format!("{}/imported", &analyser.data_dir.as_ref().unwrap());
+    let imported_dir = format!("{}/imported", &analyser.main.dir);
     let rt_filenames = read_dir_simple(&imported_dir)?;
 
     if rt_filenames.is_empty() {

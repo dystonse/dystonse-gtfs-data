@@ -50,7 +50,7 @@ impl<'a> SpecificCurveCreator<'a> {
     pub fn run_specific_curves(&self) -> FnResult<()> {
         let map = self.get_specific_curves()?;
         
-        map.save_to_file(&self.analyser.data_dir.as_ref().unwrap(), "specific_curves", &SerdeFormat::Json)?;
+        map.save_to_file(&self.analyser.main.dir, "specific_curves", &SerdeFormat::Json)?;
         Ok(())
     }
 

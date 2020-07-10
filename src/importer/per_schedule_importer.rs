@@ -17,9 +17,8 @@ use super::Importer;
 use crate::types::PredictionResult;
 
 use crate::{FnResult, OrError};
-use crate::types::{EventType, GetByEventType, DelayStatistics, PredictionBasis};
+use crate::types::{EventType, GetByEventType, PredictionBasis};
 use crate::predictor::Predictor;
-use dystonse_curves::tree::{NodeData, SerdeFormat};
 use dystonse_curves::Curve;
 
 #[derive(Hash, PartialEq, Eq)]
@@ -89,17 +88,7 @@ impl<'a> PerScheduleImporter<'a> {
             instance.init_record_statements()?;
         }
         if instance.perform_predict {
-            let dir_name = String::from(importer.args.subcommand_matches("automatic").unwrap().value_of("dir").unwrap());
-            println!("Reading delay statistics from dir: {}", dir_name);
-            let delay_stats = (DelayStatistics::load_from_file(&dir_name, "all_curves", &SerdeFormat::MessagePack))?;    
-
-            instance.predictor = Some(Predictor {
-                main: importer.main,
-                args: &importer.main.args,
-                _data_dir: None,
-                schedule: Arc::clone(&gtfs_schedule),
-                delay_statistics: delay_stats
-            });
+            instance.predictor = Some(Predictor::new(importer.main, &importer.main.args));
             instance.init_predictions_statements()?;
         }
 

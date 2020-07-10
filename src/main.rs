@@ -15,10 +15,16 @@ use simple_error::{SimpleError, bail};
 use chrono::NaiveDate;
 use regex::Regex;
 use std::fs;
+use std::fs::File;
+use std::io::prelude::*;
+use std::sync::{Arc, Mutex};
 
 use importer::Importer;
 use analyser::Analyser;
 use predictor::Predictor;
+
+use gtfs_structures::Gtfs;
+use types::DelayStatistics;
 
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
@@ -29,6 +35,10 @@ pub struct Main {
     pool: Pool,
     args: ArgMatches,
     source: String,
+    dir: String,
+    //file caches using Mutexes so main doesn't have to be mutable:
+    gtfs_cache: Mutex<FileCache<Gtfs>>,
+    statistics_cache: Mutex<FileCache<DelayStatistics>>,
 }
 
 fn main() -> FnResult<()> {
@@ -143,6 +153,20 @@ fn parse_args() -> ArgMatches {
             .takes_value(true)
             .about("Source identifier for the data sets. Used to distinguish data sets with non-unique ids.")
             .required_unless("help")
+        ).arg(Arg::new("dir")
+            .long("dir")
+            .value_name("DIRECTORY")
+            .required_unless("help")
+            .about("The directory which contains schedules, realtime files, and precomputed curves")
+            .long_about(
+                "The directory that contains the schedules, realtime files, (located in a subdirectory named 'schedules' or 'rt') \
+                and precomputed curve data."
+            )
+        ).arg(Arg::new("schedule")
+            .long("schedule")
+            .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
+            .takes_value(true)
+            .value_name("GTFS_SCHEDULE")
         )
         .get_matches();
     return matches;
@@ -154,6 +178,7 @@ impl Main {
         let args = parse_args();
         let verbose = args.is_present("verbose");
         let source = String::from(args.value_of("source").unwrap()); // already validated by clap
+        let dir = String::from(args.value_of("dir").unwrap()); // already validated by clap
 
         if verbose {
             println!("Connecting to database…");
@@ -167,6 +192,9 @@ impl Main {
             verbose,
             pool,
             source,
+            dir,
+            gtfs_cache: Mutex::new(FileCache::<Gtfs>::new()),
+            statistics_cache: Mutex::new(FileCache::<DelayStatistics>::new()),
         })
     }
 
@@ -208,4 +236,116 @@ impl Main {
         Ok(pool)
     }
 
+    // returns the schedule (from args or auto-lookup)
+    pub fn get_schedule(&self) -> FnResult<Arc<Gtfs>> {
+        let filename = Self::get_schedule_filename(&self.args)?;
+        FileCache::get_cached_simple(&self.gtfs_cache, &filename)
+    }
+
+    fn get_schedule_filename(args: &ArgMatches) -> FnResult<String> {
+        // find out if schedule arg is given:
+        let schedule_filename : String = 
+        if let Some(filename) = args.value_of("schedule") {
+            filename.to_string()
+        } else {
+            // if the arg is not given, look up the newest schedule file:
+            println!("No schedule file name given, looking up the most recent schedule file…");
+            let dir = args.value_of("dir").unwrap(); // already validated by clap
+            let schedule_dir = format!("{}/schedule", dir);
+            let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
+            schedule_filenames.last().unwrap().clone() //return the newest file (last filename)
+        };
+        Ok(schedule_filename)
+    }
+
+}
+
+pub struct FileCache<T> {
+    object: Option<Arc<T>>,
+    filename: Option<String>,
+    modification_time: Option<std::time::SystemTime>,
+}
+
+impl<T> FileCache<T> where T: Loadable<T> {
+
+    //creates a new, empty file cache
+    pub fn new() -> FileCache<T> {
+        return FileCache::<T> {
+            object: None,
+            filename: None,
+            modification_time: None
+        }
+    }
+
+    // wrapper around get_cached so the mutex stuff does not have to be repeated
+    pub fn get_cached_simple(cache: &Mutex<Self>, filename: &str) -> FnResult<Arc<T>> {
+        let mut cache_lock = cache.lock().unwrap();
+        cache_lock.get_cached(filename)
+    }
+
+    // Returns the cached object. 
+    // If possible, use get_cached_simple instead to avoid dealing with mutex stuff directly.
+    pub fn get_cached(&mut self, filename: &str) -> FnResult<Arc<T>> {
+
+        let mut filename_changed = true;
+        let mut modtime_changed = true;
+
+        let metadata = fs::metadata(filename)?;
+        let mod_time = metadata.modified()?;
+
+        //compare filenames:
+        if let Some(f) = &self.filename {
+            if &f == &filename {
+                filename_changed = false;
+
+                //compare modification times:
+                if let Some(mt) = self.modification_time {
+                    if mt == mod_time {
+                        modtime_changed = false;
+                    } else {
+                        self.modification_time = Some(mod_time);
+                    }
+                } else {
+                    self.modification_time = Some(mod_time);
+                }
+            } else {
+                self.filename = Some(filename.to_string());
+                self.modification_time = Some(mod_time);
+            }
+        } else {
+            self.filename = Some(filename.to_string());
+            self.modification_time = Some(mod_time);
+        }
+
+        //reload file if anything changed:
+        if filename_changed || modtime_changed {
+            let obj = <T>::load(filename)?;
+            self.object = Some(Arc::new(obj));
+        }
+
+        Ok(self.object.as_ref().unwrap().clone())
+    }
+} 
+
+pub trait Loadable<T> {
+    fn load(filename: &str) -> FnResult<T>;
+}
+
+impl Loadable<Gtfs> for Gtfs {
+    fn load(filename: &str) -> FnResult<Gtfs> {
+        let gtfs = Gtfs::new(filename)?;
+        return Ok(gtfs);
+    }
+}
+
+impl Loadable<DelayStatistics> for DelayStatistics {
+    fn load(filename: &str) -> FnResult<DelayStatistics> {
+
+        let mut f = File::open(filename).expect(&format!("Could not open {}", filename));
+        let mut buffer = Vec::<u8>::new();
+        f.read_to_end(&mut buffer)?;
+        let parsed = rmp_serde::from_read_ref::<_, Self>(&buffer)?;
+
+        return Ok(parsed);
+    }
 }

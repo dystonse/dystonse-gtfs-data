@@ -1,17 +1,15 @@
 mod per_schedule_importer;
 mod batched_statements;
 
-use gtfs_structures::Gtfs;
 use simple_error::bail;
 use clap::{App, Arg, ArgMatches, ArgGroup};
 use rayon::prelude::*;
 use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
-use std::sync::Arc;
 use ureq::get;
 
-use crate::{Main, FnResult, read_dir_simple, date_from_filename};
+use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename};
 
 use per_schedule_importer::PerScheduleImporter;
 
@@ -350,7 +348,7 @@ impl<'a> Importer<'a>  {
             println!("Parsing schedule…");
         }
 
-        let schedule = match Gtfs::new(gtfs_schedule_filename) {
+        let schedule = match FileCache::get_cached_simple(&self.main.gtfs_cache, gtfs_schedule_filename) {
             Ok(schedule) => schedule,
             Err(e) => {
                 match &self.fail_dir {
@@ -374,7 +372,7 @@ impl<'a> Importer<'a>  {
         let short_filename = &gtfs_schedule_filename[gtfs_schedule_filename.rfind('/').unwrap() + 1 ..];
 
         // create importer for this schedule and iterate over all given realtime files
-        let imp = PerScheduleImporter::new(Arc::new(schedule), &self, self.verbose, short_filename)?;
+        let imp = PerScheduleImporter::new(schedule.clone(), &self, self.verbose, short_filename)?;
 
         let (success, total) = gtfs_realtime_filenames
             .par_iter()
