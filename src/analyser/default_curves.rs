@@ -186,7 +186,7 @@ impl<'a> DefaultCurveCreator<'a> {
                                 // simplified version for building the super default curve:
                                 let mut sc = c.clone();
                                 sc.simplify(0.01);
-                                super_default_curves.push(sc):
+                                super_default_curves.push(sc);
                             }
                         }
                     }
