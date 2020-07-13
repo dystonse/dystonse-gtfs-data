@@ -271,7 +271,7 @@ impl<'a> PerScheduleImporter<'a> {
             }))?;
         }
 
-        if departure.is_empty() {
+        if self.perform_predict && departure.is_empty() {
             println!("Skip stop_sequence {} for predictions, because departure is empty.", stop_sequence);
         }
 
@@ -377,7 +377,7 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn date_and_time(date: &NaiveDate, time: i32) -> NaiveDateTime {
         const SECONDS_PER_DAY: i32 = 24 * 60 * 60;
-        let extra_days = time / SECONDS_PER_DAY;
+        let extra_days = (time as f32 / SECONDS_PER_DAY as f32).floor() as i32;
         let actual_time = time - extra_days * SECONDS_PER_DAY;
         assert!(actual_time >= 0);
         assert!(actual_time <= SECONDS_PER_DAY);

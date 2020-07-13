@@ -57,18 +57,7 @@ impl<'a> Importer<'a>  {
             )
             .subcommand(App::new("automatic")
                 .about("Runs forever, importing all files which are present or become present during the run.")
-                .arg(Arg::new("dir")
-                    .index(1)
-                    .value_name("DIRECTORY")
-                    .required_unless("help")
-                    .about("The directory which contains schedules and realtime data")
-                    .long_about(
-                        "The directory that contains the schedules (located in a subdirectory named 'schedules') \
-                        and realtime data (located in a subdirectory named 'rt'). \
-                        Successfully processed files are moved to a subdirectory named 'imported'. \
-                        The 'imported' subdirectory will be created automatically if it doesn't already exist."
-                    )
-                ).arg(Arg::new("pingurl")
+                .arg(Arg::new("pingurl")
                     .long("pingurl")
                     .env("PING_URL")
                     .takes_value(true)
