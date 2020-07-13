@@ -7,6 +7,8 @@ use crate::types::DelayStatistics;
 
 use crate::{ FnResult, Main };
 
+use std::collections::HashMap;
+
 use super::{SpecificCurveCreator, DefaultCurveCreator};
 
 pub struct CurveCreator<'a> {
@@ -16,7 +18,6 @@ pub struct CurveCreator<'a> {
 }
 
 impl<'a> CurveCreator<'a> {
-
     pub fn run_curves(&self) -> FnResult<()> {
         let scc = SpecificCurveCreator {
             main: self.main,
@@ -31,12 +32,15 @@ impl<'a> CurveCreator<'a> {
         };
         
         let delay_stats = DelayStatistics {
-            specific: scc.get_specific_curves()?,
+            specific: if !self.args.is_present("default-only") { 
+                scc.get_specific_curves()?
+            } else {
+                HashMap::new()
+            },
             general: dcc.get_default_curves()?
         };
        
         delay_stats.save_to_file(&self.analyser.main.dir, "all_curves", &SerdeFormat::MessagePack)?;
         Ok(())
     }
-
 }
