@@ -111,12 +111,12 @@ impl<'a> Importer<'a>  {
     /// Runs the actions that are selected via the command line args
     pub fn run(&mut self) -> FnResult<()> {
         match self.args.clone().subcommand() {
-            ("automatic", Some(sub_args)) => {
-                self.set_dir_paths(sub_args)?;
+            ("automatic", Some(_sub_args)) => {
+                self.set_dir_paths()?;
                 self.run_as_non_manual(true)
             }
-            ("batch", Some(sub_args)) => {
-                self.set_dir_paths(sub_args)?;
+            ("batch", Some(_sub_args)) => {
+                self.set_dir_paths()?;
                 self.run_as_non_manual(false)
             }
             ("manual", Some(sub_args)) => self.run_as_manual(sub_args),
@@ -169,9 +169,9 @@ impl<'a> Importer<'a>  {
 
     /// Construct the full directory paths used for storing input files and processed files
     /// needs the dir argument, this means it can only be used when running in non manual modes
-    fn set_dir_paths(&mut self, args: &ArgMatches) -> FnResult<()> {
+    fn set_dir_paths(&mut self) -> FnResult<()> {
         // construct paths of directories
-        let dir = args.value_of("dir").unwrap(); // already validated by clap
+        let dir = &self.main.dir;
         self.target_dir = Some(format!("{}/imported", dir));
         self.fail_dir = Some(format!("{}/failed", dir));
         self.rt_dir = Some(format!("{}/rt", dir));
