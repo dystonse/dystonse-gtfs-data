@@ -11,7 +11,7 @@ RUN touch src/main.rs
 RUN RUSTFLAGS=-g cargo build --release
 
 FROM debian:buster-slim
-RUN apt-get update && apt-get install -y libssl1.1 libfontconfig gnuplot-nox
+RUN apt-get update && apt-get install -y libssl1.1 libfontconfig gnuplot-nox cron
 COPY --from=builder /usr/src/myapp/target/release/dystonse-gtfs-data /usr/local/bin/dystonse-gtfs-data
 WORKDIR /
 
