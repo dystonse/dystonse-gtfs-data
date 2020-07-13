@@ -41,7 +41,8 @@ pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
             `route_id` = :route_id AND
             `route_variant` = :route_variant AND
             `trip_id`= :trip_id AND 
-            `date`=CURDATE()
+            `trip_start_date`=CURDATE() AND
+            `trip_start_time`= :trip_start_time
         ORDER BY 
             `time_of_recording` DESC,
             `stop_sequence` DESC;",
@@ -54,6 +55,7 @@ pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
             "route_id" => &trip.route_id,
             "route_variant" => &trip.route_variant.as_ref().unwrap(),
             "trip_id" => &trip.id,
+            "trip_start_time" => trip.stop_times[0].departure_time
         },
     )?;
 

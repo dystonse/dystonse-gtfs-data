@@ -76,7 +76,8 @@ impl<'a> SpecificCurveCreator<'a> {
             r"SELECT 
                 delay_arrival,
                 delay_departure,
-                date,
+                trip_start_date,
+                trip_start_time,
                 trip_id,
                 stop_id,
                 route_variant
@@ -86,7 +87,7 @@ impl<'a> SpecificCurveCreator<'a> {
                 source=:source AND 
                 route_id=:routeid
             ORDER BY 
-                date,
+                trip_start_date,
                 trip_id",
         )?;
 
@@ -176,7 +177,9 @@ impl<'a> SpecificCurveCreator<'a> {
                         };
                         for row_s in &rows_matching_start {
                             for row_e in &rows_matching_end {
-                                if row_s.date == row_e.date && row_s.trip_id == row_e.trip_id {
+                                if row_s.trip_start_date == row_e.trip_start_date && 
+                                   row_s.trip_start_time == row_e.trip_start_time && 
+                                           row_s.trip_id == row_e.trip_id {
                                     // Only use rows where delay is not None
                                     // TODO filter those out at the DB level or in the above filter expressions
                                     if let Some(d_s) = row_s.delay.departure {

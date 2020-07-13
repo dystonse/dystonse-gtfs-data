@@ -298,7 +298,8 @@ impl<'a> DefaultCurveCreator<'a> {
             r"SELECT 
                 delay_arrival,
                 delay_departure,
-                date,
+                trip_start_date,
+                trip_start_time,
                 trip_id,
                 stop_id,
                 route_variant

@@ -162,12 +162,16 @@ impl<'a> PerScheduleImporter<'a> {
         let start_date = NaiveDate::parse_from_str(&realtime_trip.start_date.as_ref()
             .or_error("Trip without start date. Skipping.")?, "%Y%m%d")?;
 
-        let realtime_schedule_start_time = NaiveTime::parse_from_str(&realtime_trip.start_time.as_ref()
-            .or_error("Trip without start time. Skipping.")?, "%H:%M:%S")?;
-
+            
         let schedule_trip = self.gtfs_schedule.get_trip(&trip_id)
             .or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
-
+            
+        // If realtime data constains a start_time, use it. If not, use the first departure time from the schedule.
+        let realtime_schedule_start_time = match &realtime_trip.start_time {
+            Some(time_str) => NaiveTime::parse_from_str(&time_str, "%H:%M:%S")?,
+            None => NaiveTime::from_num_seconds_from_midnight(schedule_trip.stop_times[0].departure_time.unwrap(), 0)
+        }; 
+       
         let stu_count = trip_update.stop_time_update.len();
         if let Ok(route) = self.gtfs_schedule.get_route(&schedule_trip.route_id) {
             println!("Trip update with {} s.t.u. for route {} to {:?}:", stu_count, route.short_name, schedule_trip.trip_headsign);
@@ -248,7 +252,8 @@ impl<'a> PerScheduleImporter<'a> {
                 "route_id" => &route_id,
                 "route_variant" => &schedule_trip.route_variant.as_ref().or_error("no route variant")?,
                 "trip_id" => &trip_id,
-                "date" => start_date,
+                "trip_start_date" => start_date,
+                "trip_start_time" => start_time,
                 stop_sequence,
                 "stop_id" => &stop_id,
                 time_of_recording,
@@ -346,6 +351,7 @@ impl<'a> PerScheduleImporter<'a> {
         let prediction_max = Self::date_and_time(&vehicle_id.start_date, schedules_event_time + curve.max_x() as i32);
         
         self.predictions_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+            "source" => self.importer.main.source.clone(),
             "event_type" => event_type.to_int(),
             "stop_id" => scheduled_end.stop.id.clone(),
             prediction_min,
@@ -421,7 +427,8 @@ impl<'a> PerScheduleImporter<'a> {
             `route_id` = :route_id AND
             `route_variant` = :route_variant AND
             `trip_id` = :trip_id AND
-            `date` = :date AND
+            `trip_start_date` = :trip_start_date AND
+            `trip_start_time` = :trip_start_time AND
             `stop_sequence` = :stop_sequence AND
             `time_of_recording` < FROM_UNIXTIME(:time_of_recording);").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
 
@@ -431,7 +438,8 @@ impl<'a> PerScheduleImporter<'a> {
             `route_id`,
             `route_variant`,
             `trip_id`,
-            `date`,
+            `trip_start_date`,
+            `trip_start_time`,
             `stop_sequence`,
             `stop_id`,
             `time_of_recording`,
@@ -443,7 +451,8 @@ impl<'a> PerScheduleImporter<'a> {
             :route_id,
             :route_variant,
             :trip_id,
-            :date,
+            :trip_start_date,
+            :trip_start_time,
             :stop_sequence,
             :stop_id,
             FROM_UNIXTIME(:time_of_recording),
@@ -468,6 +477,7 @@ impl<'a> PerScheduleImporter<'a> {
             `prediction_type` = :prediction_type,
             `prediction_curve` = :prediction_curve
             WHERE
+            `source` = :source AND
             `event_type` = :event_type AND
             `stop_sequence` = :stop_sequence AND
             `route_id` = :route_id AND
@@ -476,6 +486,7 @@ impl<'a> PerScheduleImporter<'a> {
             `trip_start_time` = :trip_start_time;").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
 
         let insert_statement = conn.prep(r"INSERT IGNORE INTO `predictions` (
+            `source`,
             `event_type`,
             `stop_id`,
             `prediction_min`,
@@ -488,6 +499,7 @@ impl<'a> PerScheduleImporter<'a> {
             `prediction_type`,
             `prediction_curve`
         ) VALUES ( 
+            :source,
             :event_type,
             :stop_id,
             :prediction_min,

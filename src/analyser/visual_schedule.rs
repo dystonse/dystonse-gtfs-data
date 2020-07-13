@@ -134,7 +134,8 @@ impl<'a> VisualScheduleCreator<'a> {
             r"SELECT 
                 delay_arrival,
                 delay_departure,
-                date,
+                trip_start_date,
+                trip_start_time,
                 trip_id,
                 stop_id
             FROM 
@@ -143,7 +144,7 @@ impl<'a> VisualScheduleCreator<'a> {
                 source=:source AND 
                 route_id=:routeid
             ORDER BY 
-                date,
+                trip_start_date,
                 trip_id",
         )?;
 

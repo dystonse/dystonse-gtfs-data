@@ -8,7 +8,8 @@ pub struct DbItem {
     pub delay: EventPair<Option<i32>>,
     //pub delay_arrival: Option<i32>,
     //pub delay_departure: Option<i32>,
-    pub date: Option<NaiveDate>,
+    pub trip_start_date: Option<NaiveDate>,
+    pub trip_start_time: Option<NaiveTime>,
     pub trip_id: String,
     pub stop_id: String,
     pub route_variant: u64
@@ -21,16 +22,17 @@ impl FromRow for DbItem {
                 arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
                 departure: row.get_opt::<i32,_>(1).unwrap().ok(),
             },
-            date: row.get_opt(2).unwrap().ok(),
-            trip_id: row.get::<String, _>(3).unwrap(),
-            stop_id: row.get::<String, _>(4).unwrap(),
-            route_variant: row.get::<u64, _>(5).unwrap(),
+            trip_start_date: row.get_opt(2).unwrap().ok(),
+            trip_start_time: row.get_opt(3).unwrap().ok(),
+            trip_id: row.get::<String, _>(4).unwrap(),
+            stop_id: row.get::<String, _>(5).unwrap(),
+            route_variant: row.get::<u64, _>(6).unwrap(),
         })
     }
 }
 
 impl DbItem {
-    // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
+    // generates a NaiveDateTime from a DbItem, given a flag for arrival or departure 
     pub fn get_datetime_from_trip(&self, trip: &Trip, et: EventType) -> Option<NaiveDateTime> {
 
         // find corresponding StopTime for dbItem
@@ -47,7 +49,7 @@ impl DbItem {
         
 
         // get date from DbItem
-        let d : NaiveDate = self.date.unwrap(); //should never panic because date is always set
+        let d : NaiveDate = self.trip_start_date.unwrap(); //should never panic because date is always set
 
         // add date and time together
         let dt : NaiveDateTime = d.and_time(time.unwrap());
@@ -55,7 +57,7 @@ impl DbItem {
         return Some(dt);
     }
 
-        // generates a NaiveDateTime from a DbItem, given a flag for arrival (false) or departure (true)
+    // generates a NaiveDateTime from a DbItem, given a flag for arrival or departure
     pub fn get_datetime_from_schedule(&self, schedule: &Gtfs, et: EventType) -> Option<NaiveDateTime> {
         // find corresponding StopTime for dbItem
         let maybe_trip = schedule.get_trip(&self.trip_id);
