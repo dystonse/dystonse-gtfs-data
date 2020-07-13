@@ -90,13 +90,13 @@ impl<'a> Predictor<'a> {
             )
     }
 
-    pub fn new(main: &'a Main, args: &'a ArgMatches) -> Predictor<'a> {
-        Predictor {
+    pub fn new(main: &'a Main, args: &'a ArgMatches) -> FnResult<Predictor<'a>> {
+        Ok(Predictor {
             main,
             args,
-            schedule: main.get_schedule().unwrap(),
-            delay_statistics: FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).unwrap(),
-        }
+            schedule: main.get_schedule()?,
+            delay_statistics: FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).or_error("No delay statistics (all_curves.exp) found.")?,
+        })
     }
 
     /// Runs the actions that are selected via the command line args

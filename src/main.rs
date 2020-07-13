@@ -210,7 +210,7 @@ impl Main {
                 analyser.run()
             },
             ("predict", Some(sub_args)) => {
-                let mut predictor = Predictor::new(&self, sub_args);
+                let mut predictor = Predictor::new(&self, sub_args)?;
                 predictor.run()
             },
             _ => panic!("Invalid arguments."),
@@ -253,7 +253,7 @@ impl Main {
             let dir = args.value_of("dir").unwrap(); // already validated by clap
             let schedule_dir = format!("{}/schedule", dir);
             let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
-            schedule_filenames.last().unwrap().clone() //return the newest file (last filename)
+            schedule_filenames.last().or_error("No schedule found when trying to find the newest schedule file.")?.clone() //return the newest file (last filename)
         };
         Ok(schedule_filename)
     }

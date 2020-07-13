@@ -88,8 +88,16 @@ impl<'a> PerScheduleImporter<'a> {
             instance.init_record_statements()?;
         }
         if instance.perform_predict {
-            instance.predictor = Some(Predictor::new(importer.main, &importer.main.args));
-            instance.init_predictions_statements()?;
+            match Predictor::new(importer.main, &importer.main.args) {
+                Ok(predictor) => { 
+                    instance.predictor = Some(predictor); 
+                    instance.init_predictions_statements()?;
+                }
+                Err(e) => {
+                    println!("Disabling perform_predict. Reason: {}", e);
+                    instance.perform_predict = false;
+                }
+            };
         }
 
         Ok(instance)
