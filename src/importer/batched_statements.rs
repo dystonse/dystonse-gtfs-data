@@ -2,6 +2,7 @@ use mysql::prelude::*;
 use mysql::*;
 use crate::FnResult;
 use std::sync::Mutex;
+use chrono::Duration;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
@@ -20,14 +21,16 @@ const MAX_BATCH_SIZE: usize = 1000;
 /// is written, but other threads can continue to call add_paramter_set and will only
 /// block if they add another MAX_BATCH_SIZE before the first one is written.
 pub struct BatchedStatements {
+    name: String,
     params_vec_mutex: Mutex<Vec<Params>>,
     conn_mutex: Mutex<PooledConn>,
     statements: Vec<Statement>,
 }
 
 impl<'a> BatchedStatements {
-    pub fn new(conn: PooledConn, statements: Vec<Statement>) -> Self {
+    pub fn new(name: &str, conn: PooledConn, statements: Vec<Statement>) -> Self {
         BatchedStatements {
+            name: name.to_string(),
             params_vec_mutex: Mutex::new(Vec::with_capacity(MAX_BATCH_SIZE)),
             conn_mutex: Mutex::new(conn),
             statements
@@ -56,10 +59,11 @@ impl<'a> BatchedStatements {
     fn write_to_database_internal(&self, params_vec: Vec<Params>) -> FnResult<()> {
         let mut conn = self.conn_mutex.lock().unwrap();
         let mut tx = conn.start_transaction(TxOpts::default())?;
+        println!("{}: Writing {} rows into the DB.", self.name, params_vec.len());
         for statement in &self.statements {
-            tx.exec_batch(statement, params_vec.iter())?;
+            println!("{}: Time to exec statement: {}", self.name, Duration::span(|| { tx.exec_batch(statement, params_vec.iter()).expect("db should not fail"); () } ));
         }
-        tx.commit()?;
+        println!("{}: Time to commit: {}", self.name, Duration::span(|| { tx.commit().expect("db should not fail"); () } ));
         Ok(())
     }
 
