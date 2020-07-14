@@ -8,8 +8,9 @@ use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
 use ureq::get;
+use mysql::prelude::*;
 
-use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename};
+use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
 
 use per_schedule_importer::PerScheduleImporter;
 
@@ -22,7 +23,8 @@ pub struct Importer<'a>  {
     schedule_dir: Option<String>,
     target_dir: Option<String>,
     fail_dir: Option<String>,
-    verbose: bool
+    verbose: bool,
+    perform_cleanup: bool
 }
 
 
@@ -50,8 +52,14 @@ impl<'a> Importer<'a>  {
                 .long("predict")
                 .takes_value(false)
             )
+            .arg(Arg::new("cleanup")
+                .about("Indicates that on each run, outdated predictions shall be deleted.")
+                .short('c')
+                .long("cleanup")
+                .takes_value(false)
+            )
             .group(ArgGroup::new("processing")
-                .args(&["record", "predict"])
+                .args(&["record", "predict", "cleanup"])
                 .required(true)
                 .multiple(true)
             )
@@ -85,13 +93,11 @@ impl<'a> Importer<'a>  {
                     .index(1)
                     .value_name("SCHEDULE")
                     .about("The static GTFS schedule, as directory or .zip")
-                    .required_unless("help")
                 ).arg(Arg::new("rt")
                     .index(2)
                     .multiple(true)
                     .value_name("PBs")
                     .about("One or more files with real time data, as .pb or .zip")
-                    .required_unless("help")
                 )
             )
     }
@@ -104,7 +110,8 @@ impl<'a> Importer<'a>  {
             fail_dir: None,
             schedule_dir: None,
             rt_dir: None,
-            verbose: main.verbose
+            verbose: main.verbose,
+            perform_cleanup: args.is_present("cleanup"),
         }
     }
 
@@ -126,15 +133,34 @@ impl<'a> Importer<'a>  {
 
     /// Handle manual mode
     fn run_as_manual(&self, args: &ArgMatches) -> FnResult<()> {
-        let gtfs_schedule_filename = args.value_of("schedule").unwrap(); // already validated by clap
-        let gtfs_realtime_filenames: Vec<String> = args
-            .values_of("rt")
-            .unwrap() // already validated by clap
-            .map(|s| String::from(s))
-            .collect();
-        if let Err(e) = self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames) {
-            eprintln!("Error while processing schedule and realtimes: {}.", e);
+        if self.perform_cleanup {
+            self.run_cleanup()?;
         }
+        
+        if self.args.is_present("record") || self.args.is_present("predict") {
+            let gtfs_schedule_filename = args.value_of("schedule").or_error("The argument <SCHEDULE> is required when --record or --predict is provided.")?;
+            let gtfs_realtime_filenames: Vec<String> = args
+                .values_of("rt")
+                .or_error("The argument <REALTIME> is required when --record or --predict is provided.")? // already validated by clap
+                .map(|s| String::from(s))
+                .collect();
+            if let Err(e) = self.process_schedule_and_realtimes(&gtfs_schedule_filename, &gtfs_realtime_filenames) {
+                eprintln!("Error while processing schedule and realtimes: {}.", e);
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle cleanup command
+    fn run_cleanup(&self) -> FnResult<()> {
+        println!("Deleting all predictions which are at least one hour in the past.");
+        let mut con = self.main.pool.get_conn()?;
+        con.query_drop(
+            r"DELETE FROM 
+                predictions 
+            WHERE 
+                TIMESTAMPDIFF(MINUTE, NOW(), prediction_max) < -60;",
+        )?;
         Ok(())
     }
 
@@ -208,6 +234,9 @@ impl<'a> Importer<'a>  {
                         e
                     ),
                 }
+                if self.perform_cleanup {
+                    self.run_cleanup()?;
+                }
                 self.ping_url();
 
                 thread::sleep(TIME_BETWEEN_DIR_SCANS);
@@ -221,7 +250,9 @@ impl<'a> Importer<'a>  {
                 }
                 Err(e) => eprintln!("Failed with error: {}.", e),
             }
-
+            if self.perform_cleanup {
+                self.run_cleanup()?;
+            }
             return Ok(());
         }
     }

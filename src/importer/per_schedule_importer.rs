@@ -180,12 +180,12 @@ impl<'a> PerScheduleImporter<'a> {
             None => NaiveTime::from_num_seconds_from_midnight(schedule_trip.stop_times[0].departure_time.unwrap(), 0)
         }; 
        
-        let stu_count = trip_update.stop_time_update.len();
-        if let Ok(route) = self.gtfs_schedule.get_route(&schedule_trip.route_id) {
-            println!("Trip update with {} s.t.u. for route {} to {:?}:", stu_count, route.short_name, schedule_trip.trip_headsign);
-        } else {
-            println!("Trip update with {} s.t.u. for unknown route to {:?}:", stu_count, schedule_trip.trip_headsign);
-        }
+        // let stu_count = trip_update.stop_time_update.len();
+        // if let Ok(route) = self.gtfs_schedule.get_route(&schedule_trip.route_id) {
+        //     println!("Trip update with {} s.t.u. for route {} to {:?}:", stu_count, route.short_name, schedule_trip.trip_headsign);
+        // } else {
+        //     println!("Trip update with {} s.t.u. for unknown route to {:?}:", stu_count, schedule_trip.trip_headsign);
+        // }
 
         let schedule_start_time = schedule_trip.stop_times[0].departure_time.unwrap();
         let time_difference =
@@ -471,7 +471,7 @@ impl<'a> PerScheduleImporter<'a> {
         .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
 
         // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
-        self.record_statements = Some(BatchedStatements::new(conn, vec![update_statement, insert_statement]));
+        self.record_statements = Some(BatchedStatements::new("records", conn, vec![update_statement, insert_statement]));
         Ok(())
     }
 
@@ -523,7 +523,7 @@ impl<'a> PerScheduleImporter<'a> {
         .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
 
         // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
-        self.predictions_statements = Some(BatchedStatements::new(conn, vec![update_statement, insert_statement]));
+        self.predictions_statements = Some(BatchedStatements::new("predictions", conn, vec![update_statement, insert_statement]));
         Ok(())
     }
 }
