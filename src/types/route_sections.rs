@@ -21,6 +21,7 @@ impl RouteSection {
         return Self::get_route_section_by_stop_index(&trip, stop_index);
     }
 
+    #[allow(dead_code)]
     pub fn get_route_section_by_stop_id(schedule: &Gtfs, trip_id: &str, stop_id: &str) -> FnResult<RouteSection> {
         // check if trip_id is valid for the given schedule
         // and get the right trip object

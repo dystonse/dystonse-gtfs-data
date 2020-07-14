@@ -13,6 +13,7 @@ pub enum PredictionResult {
 }
 
 impl PredictionResult {
+    #[allow(dead_code)]
     pub fn to_stop_time_event_extension(&self) -> StopTimeEventExtension {
         match self {
             Self::General(curve)       => Self::ext_from_curve(curve, PredictionType::General),
@@ -22,6 +23,7 @@ impl PredictionResult {
         }
     } 
 
+    #[allow(dead_code)]
     fn ext_from_curve(curve: &Box<dyn Curve>, p_type: PredictionType) -> StopTimeEventExtension {
         StopTimeEventExtension {
             curve: Some(gtfs_rt::Curve {
@@ -38,6 +40,7 @@ impl PredictionResult {
         }
     }
 
+    #[allow(dead_code)]
     fn points_from_curve(curve: &Box<dyn Curve>) -> Vec<gtfs_rt::Point> {
         multizip(curve.get_values_as_vectors()).map(|(x, y)| gtfs_rt::Point {time: x, probability: y} ).collect()
     }

@@ -9,9 +9,6 @@ use simple_error::bail;
 
 use crate::{Main, FileCache, FnResult, OrError};
 
-use prost::Message;
-use std::fs::File;
-use std::io::prelude::*;
 use std::sync::Arc;
 
 use crate::types::PredictionBasis;
