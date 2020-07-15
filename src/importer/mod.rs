@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::{thread, time};
 use ureq::get;
 use mysql::prelude::*;
+use chrono::{Local, Duration, DateTime};
+use std::sync::Mutex;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
 
@@ -24,7 +26,8 @@ pub struct Importer<'a>  {
     target_dir: Option<String>,
     fail_dir: Option<String>,
     verbose: bool,
-    perform_cleanup: bool
+    perform_cleanup: bool,
+    last_ping_time_mutex: Mutex<Option<DateTime<Local>>>,
 }
 
 
@@ -112,6 +115,7 @@ impl<'a> Importer<'a>  {
             rt_dir: None,
             verbose: main.verbose,
             perform_cleanup: args.is_present("cleanup"),
+            last_ping_time_mutex: Mutex::new(None),
         }
     }
 
@@ -205,12 +209,29 @@ impl<'a> Importer<'a>  {
         Ok(())
     }
 
+    /// makes a request to the configured ping URL if the last ping-attempt was more 
+    /// than 1 minute ago (or if there never was a previous attempt)
     fn ping_url(&self) {
-        if let Some(url) = self.args.subcommand_matches("automatic").unwrap().value_of("pingurl") {
-            if self.verbose {
-                println!("Pinging URL {}", url);
+        let mut perform_ping = false;
+        let url_opt = self.args.subcommand_matches("automatic").unwrap().value_of("pingurl");
+
+        if url_opt.is_some() {
+            // Last_ping_time is within a mutex because multiple threads may call this concurrently.
+            let mut last_ping_time = self.last_ping_time_mutex.lock().unwrap();
+            if last_ping_time.is_none() || last_ping_time.unwrap() < Local::now() - Duration::minutes(1) {
+                perform_ping = true;
+                *last_ping_time = Some(Local::now());
             }
-            get(url).call();
+            // If url_opt is None, perform_ping will be false anyway,
+            // so we can perform the ping outside this block to
+            // release the mutex before the actual request is made.
+        }
+
+        if perform_ping {
+            if self.verbose {
+                println!("Pinging URL {}", url_opt.unwrap());
+            }
+            get(url_opt.unwrap()).call();
         }
     }
 
@@ -398,7 +419,11 @@ impl<'a> Importer<'a>  {
             .par_iter()
             .map(|gtfs_realtime_filename| {
                 match self.process_realtime(&gtfs_realtime_filename, &imp) {
-                    Ok(()) => (1,1),
+                    Ok(()) => { 
+                        // if a realtime file was successfull, send a ping
+                        self.ping_url();
+                        (1,1)
+                    },
                     Err(e) => {
                         eprintln!("Error while reading {}: {}", &gtfs_realtime_filename, e);
                         (0,1)
