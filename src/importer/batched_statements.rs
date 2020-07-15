@@ -2,7 +2,7 @@ use mysql::prelude::*;
 use mysql::*;
 use crate::FnResult;
 use std::sync::Mutex;
-use chrono::Duration;
+use std::thread;
 
 const MAX_BATCH_SIZE: usize = 1000;
 
@@ -57,14 +57,42 @@ impl<'a> BatchedStatements {
     }
 
     fn write_to_database_internal(&self, params_vec: Vec<Params>) -> FnResult<()> {
-        let mut conn = self.conn_mutex.lock().unwrap();
-        let mut tx = conn.start_transaction(TxOpts::default())?;
-        println!("{}: Writing {} rows into the DB.", self.name, params_vec.len());
-        for statement in &self.statements {
-            println!("{}: Time to exec statement: {}", self.name, Duration::span(|| { tx.exec_batch(statement, params_vec.iter()).expect("db should not fail"); () } ));
+        println!("Trying to write to database ({})", self.name);
+        let mut retry = false;
+        {
+            let mut conn = self.conn_mutex.lock().unwrap();
+            let mut tx = conn.start_transaction(TxOpts::default())?;
+            for statement in &self.statements {
+                retry |= self.should_mysql_operation_be_retried("exec_batch", tx.exec_batch(statement, params_vec.iter()));
+            }
+            retry |= self.should_mysql_operation_be_retried("commit", tx.commit());
         }
-        println!("{}: Time to commit: {}", self.name, Duration::span(|| { tx.commit().expect("db should not fail"); () } ));
+
+        if retry {
+            thread::sleep(std::time::Duration::from_millis(5000));
+            println!("…retrying now:");
+            self.write_to_database_internal(params_vec)?;
+        }
+
         Ok(())
+    }
+
+    fn should_mysql_operation_be_retried(&self, action_name: &str, mysql_result: Result<()>) -> bool {
+        match mysql_result {
+            Ok(_) => {},
+            Err(Error::MySqlError(mse)) => {
+                if mse.code == 1213 {
+                    println!("Caught MySql Deadlock Error during {}.{}. Will retry shortly…", self.name, action_name);
+                    return true;
+                } else {
+                    println!("Unexpected MySql Error during {}.{}. Will not retry. Error: {}", self.name, action_name, mse);
+                }
+            },
+            Err(e) => {
+                println!("Unexpected Error during {}.{}. Will not retry. Error: {}", self.name, action_name, e);
+            }
+        }
+        return false;
     }
 
     pub fn write_to_database(&self) -> FnResult<()> {

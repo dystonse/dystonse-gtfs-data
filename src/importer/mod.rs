@@ -165,6 +165,7 @@ impl<'a> Importer<'a>  {
             WHERE 
                 TIMESTAMPDIFF(MINUTE, NOW(), prediction_max) < -60;",
         )?;
+        // TODO only delete predictions with the matching source id
         Ok(())
     }
 
@@ -221,6 +222,8 @@ impl<'a> Importer<'a>  {
             if last_ping_time.is_none() || last_ping_time.unwrap() < Local::now() - Duration::minutes(1) {
                 perform_ping = true;
                 *last_ping_time = Some(Local::now());
+            } else if self.verbose {
+                println!("Last ping less then a minute ago, skip Pinging.");
             }
             // If url_opt is None, perform_ping will be false anyway,
             // so we can perform the ping outside this block to
