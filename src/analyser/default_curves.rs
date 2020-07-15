@@ -193,6 +193,9 @@ impl<'a> DefaultCurveCreator<'a> {
                 }
             }
         }
+        // pre-calculate super default curve:
+        let mut super_default_curve = IrregularDynamicCurve::<f32, f32>::average(&super_default_curves);
+        super_default_curve.simplify(0.001);
 
         // now back to the actual default curves...
         for rt in &route_types {
@@ -221,9 +224,7 @@ impl<'a> DefaultCurveCreator<'a> {
                                 dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), fallback_curve);
                             } else {
                                 println!("No data for fallback {:?} for {:?}. Using super default curve instead.", e_t, rt);
-                                let mut super_default_curve = IrregularDynamicCurve::<f32, f32>::average(&super_default_curves);
-                                super_default_curve.simplify(0.001);
-                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), super_default_curve);
+                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), super_default_curve.clone());
                             }
                         }
                     }
