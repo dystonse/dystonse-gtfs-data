@@ -166,6 +166,7 @@ impl<'a> Importer<'a>  {
                 TIMESTAMPDIFF(MINUTE, NOW(), prediction_max) < -60;",
         )?;
         // TODO only delete predictions with the matching source id
+        // TODO handle deadlock error here, like we already do in BatchedStatements.
         Ok(())
     }
 
@@ -259,7 +260,9 @@ impl<'a> Importer<'a>  {
                     ),
                 }
                 if self.perform_cleanup {
-                    self.run_cleanup()?;
+                    if let Err(e) = self.run_cleanup() {
+                        println!("Error during cleanup: {}", e);
+                    }
                 }
                 self.ping_url();
 
