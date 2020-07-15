@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike, Duration};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike, Duration, Utc};
 use gtfs_rt::FeedMessage as GtfsRealtimeMessage;
 use gtfs_structures::{Gtfs, StopTime};
 use gtfs_structures::Trip as ScheduleTrip;
@@ -232,6 +232,8 @@ impl<'a> PerScheduleImporter<'a> {
         time_of_recording: u64,
         prediction_done: &mut bool
     ) -> FnResult<()> {
+
+        // params into local variables
         let stop_id : String = stop_time_update.stop_id.as_ref().or_error("no stop_id")?.clone();
         let stop_sequence = stop_time_update.stop_sequence.or_error("no stop_sequence")?;
         let start_date_time = start_date.and_time(start_time);
@@ -254,6 +256,7 @@ impl<'a> PerScheduleImporter<'a> {
             return Ok(());
         }
 
+        // write records into database
         if self.perform_record {
             self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
                 "source" => &self.importer.main.source,
@@ -271,56 +274,75 @@ impl<'a> PerScheduleImporter<'a> {
             }))?;
         }
 
-        if self.perform_predict && departure.is_empty() {
-            println!("Skip stop_sequence {} for predictions, because departure is empty.", stop_sequence);
-        }
+        // predictions:
 
-        if self.perform_predict && !*prediction_done && !departure.is_empty() {
-            // we will try to do a prediction. We set this flag so that we 
-            // don't do it again for the following stop_time_updates
-            *prediction_done = true;
-            let basis = PredictionBasis { 
-                stop_id: stop_id.clone(),
-                delay_departure: departure.delay
-            };
-            let vehicle_id = VehicleIdentifier {
-                trip_id: trip_id.clone(),
-                start_date: start_date,
-                start_time: start_time
-            };
+        if self.perform_predict && !*prediction_done {
 
-            {
-                let cpr = self.current_prediction_basis.lock().unwrap();
+            // skip trips from too long ago:
+            if start_date_time < (Utc::now().naive_utc() - Duration::hours(12)) {
 
-                // check if we already made a prediction for this vehicle, and if, what was the basis
-                if let Some(previous_basis) = cpr.get(&vehicle_id) {
-                    // if we used the same basis, no need to do the same prediction again
-                    if *previous_basis == basis {
-                        return Ok(());
-                    }
-                }
-            }
-            let mut actual_success = false;
+                println!("Skip trip {} for predictions, because it happened more than 12 hours in the past.", trip_id);
+                *prediction_done = true; //because we can ignore this trip from now on
+            
+            // skip stop if we don't have a departure update:
+            } else if departure.is_empty() {
 
-            for stop_time in &schedule_trip.stop_times {
-                if stop_time.stop_sequence as u32 > stop_sequence {
-                    for event_type in &EventType::TYPES {
-                        match self.make_prediction(
-                            route_id,
-                            &vehicle_id,
-                            basis.clone(),
-                            stop_time,
-                            **event_type
-                        ) {
-                            Ok(()) => actual_success = true,
-                            Err(e) => println!("Prediction error: {}", e)
+                println!("Skip stop_sequence {} for predictions, because departure is empty.", stop_sequence);
+
+            // for a current trip, and stop with departure not empty, go on:
+            } else {
+
+                // TODO: instead of using the first stop for which we have data, 
+                // it would be better to use the most recent stop that is already in the past!
+
+                let basis = PredictionBasis { 
+                    stop_id: stop_id.clone(),
+                    delay_departure: departure.delay
+                };
+                let vehicle_id = VehicleIdentifier {
+                    trip_id: trip_id.clone(),
+                    start_date: start_date,
+                    start_time: start_time
+                };
+
+                { //block for mutex
+                    let cpr = self.current_prediction_basis.lock().unwrap();
+
+                    // check if we already made a prediction for this vehicle, and if, what was the basis
+                    if let Some(previous_basis) = cpr.get(&vehicle_id) {
+                        // if we used the same basis, no need to do the same prediction again
+                        if *previous_basis == basis {
+                            return Ok(());
                         }
                     }
                 }
-            }
-            if actual_success {
-                let mut cpr = self.current_prediction_basis.lock().unwrap();
-                cpr.insert(vehicle_id, basis.clone());
+
+                //check if we can make any predictions for the future stops of this trip:
+                let mut actual_success = false; 
+
+                for stop_time in &schedule_trip.stop_times {
+                    if stop_time.stop_sequence as u32 > stop_sequence {
+                        for event_type in &EventType::TYPES {
+                            match self.make_prediction(
+                                route_id,
+                                &vehicle_id,
+                                basis.clone(),
+                                stop_time,
+                                **event_type
+                            ) {
+                                Ok(()) => actual_success = true,
+                                Err(e) => println!("Prediction error: {}", e)
+                            }
+                        }
+                    }
+                }
+                if actual_success {
+                    let mut cpr = self.current_prediction_basis.lock().unwrap();
+                    cpr.insert(vehicle_id, basis.clone());
+
+                    // We set this flag so that we don't do it all again for the following stop_time_updates:
+                    *prediction_done = true;
+                }
             }
         }
 
