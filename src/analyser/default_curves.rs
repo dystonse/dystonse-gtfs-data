@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 use std::u16;
 
-use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType, EventPair};
+use crate::types::{TimeSlot, DbItem, RouteSection, DefaultCurves, EventType, EventPair, DefaultCurveKey, CurveData, PrecisionType};
 
 use super::curve_utils::*;
 
@@ -204,6 +204,7 @@ impl<'a> DefaultCurveCreator<'a> {
                     println!("Create average curves for route type {:?}, route section {:?} and time slot {}", rt, rs, ts.description);
 
                     for e_t in &EventType::TYPES {
+                        let key = DefaultCurveKey{route_type: *rt, route_section: rs.clone(), time_slot: (**ts).clone(), event_type: **e_t};
                         // curve vectors
                         if let Some(curves) = default_curves[**e_t].get_mut(&(rt, rs, *ts)) {
                             // interpolate them into one curve each and
@@ -211,7 +212,14 @@ impl<'a> DefaultCurveCreator<'a> {
                             if curves.len() > 0 {
                                 let mut curve = IrregularDynamicCurve::<f32, f32>::average(curves);
                                 curve.simplify(0.001);
-                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), curve);
+                                let curve_data = CurveData {
+                                    curve,
+                                    precision_type: Some(PrecisionType::General),
+                                    data_points: None // TODO count number of data_points
+                                    // it would be incorrect to use Some(curves.len()), we would need to add 
+                                    // the data_points of all those curves if we still had that data
+                                };
+                                dc.all_default_curves.insert(key, curve_data);
                             }
                         } else {
                             // if there is no entry for this (rt, rs, ts) combination in this e_t,
@@ -221,10 +229,20 @@ impl<'a> DefaultCurveCreator<'a> {
                             if let Some(fc) = broad_default_curves.get_mut(&(*rt, **e_t)) {
                                 let mut fallback_curve = IrregularDynamicCurve::<f32, f32>::average(fc);
                                 fallback_curve.simplify(0.001);
-                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), fallback_curve);
+                                let curve_data = CurveData {
+                                    curve: fallback_curve,
+                                    precision_type: Some(PrecisionType::FallbackGeneral),
+                                    data_points: None // TODO count number of data_points
+                                };
+                                dc.all_default_curves.insert(key, curve_data);
                             } else {
                                 println!("No data for fallback {:?} for {:?}. Using super default curve instead.", e_t, rt);
-                                dc.all_default_curves.insert((*rt, rs.clone(), (**ts).clone(), **e_t), super_default_curve.clone());
+                                let curve_data = CurveData {
+                                    curve: super_default_curve.clone(),
+                                    precision_type: Some(PrecisionType::SuperGeneral),
+                                    data_points: None // TODO count number of data_points
+                                };
+                                dc.all_default_curves.insert(key, curve_data);
                             }
                         }
                     }

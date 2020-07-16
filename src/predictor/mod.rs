@@ -2,7 +2,7 @@ use crate::types::{EventType, TimeSlot, RouteSection, PredictionResult, DelaySta
 
 use chrono::NaiveDateTime;
 use clap::{App, Arg, ArgMatches};
-use gtfs_structures::{Gtfs, RouteType, Trip};
+use gtfs_structures::{Gtfs, Trip};
 use std::str::FromStr;
 
 use simple_error::bail;
@@ -11,7 +11,7 @@ use crate::{Main, FileCache, FnResult, OrError};
 
 use std::sync::Arc;
 
-use crate::types::PredictionBasis;
+use crate::types::{PredictionBasis, DefaultCurveKey};
 
 mod real_time;
 
@@ -193,28 +193,26 @@ impl<'a> Predictor<'a> {
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
         // unwrap that, or try a default prediction if it failed:
-        let prediction = specific_prediction.or_else(|_| {
+        specific_prediction.or_else(|_| {
             // prepare some more lookup parameters
-            let r = self.schedule.get_route(route_id)?;
-            let rt = r.route_type;
-            let rs = RouteSection::get_route_section_by_stop_sequence(&self.schedule, trip_id, stop_sequence)?;
-            // try default prediction
-            self.predict_default(rt, rs, ts, et)
-        });
-
-        //return the prediction result
-        prediction
+            let key = DefaultCurveKey {
+                route_type: self.schedule.get_route(route_id)?.route_type,
+                route_section: RouteSection::get_route_section_by_stop_sequence(&self.schedule, trip_id, stop_sequence)?,
+                time_slot: ts.clone(),
+                event_type: et
+            };
+            self.predict_default(key)
+        })
     }
 
     // looks up a curve from default curves and returns it
-    fn predict_default(&self, rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
+    fn predict_default(&self, key: DefaultCurveKey) // rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
             -> FnResult<PredictionResult> {
 
-        let key = (rt, rs.clone(), ts.clone(), et);
-        let potential_curve = self.delay_statistics.general.all_default_curves.get(&key);
+        let potential_curve_data = self.delay_statistics.general.all_default_curves.get(&key);
         
-        if let Some(curve) = potential_curve {
-            Ok(PredictionResult::General(Box::new(curve.clone())))
+        if let Some(curve_data) = potential_curve_data {
+            Ok(PredictionResult::General(Box::new(curve_data.curve.clone())))
         } else {
             // Once we hat the problem that default curves could not be found even though they existed.
             // The following code helps to debug this, in case it happens again. You also need this:

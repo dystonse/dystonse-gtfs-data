@@ -22,29 +22,25 @@ use crate::types::{
 /// a struct to hold a hash map of all the default curves
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DefaultCurves {
-    #[serde(with = "crate::types::structured_map_serde")]
-    pub all_default_curves: HashMap<
-        (RouteType, RouteSection, TimeSlot, EventType), 
-        IrregularDynamicCurve<f32, f32>
-    >
+    pub all_default_curves: HashMap<DefaultCurveKey, CurveData>
 }
 
 // TODO: actually use these two structs for the DefaultCurve struct
 // Key type for the default curves hashmap, so we don't have to use a tuple:
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct DefaultCurveKey {
-    route_type: RouteType,
-    route_section: RouteSection,
-    time_slot: TimeSlot,
-    event_type: EventType
+    pub route_type: RouteType,
+    pub route_section: RouteSection,
+    pub time_slot: TimeSlot,
+    pub event_type: EventType
 }
 
 // A curve with some metadata about its quality and origin:
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CurveData {
-    curve: IrregularDynamicCurve<f32, f32>,
-    precision_type: Option<PrecisionType>,
-    data_points: Option<u32>,
+    pub curve: IrregularDynamicCurve<f32, f32>,
+    pub precision_type: Option<PrecisionType>,
+    pub data_points: Option<u32>,
 }
 
 impl DefaultCurves {
@@ -62,9 +58,9 @@ impl TreeData for DefaultCurves {
         if leaves.contains(&Self::NAME) {
             self.save_to_file(dir_name, "statistics", format)?;
         } else {
-            for ((route_type, route_section, time_slot, event_type), curve) in &self.all_default_curves {
-                let sub_dir_name = format!("{}/{}/{:?}/{:?}/{}", dir_name, own_name, route_type, route_section, time_slot);
-                let own_name = format!("route_{:?}", event_type);
+            for (key, curve) in &self.all_default_curves {
+                let sub_dir_name = format!("{}/{}/{:?}/{:?}/{}", dir_name, own_name, key.route_type, key.route_section, key.time_slot);
+                let own_name = format!("route_{:?}", key.event_type);
                 curve.save_to_file(&sub_dir_name, &own_name, format)?;
             }
         }

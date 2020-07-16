@@ -11,6 +11,8 @@ mod time_slots;
 
 pub use db_item::DbItem;
 pub use default_curves::DefaultCurves;
+pub use default_curves::DefaultCurveKey;
+pub use default_curves::CurveData;
 pub use delay_statistics::DelayStatistics;
 pub use event_type::{EventType, EventPair, GetByEventType};
 pub use prediction_result::PredictionResult;
