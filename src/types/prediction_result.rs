@@ -13,6 +13,7 @@ pub enum PredictionResult {
 }
 
 impl PredictionResult {
+    //This is used for our possible gfts realtime format extension:
     #[allow(dead_code)]
     pub fn to_stop_time_event_extension(&self) -> StopTimeEventExtension {
         match self {

@@ -15,7 +15,8 @@ use crate::FnResult;
 use crate::types::{
     EventType,
     RouteSection,
-    TimeSlot
+    TimeSlot,
+    PrecisionType,
 };
 
 /// a struct to hold a hash map of all the default curves
@@ -27,7 +28,25 @@ pub struct DefaultCurves {
         IrregularDynamicCurve<f32, f32>
     >
 }
-    
+
+// TODO: actually use these two structs for the DefaultCurve struct
+// Key type for the default curves hashmap, so we don't have to use a tuple:
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DefaultCurveKey {
+    route_type: RouteType,
+    route_section: RouteSection,
+    time_slot: TimeSlot,
+    event_type: EventType
+}
+
+// A curve with some metadata about its quality and origin:
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CurveData {
+    curve: IrregularDynamicCurve<f32, f32>,
+    precision_type: Option<PrecisionType>,
+    data_points: Option<u32>,
+}
+
 impl DefaultCurves {
     pub const NAME : &'static str = "DefaultCurves";
  

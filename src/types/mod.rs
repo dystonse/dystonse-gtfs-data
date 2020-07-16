@@ -19,11 +19,31 @@ pub use route_sections::RouteSection;
 pub use route_variant_data::RouteVariantData;
 pub use time_slots::TimeSlot;
 
+use serde::{Serialize, Deserialize};
+
 #[derive(PartialEq, Eq, Clone)]
 pub struct PredictionBasis {
     pub stop_id: String,
     pub delay_departure: Option<i64>
 }
+
+// used to store where a prediction was generated from
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OriginType {
+    Realtime,
+    Schedule,
+}
+
+// Info about how precisely the base dataset matches the curve's purpose
+#[derive(Debug, Serialize, Deserialize)]
+pub enum PrecisionType {
+    Specific, 
+    SemiSpecific,
+    General,
+    FallbackGeneral, //TODO: come up with better names!
+    SuperGeneral
+}
+
 
 #[cfg(test)]
 mod tests {
