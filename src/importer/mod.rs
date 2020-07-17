@@ -8,8 +8,9 @@ use std::fs::DirBuilder;
 use std::path::{Path, PathBuf};
 use std::{thread, time};
 use ureq::get;
+use mysql::*;
 use mysql::prelude::*;
-use chrono::{Local, Duration, DateTime};
+use chrono::{Local, Duration, DateTime, Utc};
 use std::sync::Mutex;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
@@ -157,15 +158,28 @@ impl<'a> Importer<'a>  {
 
     /// Handle cleanup command
     fn run_cleanup(&self) -> FnResult<()> {
-        println!("Deleting all predictions which are at least one hour in the past.");
+        let min = Utc::now() - Duration::hours(12); // TODO use constant
+        let min_start_date = min.date();
+        let min_start_time = min.time();
+
+        println!("Deleting all predictions with trip start before {}.", min);
         let mut con = self.main.pool.get_conn()?;
-        con.query_drop(
+        let statement = con.prep(
             r"DELETE FROM 
                 predictions 
             WHERE 
-                TIMESTAMPDIFF(MINUTE, NOW(), prediction_max) < -60;",
+                `source` = :source AND (
+                    `trip_start_date` < :min_start_date OR (
+                        `trip_start_date` = :min_start_date AND
+                        `trip_start_time` < :min_start_time
+                    )
+                );",
         )?;
-        // TODO only delete predictions with the matching source id
+        con.exec_drop(statement, params!{
+            "source" => self.main.source.clone(),
+            "trip_start_date" => ,
+            "trip_start_time" => ,
+        })?;
         // TODO handle deadlock error here, like we already do in BatchedStatements.
         Ok(())
     }
