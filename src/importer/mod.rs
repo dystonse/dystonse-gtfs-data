@@ -11,7 +11,7 @@ use std::{thread, time};
 use ureq::get;
 use mysql::*;
 use mysql::prelude::*;
-use chrono::{Local, Duration, DateTime, Utc};
+use chrono::{NaiveDate, NaiveTime, Local, Duration, DateTime, Utc};
 use std::sync::Mutex;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
@@ -21,6 +21,13 @@ use per_schedule_importer::PerScheduleImporter;
 const MAX_ESTIMATED_TRIP_DURATION: Duration = Duration::hours(12);
 
 const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
+
+#[derive(Hash, PartialEq, Eq)]
+struct VehicleIdentifier {
+    trip_id: String,
+    start_time: NaiveTime,
+    start_date: NaiveDate
+}
 
 pub struct Importer<'a>  {
     main: &'a Main,
@@ -161,7 +168,7 @@ impl<'a> Importer<'a>  {
 
     /// Handle cleanup command
     fn run_cleanup(&self) -> FnResult<()> {
-        let min = Utc::now() - Duration::hours(12); // TODO use constant
+        let min = Utc::now().naive_utc() - MAX_ESTIMATED_TRIP_DURATION;
         let min_start_date = min.date();
         let min_start_time = min.time();
 
@@ -180,8 +187,8 @@ impl<'a> Importer<'a>  {
         )?;
         con.exec_drop(statement, params!{
             "source" => self.main.source.clone(),
-            "trip_start_date" => ,
-            "trip_start_time" => ,
+            "min_start_date" => min_start_date,
+            "min_start_time" => min_start_time,
         })?;
         // TODO handle deadlock error here, like we already do in BatchedStatements.
         Ok(())

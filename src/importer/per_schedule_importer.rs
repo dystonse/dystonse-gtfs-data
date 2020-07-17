@@ -13,20 +13,13 @@ use std::collections::HashMap;
 use rayon::prelude::*;
 
 use super::batched_statements::BatchedStatements;
-use super::Importer;
+use super::{Importer, VehicleIdentifier};
 use crate::types::PredictionResult;
 
 use crate::{FnResult, OrError};
 use crate::types::{EventType, GetByEventType, PredictionBasis};
 use crate::predictor::Predictor;
 use dystonse_curves::Curve;
-
-#[derive(Hash, PartialEq, Eq)]
-struct VehicleIdentifier {
-    trip_id: String,
-    start_time: NaiveTime,
-    start_date: NaiveDate
-}
 
 pub struct PerScheduleImporter<'a> {
     importer: &'a Importer<'a>,
