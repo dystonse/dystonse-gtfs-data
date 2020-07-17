@@ -6,7 +6,6 @@ mod prediction_result;
 mod route_data;
 mod route_sections;
 mod route_variant_data;
-mod structured_map_serde;
 mod time_slots;
 mod curve_data;
 
@@ -18,7 +17,7 @@ pub use event_type::{EventType, EventPair, GetByEventType};
 pub use prediction_result::PredictionResult;
 pub use route_data::RouteData;
 pub use route_sections::RouteSection;
-pub use route_variant_data::RouteVariantData;
+pub use route_variant_data::{RouteVariantData, CurveSetKey};
 pub use time_slots::TimeSlot;
 pub use curve_data::{CurveData, CurveSetData};
 

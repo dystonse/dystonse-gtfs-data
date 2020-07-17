@@ -11,7 +11,6 @@ use mysql::*;
 use mysql::prelude::*;
 use rayon::prelude::*;
 
-use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::tree::{SerdeFormat, NodeData};
 
 use super::Analyser;
@@ -29,7 +28,7 @@ const MIN_DATA_FOR_CURVE : usize = 10;
 
 type Collection<'a> = EventPair
 <HashMap<(&'a RouteType, &'a RouteSection, &'a TimeSlot), 
-    Vec<IrregularDynamicCurve<f32, f32>>>>;
+    Vec<CurveData>>>;
 
 
 pub struct DefaultCurveCreator<'a> {
@@ -58,7 +57,7 @@ impl<'a> DefaultCurveCreator<'a> {
             ];
 
         //iterate over route types
-        let mut default_curves = route_types.par_iter().map(|rt| {
+        let mut general_curves = route_types.par_iter().map(|rt| {
             println!("Starting with route type {:?}", rt);
 
             //find all routes for this type
@@ -142,7 +141,12 @@ impl<'a> DefaultCurveCreator<'a> {
                                 if let Ok((mut curve, _)) = make_curve(&delays[**e_t], None) {
                                     curve.simplify(0.001);
                                     // only create vectors that will have entries
-                                    collection_for_route_variant[**e_t].entry((rt, rs, *ts)).or_insert(Vec::new()).push(curve);
+                                    let curve_data = CurveData {
+                                        curve,
+                                        precision_type: PrecisionType::Unknown,
+                                        sample_size: delays[**e_t].len() as u32,
+                                    };
+                                    collection_for_route_variant[**e_t].entry((rt, rs, *ts)).or_insert(Vec::new()).push(curve_data);
                                 }
                             }   
                         }
@@ -172,20 +176,20 @@ impl<'a> DefaultCurveCreator<'a> {
 
         // temporary collections for building broader defaults 
         // (one only sorted by route_type and EventType, and one completely unsorted) as a fallback
-        let mut broad_default_curves : HashMap<(RouteType, EventType), Vec<IrregularDynamicCurve<f32,f32>>> = HashMap::new();
-        let mut super_default_curves : Vec<IrregularDynamicCurve<f32,f32>> = Vec::new();
+        let mut fallback_general_curves : HashMap<(RouteType, EventType), Vec<CurveData>> = HashMap::new();
+        let mut super_default_curves : Vec<CurveData> = Vec::new();
         // collect allll the curves in there
         for rt in &route_types {
             for et in &EventType::TYPES {
                 for rs in &route_sections {
                     for ts in &TimeSlot::TIME_SLOTS {
-                        if let Some(curves) = default_curves[**et].get_mut(&(rt, rs, *ts)) {
+                        if let Some(curves) = general_curves[**et].get_mut(&(rt, rs, *ts)) {
                             // put any curves found here into the broad defaults:
                             for c in curves.iter() {
-                                broad_default_curves.entry((*rt, **et)).or_insert(Vec::new()).push(c.clone());
+                                fallback_general_curves.entry((*rt, **et)).or_insert(Vec::new()).push(c.clone());
                                 // simplified version for building the super default curve:
                                 let mut sc = c.clone();
-                                sc.simplify(0.01);
+                                sc.curve.simplify(0.01);
                                 super_default_curves.push(sc);
                             }
                         }
@@ -194,8 +198,8 @@ impl<'a> DefaultCurveCreator<'a> {
             }
         }
         // pre-calculate super default curve:
-        let mut super_default_curve = IrregularDynamicCurve::<f32, f32>::average(&super_default_curves);
-        super_default_curve.simplify(0.001);
+        let mut super_general_curve_data = CurveData::average(&super_default_curves, PrecisionType::SuperGeneral);
+        super_general_curve_data.curve.simplify(0.001);
 
         // now back to the actual default curves...
         for rt in &route_types {
@@ -206,19 +210,12 @@ impl<'a> DefaultCurveCreator<'a> {
                     for e_t in &EventType::TYPES {
                         let key = DefaultCurveKey{route_type: *rt, route_section: rs.clone(), time_slot: (**ts).clone(), event_type: **e_t};
                         // curve vectors
-                        if let Some(curves) = default_curves[**e_t].get_mut(&(rt, rs, *ts)) {
+                        if let Some(curves) = general_curves[**e_t].get_mut(&(rt, rs, *ts)) {
                             // interpolate them into one curve each and
                             // put curves into the final datastructure:
                             if curves.len() > 0 {
-                                let mut curve = IrregularDynamicCurve::<f32, f32>::average(curves);
-                                curve.simplify(0.001);
-                                let curve_data = CurveData {
-                                    curve,
-                                    precision_type: PrecisionType::General,
-                                    sample_size: 0 // TODO count number of data_points
-                                    // it would be incorrect to use Some(curves.len()), we would need to add 
-                                    // the data_points of all those curves if we still had that data
-                                };
+                                let mut curve_data = CurveData::average(curves, PrecisionType::General );
+                                curve_data.curve.simplify(0.001);
                                 dc.all_default_curves.insert(key, curve_data);
                             }
                         } else {
@@ -226,23 +223,13 @@ impl<'a> DefaultCurveCreator<'a> {
                             // we need something to fill that gap
                             // so we use the fallback that is only split up by route type and event type:
                             println!("No data for {:?} at {:?}, {:?}, {}. Looking up fallback instead: {:?} for {:?}.", e_t, rt, rs, ts.description, e_t, rt);
-                            if let Some(fc) = broad_default_curves.get_mut(&(*rt, **e_t)) {
-                                let mut fallback_curve = IrregularDynamicCurve::<f32, f32>::average(fc);
-                                fallback_curve.simplify(0.001);
-                                let curve_data = CurveData {
-                                    curve: fallback_curve,
-                                    precision_type: PrecisionType::FallbackGeneral,
-                                    sample_size: 0 // TODO count number of data_points
-                                };
-                                dc.all_default_curves.insert(key, curve_data);
+                            if let Some(fc) = fallback_general_curves.get_mut(&(*rt, **e_t)) {
+                                let mut fallback_curve_data = CurveData::average(fc, PrecisionType::FallbackGeneral);
+                                fallback_curve_data.curve.simplify(0.001);
+                                dc.all_default_curves.insert(key, fallback_curve_data);
                             } else {
                                 println!("No data for fallback {:?} for {:?}. Using super default curve instead.", e_t, rt);
-                                let curve_data = CurveData {
-                                    curve: super_default_curve.clone(),
-                                    precision_type: PrecisionType::SuperGeneral,
-                                    sample_size: 0 // TODO count number of data_points
-                                };
-                                dc.all_default_curves.insert(key, curve_data);
+                                dc.all_default_curves.insert(key, super_general_curve_data.clone());
                             }
                         }
                     }

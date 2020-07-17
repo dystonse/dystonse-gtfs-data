@@ -506,13 +506,13 @@ dependencies = [
 
 [[package]]
 name = "derivative"
-version = "1.0.4"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c6d883546668a3e2011b6a716a7330b82eabb0151b138217f632c8243e17135"
+checksum = "cb582b60359da160a9477ee80f15c8d784c477e69c217ef2cdd4169c24ea380f"
 dependencies = [
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "syn 0.15.44",
+ "proc-macro2 1.0.18",
+ "quote 1.0.7",
+ "syn 1.0.33",
 ]
 
 [[package]]
@@ -571,7 +571,7 @@ dependencies = [
 [[package]]
 name = "dystonse-curves"
 version = "0.1.0"
-source = "git+https://github.com/dystonse/dystonse-curves.git#5571883aa2764826db0f15d6380bab198bb0968d"
+source = "git+https://github.com/dystonse/dystonse-curves.git#97b5ca2c9109e0b90c1f1f2cef1100deaa4715c1"
 dependencies = [
  "assert_approx_eq",
  "fixed",
@@ -828,14 +828,14 @@ dependencies = [
 
 [[package]]
 name = "gtfs-structures"
-version = "0.20.1"
-source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#a0353cf78141514d9bc3e39aebf1ff2655362ce3"
+version = "0.21.0"
+source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#9b48339ab16c428133d076f19202118a8ca46dcd"
 dependencies = [
- "bytes 0.4.12",
+ "bytes 0.5.5",
  "chrono",
  "csv",
  "derivative",
- "itertools 0.8.2",
+ "itertools 0.9.0",
  "rgb",
  "serde",
  "serde_derive",
@@ -959,15 +959,6 @@ name = "itertools"
 version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d47946d458e94a1b7bcabbf6521ea7c037062c81f534615abcad76e84d4970d"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
 dependencies = [
  "either",
 ]
@@ -2166,17 +2157,6 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "0.15.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ca4b3b69a77cbe1ffc9e198781b7acb0c7365a883670e8f1c1bc66fba79a5c5"
-dependencies = [
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "unicode-xid 0.1.0",
-]
-
-[[package]]
-name = "syn"
 version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8d5d96e8cbb005d6959f119f773bfaebb5684296108fb32600c00cde305b2cd"
@@ -2302,7 +2282,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bfd5b7557925ce778ff9b9ef90e3ade34c524b5ff10e239c69a42d546d2af56"
 dependencies = [
- "rand 0.7.3",
+ "rand 0.4.6",
 ]
 
 [[package]]

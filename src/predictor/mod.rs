@@ -11,7 +11,7 @@ use crate::{Main, FileCache, FnResult, OrError};
 
 use std::sync::Arc;
 
-use crate::types::{PredictionBasis, DefaultCurveKey, PrecisionType, CurveData, CurveSetData};
+use crate::types::{PredictionBasis, DefaultCurveKey, PrecisionType, CurveData, CurveSetKey};
 
 mod real_time;
 
@@ -216,12 +216,12 @@ impl<'a> Predictor<'a> {
         } else {
             // Once we hat the problem that default curves could not be found even though they existed.
             // The following code helps to debug this, in case it happens again. You also need this:
-            // use std::hash::{Hash, Hasher};
-            // use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            use std::collections::hash_map::DefaultHasher;
 
-            // let mut hasher = DefaultHasher::new();
-            // key.hash(&mut hasher);
-            // println!("No default curve found for {:?} with hash {}.", key, hasher.finish());
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            println!("No default curve found for {:?} with hash {}.", key, hasher.finish());
             // for (p_key, _p_val) in &self.delay_statistics.general.all_default_curves {
             //     let mut hasher = DefaultHasher::new();
             //     p_key.hash(&mut hasher);
@@ -247,53 +247,43 @@ impl<'a> Predictor<'a> {
         let rvdata = &self.delay_statistics.specific.get(route_id).or_error("No specific statistics for route_id")?.variants.get(&route_variant).or_error("No specific statistics for route_variant")?;
         // find index of target stop:
         // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
-        let dest_stop_index = trip.get_stop_index_by_stop_sequence(stop_sequence)? as u32;
+        let end_stop_index = trip.get_stop_index_by_stop_sequence(stop_sequence)? as u32;
         
         match start {
             None => { 
                 // get general curve for target stop:
-                let curve = rvdata.general_delay[et].get(&dest_stop_index);
-                if curve.is_none() {
-                    bail!("No curve for stop_sequence {}.", stop_sequence);
-                }
-                let curve_data = CurveData {
-                    curve: curve.unwrap().clone(),
-                    precision_type: PrecisionType::Unknown, // TODO add actual meta data
-                    sample_size: 0 // TODO add actual meta data
-                };
-                return Ok(PredictionResult::CurveData(curve_data));
+                let curve_data = rvdata.general_delay[et].get(&end_stop_index).or_error(&format!("No curve_data for stop_sequence {}.", stop_sequence))?;
+                return Ok(PredictionResult::CurveData(curve_data.clone()));
             },
             Some(actual_start) => {
                 // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
                 let start_stop_index = trip.get_stop_index_by_id(&actual_start.stop_id)? as u32;
-                let potential_curveset = &rvdata.curve_sets[et].map.get(&(start_stop_index, dest_stop_index, ts.clone()));
-                if let Some(curveset) = potential_curveset {
-                    if curveset.curves.is_empty() {
-                        bail!("Found specific curveset, but it was empty.");
-                    }
-                    match actual_start.delay_departure {
-                        // get curve set for start-stop:
-                        None => {
-                            let curve_set_data = CurveSetData {
-                                curve_set: (**curveset).clone(),
-                                precision_type: PrecisionType::Unknown, // TODO add actual meta data
-                                sample_size: 0 // TODO add actual meta data
-                            };
-                            return Ok(PredictionResult::CurveSetData(curve_set_data));
-                        },
-                        // get curve for start-stop and initial delay:
-                        Some(delay) => {
-                            let curve = curveset.curve_at_x_with_continuation(delay as f32);
-                            let curve_data = CurveData {
-                                curve,
-                                precision_type: PrecisionType::Unknown, // TODO add actual meta data
-                                sample_size: 0 // TODO add actual meta data
-                            };
-                            return Ok(PredictionResult::CurveData(curve_data));
-                        }
-                    };
+                let key = CurveSetKey {
+                    start_stop_index,
+                    end_stop_index,
+                    time_slot: ts.clone()
+                };
+                let potential_curveset_data = &rvdata.curve_sets[et].get(&key);
+                let curve_set_data = potential_curveset_data.or_error("No specific curveset found")?; 
+                if curve_set_data.curve_set.curves.is_empty() {
+                    bail!("Found specific curveset, but it was empty.");
                 }
-                bail!("No specific curveset found");
+                match actual_start.delay_departure {
+                    // get curve set for start-stop:
+                    None => {
+                        return Ok(PredictionResult::CurveSetData(curve_set_data.clone()));
+                    },
+                    // get curve for start-stop and initial delay:
+                    Some(delay) => {
+                        let curve = curve_set_data.curve_set.curve_at_x_with_continuation(delay as f32);
+                        let curve_data = CurveData {
+                            curve,
+                            precision_type: PrecisionType::Specific,
+                            sample_size: curve_set_data.sample_size
+                        };
+                        return Ok(PredictionResult::CurveData(curve_data));
+                    }
+                };
             },
         };
     }

@@ -7,9 +7,9 @@ use gtfs_structures::{RouteType, Trip};
 use gnuplot::*;
 
 use dystonse_curves::irregular_dynamic::*;
-use dystonse_curves::{Curve, curve_set::CurveSet};
+use dystonse_curves::Curve;
 
-use crate::types::{RouteData, RouteVariantData, TimeSlot};
+use crate::types::{RouteData, RouteVariantData, TimeSlot, CurveData, CurveSetData};
 
 use super::Analyser;
 
@@ -342,13 +342,16 @@ impl<'a> CurveDrawer<'a> {
         // axes_all_stops.set_grid_options(true, &[LineStyle(Dot), Color("#AAAAAA")]).set_x_grid(true).set_y_grid(true);
 
         // Iterate over all start stations
-        for ((i_s, i_e, ts), stop_pair_data) in data.curve_sets.arrival.map {
+        for (key, stop_pair_data) in data.curve_sets.arrival {
             // let departues : Vec<f32> = rows_matching_start.iter().filter_map(|item| item.delay_departure).map(|d| d as f32).collect();
             // if departues.len() > 5 {
             //     let color = format!("#{:x}", colorous::TURBO.eval_rational(i_s, stop_count));
             //     let mut options = vec!{Color(color.as_str()), Caption(st_s.stop.name.as_str()), PointSize(0.6)};
             //     self.draw_to_figure(axes_all_stops, &departues, &mut options, None, false, true)?;
             // }
+            let i_s = key.start_stop_index;
+            let i_e = key.end_stop_index;
+            let ts = key.time_slot;
 
             let st_s = schedule.get_stop(&data.stop_ids[i_s as usize]).unwrap();
             let st_e = schedule.get_stop(&data.stop_ids[i_e as usize]).unwrap();
@@ -377,9 +380,9 @@ impl<'a> CurveDrawer<'a> {
 
     fn draw_curves_for_stop_pair(
         &self, 
-        data: CurveSet<f32, IrregularDynamicCurve<f32, f32>>, 
-        general_delay_arrival: Option<&IrregularDynamicCurve<f32, f32>>, 
-        general_delay_departure: Option<&IrregularDynamicCurve<f32, f32>>, 
+        data: CurveSetData, 
+        general_delay_arrival: Option<&CurveData>, 
+        general_delay_departure: Option<&CurveData>, 
         filename: &str, title: &str
     ) -> FnResult<()> {
         let mut fg = Figure::new();
@@ -422,14 +425,14 @@ impl<'a> CurveDrawer<'a> {
             
         // draw the overall destination delay
         
-        if let Some(general_curve) = general_delay_departure {
-            let (x, mut y) = general_curve.get_values_as_vectors();
+        if let Some(general_curve_data) = general_delay_departure {
+            let (x, mut y) = general_curve_data.curve.get_values_as_vectors();
             y = y.iter().map(|y| y*100.0).collect();
             axes.lines_points(&x, &y, &[LineStyle(Dot), LineWidth(3.0), Caption("Abfahrt am Start"), Color("#129245")]);
         }
 
-        if let Some(general_curve) = general_delay_arrival {
-            let (x, mut y) = general_curve.get_values_as_vectors();
+        if let Some(general_curve_data) = general_delay_arrival {
+            let (x, mut y) = general_curve_data.curve.get_values_as_vectors();
             y = y.iter().map(|y| y*100.0).collect();
             axes.lines_points(&x, &y, &[LineStyle(Dash), LineWidth(3.0), Caption("Ankunft am Ende"), Color("#08421F")]);
         }
@@ -442,14 +445,14 @@ impl<'a> CurveDrawer<'a> {
         // Each cuve will focus on the mid marker, and include all the data points from
         // the min to the max marker.
         // Remember that we added the absolute min and absolute max markers twice.
-        for (i,(focus, curve)) in data.curves.iter().enumerate() {
+        for (i,(focus, curve)) in data.curve_set.curves.iter().enumerate() {
             // println!("Doing curve for {} with values from {} to {}.", mid, lower, upper);
-            let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, data.curves.len() + 2)); // +2 because the end of the MAGMA scale is too light
+            let color = format!("#{:x}", colorous::PLASMA.eval_rational(i, data.curve_set.curves.len() + 2)); // +2 because the end of the MAGMA scale is too light
 
             let options = vec!{ Color(color.as_str()), PointSize(0.6)};
             //self.draw_to_figure(axes, &slice, &mut options, Some(*mid), false, false)?;
         
-            self.actually_draw_to_figure(axes, &curve, 0.0, &options, Some(*focus), false, false)?;
+            self.actually_draw_to_figure(axes, &curve, data.sample_size, &options, Some(*focus), false, false)?;
             
             //self.draw_to_figure(axes_na, &slice, &mut options, Some(*focus), true, false); // histogram mode
         }
@@ -462,16 +465,16 @@ impl<'a> CurveDrawer<'a> {
     /// Draws a curve into `axes` using the data from `pairs`. If `focus` is Some, the data points whose delay is close to
     /// `focus` will be weighted most, whereas those close to the extremes (see local variables `min_delay` and `max_delay`) 
     /// will be weighted close to zero. Otherwise, all points will be weighted equally.
-    fn actually_draw_to_figure(&self, axes: &mut gnuplot::Axes2D, curve: &IrregularDynamicCurve<f32, f32>, sum: f32, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<()> {
+    fn actually_draw_to_figure(&self, axes: &mut gnuplot::Axes2D, curve: &IrregularDynamicCurve<f32, f32>, sample_size: u32, plot_options: &Vec<PlotOption<&str>>, focus: Option<f32>, non_accumulated: bool, no_points: bool) -> FnResult<()> {
         
         let mut own_options = plot_options.clone();
         
         let cap = if let Some(focus) = focus { 
-            format!("ca. {}s", focus as i32)
+            format!("ca. {}s ({})", focus as i32, sample_size)
         } else {
             let min_delay = curve.min_x();
             let max_delay = curve.max_x();
-            format!("{}s bis {}s ({})", min_delay, max_delay, sum as i32)
+            format!("{}s bis {}s ({})", min_delay, max_delay, sample_size)
         };
         if !own_options.iter().any(|opt| match opt { Caption(_) => true, _ => false}) {
             own_options.push(Caption(&cap));

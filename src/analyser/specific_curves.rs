@@ -11,9 +11,9 @@ use dystonse_curves::tree::{SerdeFormat, NodeData};
 
 use super::Analyser;
 use super::curve_utils::*;
-use crate::types::{TimeSlot, EventType, EventPair, RouteData, DbItem, RouteVariantData};
+use crate::types::*;
 
-use crate::{ FnResult, Main };
+use crate::{ FnResult, Main, OrError };
 
 use std::collections::HashMap;
 
@@ -153,7 +153,7 @@ impl<'a> SpecificCurveCreator<'a> {
 
                 // this is where the general_delay curves are created
                 for e_t in &EventType::TYPES {
-                    if let Ok(res) = self.generate_delay_curve(&rows_matching_start, **e_t) {
+                    if let Ok(res) = self.generate_delay_curve_data(&rows_matching_start, **e_t) {
                         route_variant_data.general_delay[**e_t].insert(i_s as u32, res);
                     }
                 }
@@ -213,7 +213,12 @@ impl<'a> SpecificCurveCreator<'a> {
                             if matching_pairs[**et].len() > 20 {
                                 let stop_pair_data = self.generate_curves_for_stop_pair(&matching_pairs[**et]);
                                 if let Ok(actual_data) = stop_pair_data {
-                                    route_variant_data.curve_sets[**et].map.insert((i_s as u32, i_e as u32, (**ts).clone()), actual_data);
+                                    let key = CurveSetKey {
+                                        start_stop_index: i_s as u32, 
+                                        end_stop_index: i_e as u32, 
+                                        time_slot: (**ts).clone()
+                                    };
+                                    route_variant_data.curve_sets[**et].insert(key, actual_data);
                                 }
                             }
                         }
@@ -224,7 +229,7 @@ impl<'a> SpecificCurveCreator<'a> {
         Ok(route_variant_data)
     }
 
-    fn generate_delay_curve(&self, items: &Vec<&DbItem>, event_type: EventType) -> FnResult<IrregularDynamicCurve<f32,f32>> {
+    fn generate_delay_curve_data(&self, items: &Vec<&DbItem>, event_type: EventType) -> FnResult<CurveData> {
         let values: Vec<f32> = items.iter().filter_map(|r| r.delay[event_type]).map(|t| t as f32).collect();
 
         if values.len() < 20 {
@@ -232,10 +237,14 @@ impl<'a> SpecificCurveCreator<'a> {
         }
         let mut curve = make_curve(&values, None)?.0;
         curve.simplify(0.01);
-        Ok(curve)
+        Ok(CurveData {
+            curve,
+            precision_type: PrecisionType::SemiSpecific,
+            sample_size: values.len() as u32
+        })
     }
 
-    fn generate_curves_for_stop_pair(&self, pairs: &Vec<(f32, f32)>) -> FnResult<CurveSet<f32, IrregularDynamicCurve<f32,f32>>> {
+    fn generate_curves_for_stop_pair(&self, pairs: &Vec<(f32, f32)>) -> FnResult<CurveSetData> {
         // Clone the pairs so that we may sort them. We sort them by delay at the start station
         // because we will group them by that criterion.
         let mut own_pairs = pairs.clone();
@@ -244,42 +253,46 @@ impl<'a> SpecificCurveCreator<'a> {
 
         // Try to make a curve out of initial delays. This curve is different from the actual
         // output curve(s), but is needed as a intermediate result to compute the markers.
-        if let Ok((initial_curve, _sum)) = make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None) {
-            // We build a list of "markers", which are x-coordinates / initial delays for which we 
-            // will build a curve. That curve will consist of rows with "similar" delays.
-            // All the "middle" will be inserted in-order by the recurse function. 
-            // We need to add the absolute min and absolute max markers manually before and afer that,
-            // and we add them twice because this simplifies the curve generation later on.
-            let mut markers = Vec::<f32>::new();
-            markers.push(initial_curve.min_x());
-            markers.push(initial_curve.min_x());
-            recurse(&initial_curve, &mut markers, initial_curve.min_x(), initial_curve.max_x(), count as f32);
-            markers.push(initial_curve.max_x());
-            markers.push(initial_curve.max_x());
-            
-            let mut curve_set = CurveSet::<f32, IrregularDynamicCurve<f32, f32>>::new();
-            // Now generate and draw one or more actual result curves.
-            // Each cuve will focus on the mid marker, and include all the data points from
-            // the min to the max marker.
-            // Remember that we added the absolute min and absolute max markers twice.
-            for (lower, mid, upper) in markers.iter().tuple_windows() {
-                let min_index = (count as f32 * initial_curve.y_at_x(*lower)) as usize;
-                let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
-                let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
-                if slice.len() > 1 {
-                    if let Ok((mut curve, _sum)) = make_curve(&slice,  Some(*mid)) {
-                        curve.simplify(0.001);
-                        if curve.max_x() <  curve.min_x() + 13.0 {
-                            continue;
-                        }
-            
-                        curve_set.add_curve(*mid, curve);
+        let (initial_curve, _sum) = make_curve(&own_pairs.iter().map(|(s,_e)| *s).collect(), None).or_error("Could not make curve.")?;
+        // We build a list of "markers", which are x-coordinates / initial delays for which we 
+        // will build a curve. That curve will consist of rows with "similar" delays.
+        // All the "middle" will be inserted in-order by the recurse function. 
+        // We need to add the absolute min and absolute max markers manually before and afer that,
+        // and we add them twice because this simplifies the curve generation later on.
+        let mut markers = Vec::<f32>::new();
+        markers.push(initial_curve.min_x());
+        markers.push(initial_curve.min_x());
+        recurse(&initial_curve, &mut markers, initial_curve.min_x(), initial_curve.max_x(), count as f32);
+        markers.push(initial_curve.max_x());
+        markers.push(initial_curve.max_x());
+        
+        let mut sample_size: u32 = 0;
+        let mut curve_set = CurveSet::<f32, IrregularDynamicCurve<f32, f32>>::new();
+        // Now generate and draw one or more actual result curves.
+        // Each curve will focus on the mid marker, and include all the data points from
+        // the min to the max marker.
+        // Remember that we added the absolute min and absolute max markers twice.
+        for (lower, mid, upper) in markers.iter().tuple_windows() {
+            let min_index = (count as f32 * initial_curve.y_at_x(*lower)) as usize;
+            let max_index = (count as f32 * initial_curve.y_at_x(*upper)) as usize;
+            let slice : Vec<f32> = own_pairs[min_index .. max_index].iter().map(|(_s,e)| *e).collect();
+            sample_size += slice.len() as u32;
+            if slice.len() > 1 {
+                if let Ok((mut curve, _sum)) = make_curve(&slice,  Some(*mid)) {
+                    curve.simplify(0.001);
+                    if curve.max_x() <  curve.min_x() + 13.0 {
+                        continue;
                     }
+        
+                    curve_set.add_curve(*mid, curve);
                 }
             }
-            return Ok(curve_set);
         }
-
-        bail!("Could not make curve.");
+        sample_size /= curve_set.curves.len() as u32;
+        return Ok(CurveSetData {
+            curve_set,
+            sample_size, //average amount of samples per curve
+            precision_type: PrecisionType::Specific
+        });
     }
 }

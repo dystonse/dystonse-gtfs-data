@@ -25,10 +25,10 @@ pub struct ScheduledPredictionsImporter<'a> {
 
 lazy_static!{
     // For how many days in the future we want to prepare predictions:
-    static ref PREDICTION_BUFFER_SIZE : Duration = { Duration::days(7) };
+    static ref PREDICTION_BUFFER_SIZE : Duration = Duration::days(7);
     // How many minutes of scheduled predictions we want to compute in one iteration,
     // before we try to process the next batch of realtime updates:
-    static ref PREDICTION_BATCH_SIZE : Duration = { Duration::minutes(4) }; 
+    static ref PREDICTION_BATCH_SIZE : Duration = Duration::minutes(10); 
 }
 
 impl<'a> ScheduledPredictionsImporter<'a> {
@@ -74,6 +74,10 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             }
         };
 
+        if self.verbose {
+            println!("Making schedule-based predictions for {} trips starting between {} and {}.", trip_selection.len(), begin, end);
+        }
+
         // make predictions for all stops of those trips
         for trip in trip_selection {
             let route_id = &trip.route_id;
@@ -88,7 +92,11 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                         let result = self.predictor.predict(&trip.route_id, &trip.id, &None, st.stop_sequence, **et, begin);
                         match result {
                             Ok(PredictionResult::CurveData(c)) => {
-                                self.save_scheduled_prediction_to_database(c, **et, st.stop.id.clone(), st.stop_sequence, scheduled_time, vehicle_id.clone(), route_id.to_string());
+                                let result = self.save_scheduled_prediction_to_database(c, **et, st.stop.id.clone(), st.stop_sequence, 
+                                    scheduled_time, vehicle_id.clone(), route_id.to_string());
+                                if let Err(e) = result {
+                                    eprintln!("Error while saving scheduled predictions to database: {}", e);
+                                }
                             },
                             Ok(PredictionResult::CurveSetData(_cs)) => { 
                                 eprintln!("Error while trying to predict {:?} at stop {} of trip {}: result should be a Curve but is a CurveSet.",

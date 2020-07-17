@@ -17,12 +17,13 @@ use std::sync::Mutex;
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
 
 use per_schedule_importer::PerScheduleImporter;
+use scheduled_predictions_importer::ScheduledPredictionsImporter;
 
 lazy_static! {
-    static ref MAX_ESTIMATED_TRIP_DURATION: Duration = { Duration::hours(12) };
+    static ref MAX_ESTIMATED_TRIP_DURATION: Duration =  Duration::hours(12);
 }
 
-const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
+const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(5);
 
 #[derive(Hash, PartialEq, Eq, Clone)]
 struct VehicleIdentifier {
@@ -310,7 +311,7 @@ impl<'a> Importer<'a>  {
         }
     }
 
-    fn process_all_files(&self) -> FnResult<()> {
+    fn process_all_files(&self) -> FnResult<bool> {
         if self.verbose {
             println!("Scan directory");
         }
@@ -319,7 +320,7 @@ impl<'a> Importer<'a>  {
         let rt_filenames = read_dir_simple(&self.rt_dir.as_ref().unwrap())?;
 
         if rt_filenames.is_empty() {
-            bail!("No realtime data.");
+            return Ok(false); //false for "no realtime files imported"
         }
 
         if schedule_filenames.is_empty() {
@@ -408,7 +409,7 @@ impl<'a> Importer<'a>  {
                 eprintln!("Error while working with schedule file {}: {}", current_schedule_file, e);
             };
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Perform the import of one or more realtime data sets relating to a single schedule

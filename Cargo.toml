@@ -12,7 +12,7 @@ visual-schedule = ["plotters"]
 gtfs-rt = { git = "https://github.com/dystonse/gtfs-rt.git", branch = "extension", version = "0.1.0" }
 prost = "0.4"
 bytes = "0.5.4"
-gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "for-dystonse-gtfs-data", default-features = false, version = "0.20.0" }
+gtfs-structures = { git = "https://github.com/dystonse/gtfs-structure.git", branch = "for-dystonse-gtfs-data", default-features = false, version = "0.21.0" }
 mysql = "18.0.0"
 chrono = "0.4.11"
 zip = "0.5"

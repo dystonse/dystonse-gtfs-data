@@ -358,7 +358,6 @@ impl<'a> PerScheduleImporter<'a> {
             event_type, 
             NaiveDateTime::from_timestamp(scheduled_end.departure_time.unwrap() as i64, 0))?;
             
-        let prediction_type = arrival_prediction.to_type_int();
         let curve_data : CurveData = match arrival_prediction {
             PredictionResult::CurveData(curve_data) => curve_data,
             _ => bail!("Result of unexpected type, can't write to DB!")
