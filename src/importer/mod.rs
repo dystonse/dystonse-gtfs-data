@@ -274,7 +274,6 @@ impl<'a> Importer<'a>  {
         builder.create(self.target_dir.as_ref().unwrap())?; // if target dir can't be created, there's no good way to continue execution
         builder.create(self.fail_dir.as_ref().unwrap())?; // if fail dir can't be created, there's no good way to continue execution
         if is_automatic {
-            let spi = ScheduledPredictionsImporter::new(&self, self.verbose)?;
             loop {
                 match self.process_all_files() {
                     Ok(true) => {
@@ -283,18 +282,25 @@ impl<'a> Importer<'a>  {
                         }
                     },
                     Ok(false) => {
-                        if self.verbose {
-                            println!("No realtime data to import. Starting to import predictions from schedule...");
-                        }
-                        match spi.make_scheduled_predictions() {
-                            Ok(_) => { 
+                        match ScheduledPredictionsImporter::new(&self, self.verbose) {
+                            Ok(spi) => {
                                 if self.verbose {
-                                    println!("Sucessfully imported some schedule-based predictions. Sleeping until next directory scan.");
+                                    println!("No realtime data to import. Starting to import predictions from schedule...");
+                                }
+                                match spi.make_scheduled_predictions() {
+                                    Ok(_) => { 
+                                        if self.verbose {
+                                            println!("Sucessfully imported some schedule-based predictions. Sleeping until next directory scan.");
+                                        }
+                                    },
+                                    Err(e) => {
+                                        eprintln!("Error while trying to import schedule-based predictions: {}. Sleeping until next directory scan.", e);
+                                    },
                                 }
                             },
                             Err(e) => {
-                                eprintln!("Error while trying to import schedule-based predictions: {}. Sleeping until next directory scan.", e);
-                            },
+                                eprintln!("Could not initialize ScheduledPredictionsImporter: {}", e);
+                            }
                         }
                     }
                     Err(e) => eprintln!(
