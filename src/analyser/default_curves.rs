@@ -214,8 +214,8 @@ impl<'a> DefaultCurveCreator<'a> {
                                 curve.simplify(0.001);
                                 let curve_data = CurveData {
                                     curve,
-                                    precision_type: Some(PrecisionType::General),
-                                    data_points: None // TODO count number of data_points
+                                    precision_type: PrecisionType::General,
+                                    sample_size: 0 // TODO count number of data_points
                                     // it would be incorrect to use Some(curves.len()), we would need to add 
                                     // the data_points of all those curves if we still had that data
                                 };
@@ -231,16 +231,16 @@ impl<'a> DefaultCurveCreator<'a> {
                                 fallback_curve.simplify(0.001);
                                 let curve_data = CurveData {
                                     curve: fallback_curve,
-                                    precision_type: Some(PrecisionType::FallbackGeneral),
-                                    data_points: None // TODO count number of data_points
+                                    precision_type: PrecisionType::FallbackGeneral,
+                                    sample_size: 0 // TODO count number of data_points
                                 };
                                 dc.all_default_curves.insert(key, curve_data);
                             } else {
                                 println!("No data for fallback {:?} for {:?}. Using super default curve instead.", e_t, rt);
                                 let curve_data = CurveData {
                                     curve: super_default_curve.clone(),
-                                    precision_type: Some(PrecisionType::SuperGeneral),
-                                    data_points: None // TODO count number of data_points
+                                    precision_type: PrecisionType::SuperGeneral,
+                                    sample_size: 0 // TODO count number of data_points
                                 };
                                 dc.all_default_curves.insert(key, curve_data);
                             }

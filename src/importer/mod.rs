@@ -18,11 +18,13 @@ use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrEr
 
 use per_schedule_importer::PerScheduleImporter;
 
-const MAX_ESTIMATED_TRIP_DURATION: Duration = Duration::hours(12);
+lazy_static! {
+    static ref MAX_ESTIMATED_TRIP_DURATION: Duration = { Duration::hours(12) };
+}
 
 const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Clone)]
 struct VehicleIdentifier {
     trip_id: String,
     start_time: NaiveTime,
@@ -168,7 +170,7 @@ impl<'a> Importer<'a>  {
 
     /// Handle cleanup command
     fn run_cleanup(&self) -> FnResult<()> {
-        let min = Utc::now().naive_utc() - MAX_ESTIMATED_TRIP_DURATION;
+        let min = Utc::now().naive_utc() - *MAX_ESTIMATED_TRIP_DURATION;
         let min_start_date = min.date();
         let min_start_time = min.time();
 

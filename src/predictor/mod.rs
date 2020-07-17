@@ -11,7 +11,7 @@ use crate::{Main, FileCache, FnResult, OrError};
 
 use std::sync::Arc;
 
-use crate::types::{PredictionBasis, DefaultCurveKey};
+use crate::types::{PredictionBasis, DefaultCurveKey, PrecisionType, CurveData, CurveSetData};
 
 mod real_time;
 
@@ -212,7 +212,7 @@ impl<'a> Predictor<'a> {
         let potential_curve_data = self.delay_statistics.general.all_default_curves.get(&key);
         
         if let Some(curve_data) = potential_curve_data {
-            Ok(PredictionResult::General(Box::new(curve_data.curve.clone())))
+            Ok(PredictionResult::CurveData(curve_data.clone()))
         } else {
             // Once we hat the problem that default curves could not be found even though they existed.
             // The following code helps to debug this, in case it happens again. You also need this:
@@ -256,7 +256,12 @@ impl<'a> Predictor<'a> {
                 if curve.is_none() {
                     bail!("No curve for stop_sequence {}.", stop_sequence);
                 }
-                return Ok(PredictionResult::SemiSpecific(Box::new(curve.unwrap().clone())));
+                let curve_data = CurveData {
+                    curve: curve.unwrap().clone(),
+                    precision_type: PrecisionType::Unknown, // TODO add actual meta data
+                    sample_size: 0 // TODO add actual meta data
+                };
+                return Ok(PredictionResult::CurveData(curve_data));
             },
             Some(actual_start) => {
                 // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
@@ -269,12 +274,22 @@ impl<'a> Predictor<'a> {
                     match actual_start.delay_departure {
                         // get curve set for start-stop:
                         None => {
-                            return Ok(PredictionResult::SpecificCurveSet((**curveset).clone()));
+                            let curve_set_data = CurveSetData {
+                                curve_set: (**curveset).clone(),
+                                precision_type: PrecisionType::Unknown, // TODO add actual meta data
+                                sample_size: 0 // TODO add actual meta data
+                            };
+                            return Ok(PredictionResult::CurveSetData(curve_set_data));
                         },
                         // get curve for start-stop and initial delay:
                         Some(delay) => {
                             let curve = curveset.curve_at_x_with_continuation(delay as f32);
-                            return Ok(PredictionResult::SpecificCurve(Box::new(curve)));
+                            let curve_data = CurveData {
+                                curve,
+                                precision_type: PrecisionType::Unknown, // TODO add actual meta data
+                                sample_size: 0 // TODO add actual meta data
+                            };
+                            return Ok(PredictionResult::CurveData(curve_data));
                         }
                     };
                 }

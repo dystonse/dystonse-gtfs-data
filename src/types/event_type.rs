@@ -20,6 +20,17 @@ impl EventType {
             EventType::Departure => 2
         }
     }
+
+    pub fn get_time_from_stop_time(&self, st: &StopTime) -> Option<i32> {
+        let time = match self {
+            EventType::Arrival => st.arrival_time,
+            EventType::Departure => st.departure_time
+        };
+        match time{
+            Some(t) => Some(t as i32),
+            None => None
+        }
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Serialize, Deserialize, Clone)]

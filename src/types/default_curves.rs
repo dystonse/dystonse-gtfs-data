@@ -7,7 +7,6 @@ use simple_error::bail;
 
 use dystonse_curves::{
     tree::{TreeData, SerdeFormat, NodeData},
-    irregular_dynamic::*
 };
 
 use crate::FnResult;
@@ -16,7 +15,7 @@ use crate::types::{
     EventType,
     RouteSection,
     TimeSlot,
-    PrecisionType,
+    CurveData
 };
 
 /// a struct to hold a hash map of all the default curves
@@ -32,14 +31,6 @@ pub struct DefaultCurveKey {
     pub route_section: RouteSection,
     pub time_slot: TimeSlot,
     pub event_type: EventType
-}
-
-// A curve with some metadata about its quality and origin:
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CurveData {
-    pub curve: IrregularDynamicCurve<f32, f32>,
-    pub precision_type: Option<PrecisionType>,
-    pub data_points: Option<u32>,
 }
 
 impl DefaultCurves {

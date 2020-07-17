@@ -12,7 +12,7 @@ use mysql::*;
 use retry::delay::Fibonacci;
 use retry::retry;
 use simple_error::{SimpleError, bail};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Duration};
 use regex::Regex;
 use std::fs;
 use std::fs::File;
@@ -348,4 +348,17 @@ impl Loadable<DelayStatistics> for DelayStatistics {
 
         return Ok(parsed);
     }
+}
+
+/// Adds a time (as seconds since/before midnight) to a NaiveDateTime.
+/// This is nessecary because NaiveTime can't handle negative times
+/// or times larger than 24 hours.
+pub fn date_and_time(date: &NaiveDate, time: i32) -> NaiveDateTime {
+    const SECONDS_PER_DAY: i32 = 24 * 60 * 60;
+    let extra_days = (time as f32 / SECONDS_PER_DAY as f32).floor() as i32;
+    let actual_time = time - extra_days * SECONDS_PER_DAY;
+    assert!(actual_time >= 0);
+    assert!(actual_time <= SECONDS_PER_DAY);
+    let actual_date = *date + Duration::days(extra_days as i64);
+    return actual_date.and_time(NaiveTime::from_num_seconds_from_midnight(actual_time as u32, 0));
 }

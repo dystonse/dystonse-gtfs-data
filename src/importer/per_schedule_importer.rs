@@ -16,8 +16,8 @@ use super::batched_statements::BatchedStatements;
 use super::{Importer, VehicleIdentifier};
 use crate::types::PredictionResult;
 
-use crate::{FnResult, OrError};
-use crate::types::{EventType, GetByEventType, PredictionBasis};
+use crate::{FnResult, OrError, date_and_time};
+use crate::types::{EventType, GetByEventType, PredictionBasis, CurveData, OriginType};
 use crate::predictor::Predictor;
 use dystonse_curves::Curve;
 
@@ -251,7 +251,7 @@ impl<'a> PerScheduleImporter<'a> {
 
         // write records into database
         if self.perform_record {
-            self.record_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+            self.record_statements.as_ref().unwrap().add_parameter_set(Params::from(params! {
                 "source" => &self.importer.main.source,
                 "route_id" => &route_id,
                 "route_variant" => &schedule_trip.route_variant.as_ref().or_error("no route variant")?,
@@ -359,21 +359,17 @@ impl<'a> PerScheduleImporter<'a> {
             NaiveDateTime::from_timestamp(scheduled_end.departure_time.unwrap() as i64, 0))?;
             
         let prediction_type = arrival_prediction.to_type_int();
-        let curve : Box<dyn Curve> = match arrival_prediction {
-            PredictionResult::General(curve) => curve,
-            PredictionResult::SpecificCurve(curve) => curve,
+        let curve_data : CurveData = match arrival_prediction {
+            PredictionResult::CurveData(curve_data) => curve_data,
             _ => bail!("Result of unexpected type, can't write to DB!")
         };
 
-        let schedules_event_time = match event_type {
-            EventType::Arrival => scheduled_end.arrival_time,
-            EventType::Departure => scheduled_end.departure_time
-        }.unwrap() as i32;
+        let scheduled_event_time = event_type.get_time_from_stop_time(scheduled_end).unwrap();
 
-        let prediction_min = Self::date_and_time(&vehicle_id.start_date, schedules_event_time + curve.min_x() as i32);
-        let prediction_max = Self::date_and_time(&vehicle_id.start_date, schedules_event_time + curve.max_x() as i32);
+        let prediction_min = date_and_time(&vehicle_id.start_date, scheduled_event_time + curve_data.curve.min_x() as i32);
+        let prediction_max = date_and_time(&vehicle_id.start_date, scheduled_event_time + curve_data.curve.max_x() as i32);
         
-        self.predictions_statements.as_ref().unwrap().add_paramter_set(Params::from(params! {
+        self.predictions_statements.as_ref().unwrap().add_parameter_set(Params::from(params! {
             "source" => self.importer.main.source.clone(),
             "event_type" => event_type.to_int(),
             "stop_id" => scheduled_end.stop.id.clone(),
@@ -384,20 +380,12 @@ impl<'a> PerScheduleImporter<'a> {
             "trip_start_date" => vehicle_id.start_date,
             "trip_start_time" => vehicle_id.start_time,
             "stop_sequence" => scheduled_end.stop_sequence,
-            "prediction_type" => prediction_type,
-            "prediction_curve" => curve.serialize_compact_limited(120)
+            "precision_type" => curve_data.precision_type.to_int(),
+            "origin_type" => OriginType::Realtime.to_int(),
+            "sample_size" => curve_data.sample_size,
+            "prediction_curve" => curve_data.curve.serialize_compact_limited(120)
         }))?;
         Ok(())
-    }
-
-    fn date_and_time(date: &NaiveDate, time: i32) -> NaiveDateTime {
-        const SECONDS_PER_DAY: i32 = 24 * 60 * 60;
-        let extra_days = (time as f32 / SECONDS_PER_DAY as f32).floor() as i32;
-        let actual_time = time - extra_days * SECONDS_PER_DAY;
-        assert!(actual_time >= 0);
-        assert!(actual_time <= SECONDS_PER_DAY);
-        let actual_date = *date + Duration::days(extra_days as i64);
-        return actual_date.and_time(NaiveTime::from_num_seconds_from_midnight(actual_time as u32, 0));
     }
 
     fn get_event_times(
@@ -498,7 +486,9 @@ impl<'a> PerScheduleImporter<'a> {
             `stop_id` = :stop_id,
             `prediction_min` = :prediction_min,
             `prediction_max` = :prediction_max,
-            `prediction_type` = :prediction_type,
+            `precision_type` = :precision_type,
+            `origin_type` = :origin_type,
+            `sample_size` = :sample_size,
             `prediction_curve` = :prediction_curve
             WHERE
             `source` = :source AND
@@ -520,7 +510,9 @@ impl<'a> PerScheduleImporter<'a> {
             `trip_start_date`,
             `trip_start_time`,
             `stop_sequence`,
-            `prediction_type`,
+            `precision_type`,
+            `origin_type`,
+            `sample_size`,
             `prediction_curve`
         ) VALUES ( 
             :source,
@@ -533,7 +525,9 @@ impl<'a> PerScheduleImporter<'a> {
             :trip_start_date,
             :trip_start_time,
             :stop_sequence,
-            :prediction_type,
+            :precision_type,
+            :origin_type,
+            :sample_size,
             :prediction_curve
         );")
         .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
