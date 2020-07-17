@@ -829,7 +829,7 @@ dependencies = [
 [[package]]
 name = "gtfs-structures"
 version = "0.20.1"
-source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#0ccdef349fc36f2f8234085dab866e6b441de091"
+source = "git+https://github.com/dystonse/gtfs-structure.git?branch=for-dystonse-gtfs-data#a0353cf78141514d9bc3e39aebf1ff2655362ce3"
 dependencies = [
  "bytes 0.4.12",
  "chrono",

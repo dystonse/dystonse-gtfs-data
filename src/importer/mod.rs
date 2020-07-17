@@ -1,4 +1,5 @@
 mod per_schedule_importer;
+mod scheduled_predictions_importer;
 mod batched_statements;
 
 use simple_error::bail;
@@ -16,6 +17,8 @@ use std::sync::Mutex;
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
 
 use per_schedule_importer::PerScheduleImporter;
+
+const MAX_ESTIMATED_TRIP_DURATION: Duration = Duration::hours(12);
 
 const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(60);
 

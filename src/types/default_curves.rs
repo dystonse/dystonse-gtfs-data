@@ -25,7 +25,6 @@ pub struct DefaultCurves {
     pub all_default_curves: HashMap<DefaultCurveKey, CurveData>
 }
 
-// TODO: actually use these two structs for the DefaultCurve struct
 // Key type for the default curves hashmap, so we don't have to use a tuple:
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct DefaultCurveKey {

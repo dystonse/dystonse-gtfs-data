@@ -497,6 +497,7 @@ impl<'a> PerScheduleImporter<'a> {
         Ok(())
     }
 
+    //TODO: needs to be updated for using OriginType!
     fn init_predictions_statements(&mut self) -> FnResult<()> {
         let mut conn = self.importer.main.pool.get_conn()?;
         let update_statement = conn.prep(r"UPDATE `predictions`
