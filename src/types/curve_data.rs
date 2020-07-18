@@ -1,4 +1,6 @@
 use serde::{Serialize, Deserialize};
+use simple_error::bail;
+use crate::FnResult;
 
 use dystonse_curves::{
     irregular_dynamic::*,
@@ -16,7 +18,11 @@ pub struct CurveData {
 }
 
 impl CurveData {
-    pub fn average(data: &Vec<CurveData>, precision_type: PrecisionType) -> Self {
+    pub fn average(data: &Vec<CurveData>, precision_type: PrecisionType) -> FnResult<Self> {
+        if data.len() == 0 {
+            bail!("Can't compute average of 0 curves.");
+        }
+
         let mut sample_size: u32 = 0;
 
         let mut curves : Vec<&IrregularDynamicCurve<f32, f32>> = Vec::with_capacity(data.len());
@@ -28,11 +34,11 @@ impl CurveData {
 
         let curve = IrregularDynamicCurve::<f32, f32>::average(&curves);
 
-        CurveData {
+        Ok(CurveData {
             curve,
             precision_type,
             sample_size
-        }
+        })
     } 
 }
 

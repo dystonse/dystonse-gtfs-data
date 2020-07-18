@@ -288,6 +288,11 @@ impl<'a> SpecificCurveCreator<'a> {
                 }
             }
         }
+
+        if curve_set.curves.len() == 0 {
+            bail!("Curve set would consist of 0 curves.");
+        }
+
         sample_size /= curve_set.curves.len() as u32;
         return Ok(CurveSetData {
             curve_set,

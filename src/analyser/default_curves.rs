@@ -198,7 +198,7 @@ impl<'a> DefaultCurveCreator<'a> {
             }
         }
         // pre-calculate super default curve:
-        let mut super_general_curve_data = CurveData::average(&super_default_curves, PrecisionType::SuperGeneral);
+        let mut super_general_curve_data = CurveData::average(&super_default_curves, PrecisionType::SuperGeneral)?;
         super_general_curve_data.curve.simplify(0.001);
 
         // now back to the actual default curves...
@@ -214,7 +214,7 @@ impl<'a> DefaultCurveCreator<'a> {
                             // interpolate them into one curve each and
                             // put curves into the final datastructure:
                             if curves.len() > 0 {
-                                let mut curve_data = CurveData::average(curves, PrecisionType::General );
+                                let mut curve_data = CurveData::average(curves, PrecisionType::General)?;
                                 curve_data.curve.simplify(0.001);
                                 dc.all_default_curves.insert(key, curve_data);
                             }
@@ -224,7 +224,7 @@ impl<'a> DefaultCurveCreator<'a> {
                             // so we use the fallback that is only split up by route type and event type:
                             println!("No data for {:?} at {:?}, {:?}, {}. Looking up fallback instead: {:?} for {:?}.", e_t, rt, rs, ts.description, e_t, rt);
                             if let Some(fc) = fallback_general_curves.get_mut(&(*rt, **e_t)) {
-                                let mut fallback_curve_data = CurveData::average(fc, PrecisionType::FallbackGeneral);
+                                let mut fallback_curve_data = CurveData::average(fc, PrecisionType::FallbackGeneral)?;
                                 fallback_curve_data.curve.simplify(0.001);
                                 dc.all_default_curves.insert(key, fallback_curve_data);
                             } else {
