@@ -26,6 +26,8 @@ use predictor::Predictor;
 use gtfs_structures::Gtfs;
 use types::DelayStatistics;
 
+use std::fmt::Debug;
+
 // This is handy, because mysql defines its own Result type and we don't
 // want to repeat std::result::Result
 type FnResult<R> = std::result::Result<R, Box<dyn Error>>;
@@ -61,10 +63,12 @@ impl<T> OrError<T> for Option<T> {
     }
 }
 
-impl<T, E> OrError<T> for std::result::Result<T, E> {
+impl<T, E> OrError<T> for std::result::Result<T, E>
+where E: Debug
+{
     fn or_error(self, message: &str) -> FnResult<T> {
         match self {
-            Err(_) => bail!(message),
+            Err(e) => bail!(format!("{}\nInner error message: {:?}", message, e)),
             Ok(t) => Ok(t)
         }
     }
@@ -319,11 +323,15 @@ impl<T> FileCache<T> where T: Loadable<T> {
 
         //reload file if anything changed:
         if filename_changed || modtime_changed {
+            self.object = None;
             let obj = <T>::load(filename)?;
             self.object = Some(Arc::new(obj));
         }
 
-        Ok(self.object.as_ref().unwrap().clone())
+        match &self.object {
+            Some(o) => Ok(o.clone()),
+            None => bail!("Object {} could not be returned from cache. Loading probably failed in a previous iteration.", filename)
+        }
     }
 } 
 
