@@ -1,4 +1,4 @@
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime, Duration, Utc, Timelike};
+use chrono::{NaiveDateTime, NaiveDate, NaiveTime, Duration, Utc};
 use gtfs_structures::{Gtfs, Trip};
 use std::sync::Arc;
 use mysql::*;
@@ -25,10 +25,16 @@ pub struct ScheduledPredictionsImporter<'a> {
 
 lazy_static!{
     // For how many days in the future we want to prepare predictions:
-    static ref PREDICTION_BUFFER_SIZE : Duration = Duration::days(7);
+    static ref PREDICTION_BUFFER_SIZE : Duration = Duration::days(8);
+
     // How many minutes of scheduled predictions we want to compute in one iteration,
     // before we try to process the next batch of realtime updates:
-    static ref PREDICTION_BATCH_SIZE : Duration = Duration::minutes(10); 
+    static ref PREDICTION_MIN_BATCH_DURATION : Duration = Duration::minutes(3);
+
+    // Minimum number of trips for which predictions will be made during one batch.
+    // The time range will be extended until this number of trips is found.
+    // Don't set this const below 1 or predictions may stall forever.
+    static ref PREDICTION_MIN_BATCH_COUNT : usize = 50;
 }
 
 impl<'a> ScheduledPredictionsImporter<'a> {
@@ -49,31 +55,59 @@ impl<'a> ScheduledPredictionsImporter<'a> {
     }
 
     pub fn make_scheduled_predictions(&self) -> FnResult<()> {
-        // compute the time span for which predictions shall be made in this iteration:
+        // we use absolute timestamps of scheduled trip start times to track
+        // which is the latest trip for which we already have schedule-based
+        // predictions
         let initial_begin = self.get_latest_prediction_time_from_database()?;
+
+        // due to the nature of GTFS static time encoding, 
+
+        // compute the time span for which predictions shall be made in this iteration:
         let mut begin = initial_begin; 
-        let time_limit = Utc::now().naive_utc() + *PREDICTION_BUFFER_SIZE; 
-        let mut end = if begin >= (time_limit - *PREDICTION_BATCH_SIZE) {
+
+        // this is the absolute time limit. Predictions shall never be made for
+        // trips which start after this time.
+        let time_limit = Utc::now().naive_utc() + *PREDICTION_BUFFER_SIZE;
+
+        let mut end = if begin >= (time_limit - *PREDICTION_MIN_BATCH_DURATION) {
             time_limit
         } else {
-            begin + *PREDICTION_BATCH_SIZE
+            begin + *PREDICTION_MIN_BATCH_DURATION
         };
 
+        // Now things get complicated. Trip start times may be larger than 23:59:59,
+        // in fact there are good reasons to use times up to 27:00:00, see
+        // https://gist.github.com/derhuerst/574edc94981a21ef0ce90713f1cff7f6
+        // So we have to assume that for any given absolute datetime, trips
+        // may start at (date + time) but also on ((date - 1 day) + (time + 24:00:00)).
+        // We must use schedule for both dates to find the relevant trips.
+
+
         // get all trips that are scheduled for the selected date:
-        let mut trip_date = begin.date();
-        let mut daily_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(trip_date)?;
+        let mut current_day = begin.date();
+        let mut previous_day = begin.date() - Duration::days(1);
 
+        let mut current_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(current_day)?;
+        let mut previous_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(previous_day)?;
 
-        // find all trips that are scheduled to start in the selected time span
+        // collect trips for which we want to make predictions during this batach in this vec:
         let mut trip_selection : Vec<&Trip> = Vec::new();
 
         loop {
-            for trip in &daily_trips {
+            for trip in &current_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
-                    if start_time > begin.time().num_seconds_from_midnight() 
-                        && start_time <= end.time().num_seconds_from_midnight() {
-                            trip_selection.push(trip);
-                        }
+                    let absolute_start_time = date_and_time(&current_day, start_time as i32);
+                    if absolute_start_time > begin && absolute_start_time <= end {
+                        trip_selection.push(trip);
+                    }
+                }
+            };
+            for trip in &previous_day_trips {
+                if let Some(start_time) = trip.stop_times[0].departure_time {
+                    let absolute_start_time = date_and_time(&previous_day, start_time as i32);
+                    if absolute_start_time > begin && absolute_start_time <= end {
+                        trip_selection.push(trip);
+                    }
                 }
             };
 
@@ -81,26 +115,36 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             // predictions would never move on, as get_latest_prediction_time_from_database would
             // always return the same time. Also, if the span contains at least one trip, but only
             // a very small number, we extend the range to advance our predictions more quickly.
-            if trip_selection.len() < 50 {
+            if trip_selection.len() < *PREDICTION_MIN_BATCH_COUNT {
                 if self.verbose {
                     println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), initial_begin, end);
                 }
                 begin = end;
-                end += *PREDICTION_BATCH_SIZE;
+                end += *PREDICTION_MIN_BATCH_DURATION;
 
-                // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the daily_trips
-                if begin.date() != trip_date {
-                    // TODO we do not accound for times greater than 23:59:59 here. 
-                    // If the time is e.g. 01:12:00, we only find trips that start at
-                    // date + 01:12:00
-                    // but we should also find trips starting at
-                    // (date - 1 day) + 25:12:00
-                    trip_date = begin.date();
-                    daily_trips = self.gtfs_schedule.trips_for_date(trip_date)?;
+                if begin > time_limit {
+                    // in this case, stop extending the range, no matter how few trips will be added.
+                    // we are simply done for the moment.
+                    break;
+                }
+
+                // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the trip collections
+                if begin.date() != current_day {
+                    current_day = begin.date();
+                    previous_day = begin.date() - Duration::days(1);
+                    previous_day_trips = current_day_trips; // we can reuse the selected trips, as the old today is the new yesterday
+                    current_day_trips = self.gtfs_schedule.trips_for_date(current_day)?;
                 }
             } else {
                 break;
             }
+        }
+
+        if trip_selection.len() == 0 {
+            if self.verbose {
+                println!("No more schedule-based predictions to make.");
+            }
+            return Ok(());
         }
 
         if self.verbose {
@@ -146,6 +190,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                 }
             }
         }
+        self.predictions_statements.as_ref().unwrap().write_to_database()?;
         Ok(())
     }
 
