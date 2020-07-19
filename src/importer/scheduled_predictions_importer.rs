@@ -34,7 +34,7 @@ lazy_static!{
     // Minimum number of trips for which predictions will be made during one batch.
     // The time range will be extended until this number of trips is found.
     // Don't set this const below 1 or predictions may stall forever.
-    static ref PREDICTION_MIN_BATCH_COUNT : usize = 50;
+    static ref PREDICTION_MIN_BATCH_COUNT : usize = 250;
 }
 
 impl<'a> ScheduledPredictionsImporter<'a> {
@@ -60,8 +60,6 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         // predictions
         let initial_begin = self.get_latest_prediction_time_from_database()?;
 
-        // due to the nature of GTFS static time encoding, 
-
         // compute the time span for which predictions shall be made in this iteration:
         let mut begin = initial_begin; 
 
@@ -83,9 +81,11 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         // We must use schedule for both dates to find the relevant trips.
 
 
-        // get all trips that are scheduled for the selected date:
-        let mut current_day = begin.date();
-        let mut previous_day = begin.date() - Duration::days(1);
+        // Get all trips that are scheduled for the selected dates.
+        // We use end.date() instead of begin.date() because it ensures
+        // proper handling of time spans across midnight.
+        let mut current_day = end.date();
+        let mut previous_day = end.date() - Duration::days(1);
 
         let mut current_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(current_day)?;
         let mut previous_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(previous_day)?;
@@ -129,9 +129,9 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                 }
 
                 // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the trip collections
-                if begin.date() != current_day {
-                    current_day = begin.date();
-                    previous_day = begin.date() - Duration::days(1);
+                if end.date() != current_day {
+                    current_day = end.date();
+                    previous_day = end.date() - Duration::days(1);
                     previous_day_trips = current_day_trips; // we can reuse the selected trips, as the old today is the new yesterday
                     current_day_trips = self.gtfs_schedule.trips_for_date(current_day)?;
                 }
