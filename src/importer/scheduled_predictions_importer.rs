@@ -90,6 +90,11 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
                 // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the daily_trips
                 if begin.date() != trip_date {
+                    // TODO we do not accound for times greater than 23:59:59 here. 
+                    // If the time is e.g. 01:12:00, we only find trips that start at
+                    // date + 01:12:00
+                    // but we should also find trips starting at
+                    // (date - 1 day) + 25:12:00
                     trip_date = begin.date();
                     daily_trips = self.gtfs_schedule.trips_for_date(trip_date)?;
                 }
