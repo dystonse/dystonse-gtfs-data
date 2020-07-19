@@ -8,8 +8,7 @@ use simple_error::bail;
 use std::fs::File;
 use std::io::prelude::*;
 use mysql::prelude::*;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
+use std::sync::{Arc};
 use rayon::prelude::*;
 
 use super::batched_statements::BatchedStatements;
@@ -31,7 +30,6 @@ pub struct PerScheduleImporter<'a> {
     perform_record: bool,
     perform_predict: bool,
     predictor: Option<Predictor<'a>>,
-    current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>>
 }
 
 /// For an event (which may be an arrival or a departure), this struct
@@ -74,7 +72,6 @@ impl<'a> PerScheduleImporter<'a> {
             perform_record: importer.args.is_present("record"),
             perform_predict: importer.args.is_present("predict"),
             predictor: None,
-            current_prediction_basis: Mutex::new(HashMap::new())
         };
 
         if instance.perform_record {
@@ -299,7 +296,7 @@ impl<'a> PerScheduleImporter<'a> {
                 };
 
                 { //block for mutex
-                    let cpr = self.current_prediction_basis.lock().unwrap();
+                    let cpr = self.importer.current_prediction_basis.lock().unwrap();
 
                     // check if we already made a prediction for this vehicle, and if, what was the basis
                     if let Some(previous_basis) = cpr.get(&vehicle_id) {
@@ -330,7 +327,7 @@ impl<'a> PerScheduleImporter<'a> {
                     }
                 }
                 if actual_success {
-                    let mut cpr = self.current_prediction_basis.lock().unwrap();
+                    let mut cpr = self.importer.current_prediction_basis.lock().unwrap();
                     cpr.insert(vehicle_id, basis.clone());
 
                     // We set this flag so that we don't do it all again for the following stop_time_updates:

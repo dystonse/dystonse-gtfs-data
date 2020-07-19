@@ -13,8 +13,10 @@ use mysql::*;
 use mysql::prelude::*;
 use chrono::{NaiveDate, NaiveTime, Local, Duration, DateTime, Utc};
 use std::sync::Mutex;
+use std::collections::HashMap;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
+use crate::types::PredictionBasis;
 
 use per_schedule_importer::PerScheduleImporter;
 use scheduled_predictions_importer::ScheduledPredictionsImporter;
@@ -42,6 +44,7 @@ pub struct Importer<'a>  {
     verbose: bool,
     perform_cleanup: bool,
     last_ping_time_mutex: Mutex<Option<DateTime<Local>>>,
+    current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>> //used in per_schedule_importer, but declared here for persistence
 }
 
 
@@ -130,6 +133,7 @@ impl<'a> Importer<'a>  {
             verbose: main.verbose,
             perform_cleanup: args.is_present("cleanup"),
             last_ping_time_mutex: Mutex::new(None),
+            current_prediction_basis: Mutex::new(HashMap::new()),
         }
     }
 
@@ -174,8 +178,9 @@ impl<'a> Importer<'a>  {
         let min = Utc::now().naive_utc() - *MAX_ESTIMATED_TRIP_DURATION;
         let min_start_date = min.date();
         let min_start_time = min.time();
-
-        println!("Deleting all predictions with trip start before {}.", min);
+        if self.verbose {
+            println!("Deleting all predictions with trip start before {}.", min);
+        }
         let mut con = self.main.pool.get_conn()?;
         let statement = con.prep(
             r"DELETE FROM 
@@ -194,6 +199,31 @@ impl<'a> Importer<'a>  {
             "min_start_time" => min_start_time,
         })?;
         // TODO handle deadlock error here, like we already do in BatchedStatements.
+
+        // Clean up outdated entries from the current_prediction_basis:
+        if self.verbose {
+            println!("Database prediction cleanup successful. Now deleting old entries from prediction basis cache.");
+        }
+        { // block for mutex
+            let mut cpr = self.current_prediction_basis.lock().unwrap();
+            let mut to_remove : Vec<VehicleIdentifier> = Vec::new();
+            for key in cpr.keys() {
+                if(key.start_date < min_start_date) 
+                    ||  (key.start_date == min_start_date && key.start_time < min_start_time) 
+                {
+                    to_remove.push(key.clone());
+                }
+            }
+            for key in &to_remove {
+                cpr.remove(key);
+            }
+            // TODO: try out if we need to call cpr.shrink_to_fit() here. 
+            // It might be useful to prevent unlimited growth of its allocated space.
+            // But it might also slow down the predictions because the map would be reallocated more often.
+            if self.verbose {
+                println!("Deleted {} entries from prediction basis cache", to_remove.len());
+            }
+        }
         Ok(())
     }
 
