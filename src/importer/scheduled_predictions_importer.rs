@@ -91,14 +91,14 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         let mut previous_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(previous_day)?;
 
         // collect trips for which we want to make predictions during this batach in this vec:
-        let mut trip_selection : Vec<&Trip> = Vec::new();
+        let mut trip_selection : Vec<(NaiveDateTime, &Trip)> = Vec::new();
 
         loop {
             for trip in &current_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
                     let absolute_start_time = date_and_time(&current_day, start_time as i32);
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push(trip);
+                        trip_selection.push((absolute_start_time, trip));
                     }
                 }
             };
@@ -106,7 +106,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
                     let absolute_start_time = date_and_time(&previous_day, start_time as i32);
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push(trip);
+                        trip_selection.push((absolute_start_time, trip));
                     }
                 }
             };
@@ -152,12 +152,12 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         }
 
         // make predictions for all stops of those trips
-        for trip in trip_selection {
+        for (absolute_start_time, trip) in trip_selection {
             let route_id = &trip.route_id;
             let vehicle_id = VehicleIdentifier {
                 trip_id: trip.id.clone(), 
-                start_date: begin.date(), 
-                start_time: NaiveTime::from_num_seconds_from_midnight(trip.stop_times[0].departure_time.unwrap(), 0) };
+                start_date: absolute_start_time.date(), 
+                start_time: absolute_start_time.time() };
             for st in &trip.stop_times {
                 for et in &EventType::TYPES {
                     if let Some(scheduled_time) = et.get_time_from_stop_time(&st) {
