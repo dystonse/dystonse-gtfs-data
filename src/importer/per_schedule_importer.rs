@@ -302,6 +302,7 @@ impl<'a> PerScheduleImporter<'a> {
                     if let Some(previous_basis) = cpr.get(&vehicle_id) {
                         // if we used the same basis, no need to do the same prediction again
                         if *previous_basis == basis {
+                            *prediction_done = true;
                             return Ok(());
                         }
                     }
