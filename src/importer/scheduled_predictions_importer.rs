@@ -49,33 +49,57 @@ impl<'a> ScheduledPredictionsImporter<'a> {
     }
 
     pub fn make_scheduled_predictions(&self) -> FnResult<()> {
-
         // compute the time span for which predictions shall be made in this iteration:
-        let begin = self.get_latest_prediction_time_from_database()?;
+        let initial_begin = self.get_latest_prediction_time_from_database()?;
+        let mut begin = initial_begin; 
         let time_limit = Utc::now().naive_utc() + *PREDICTION_BUFFER_SIZE; 
-        let end = if begin >= (time_limit - *PREDICTION_BATCH_SIZE) {
+        let mut end = if begin >= (time_limit - *PREDICTION_BATCH_SIZE) {
             time_limit
         } else {
             begin + *PREDICTION_BATCH_SIZE
         };
 
         // get all trips that are scheduled for the selected date:
-        let daily_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(begin.date())?;
+        let mut trip_date = begin.date();
+        let mut daily_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(trip_date)?;
 
-        let mut trip_selection : Vec<&Trip> = Vec::new();
 
         // find all trips that are scheduled to start in the selected time span
-        for trip in daily_trips {
-            if let Some(start_time) = trip.stop_times[0].departure_time {
-                if start_time >= begin.time().num_seconds_from_midnight() 
-                    && start_time < end.time().num_seconds_from_midnight() {
-                        trip_selection.push(trip);
-                    }
+        let mut trip_selection : Vec<&Trip> = Vec::new();
+
+        loop {
+            for trip in &daily_trips {
+                if let Some(start_time) = trip.stop_times[0].departure_time {
+                    if start_time > begin.time().num_seconds_from_midnight() 
+                        && start_time <= end.time().num_seconds_from_midnight() {
+                            trip_selection.push(trip);
+                        }
+                }
+            };
+
+            // It may happen that the initial time span contains no trips at all. In this case, the
+            // predictions would never move on, as get_latest_prediction_time_from_database would
+            // always return the same time. Also, if the span contains at least one trip, but only
+            // a very small number, we extend the range to advance our predictions more quickly.
+            if trip_selection.len() < 50 {
+                if self.verbose {
+                    println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), initial_begin, end);
+                }
+                begin = end;
+                end += *PREDICTION_BATCH_SIZE;
+
+                // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the daily_trips
+                if begin.date() != trip_date {
+                    trip_date = begin.date();
+                    daily_trips = self.gtfs_schedule.trips_for_date(trip_date)?;
+                }
+            } else {
+                break;
             }
-        };
+        }
 
         if self.verbose {
-            println!("Making schedule-based predictions for {} trips starting between {} and {}.", trip_selection.len(), begin, end);
+            println!("Making schedule-based predictions for {} trips starting between {} and {}.", trip_selection.len(), initial_begin, end);
         }
 
         // make predictions for all stops of those trips

@@ -68,6 +68,7 @@ impl PrecisionType {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_int(int: u8) -> Self {
         match int {
             1 => Self::Specific,
