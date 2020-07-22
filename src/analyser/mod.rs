@@ -36,7 +36,7 @@ pub struct Analyser<'a> {
 
 impl<'a> Analyser<'a> {
     pub fn get_subcommand() -> App<'a> {
-        let mut analyse = App::new("analyse")
+        let mut analyse = App::new("analyse").about("Performs some statistical analyses on the stored data.")
             .subcommand(App::new("count")
                 .arg(Arg::new("interval")
                     .short('i')

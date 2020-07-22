@@ -4,11 +4,11 @@ RUN apt-get update && apt-get install -y protobuf-compiler
 COPY ./Cargo.* ./
 RUN mkdir src && echo "fn main() { println!(\"Hello, world!\"); }" > src/main.rs
 RUN cargo fetch
-RUN RUSTFLAGS=-g cargo build --release
+RUN RUSTFLAGS=-g cargo build --release --features "monitor"
 RUN rm src/main.rs 
 COPY . .
 RUN touch src/main.rs
-RUN RUSTFLAGS=-g cargo build --release
+RUN RUSTFLAGS=-g cargo build --release --features "monitor"
 
 FROM debian:buster-slim
 RUN apt-get update && apt-get install -y libssl1.1 libfontconfig gnuplot-nox cron

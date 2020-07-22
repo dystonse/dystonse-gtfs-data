@@ -3,6 +3,9 @@ mod analyser;
 mod predictor;
 mod types;
 
+#[cfg(feature = "monitor")]
+mod monitor;
+
 use std::error::Error;
 #[macro_use]
 extern crate lazy_static;
@@ -22,6 +25,9 @@ use std::sync::{Arc, Mutex};
 use importer::Importer;
 use analyser::Analyser;
 use predictor::Predictor;
+
+#[cfg(feature = "monitor")]
+use monitor::Monitor;
 
 use gtfs_structures::Gtfs;
 use types::DelayStatistics;
@@ -109,10 +115,11 @@ pub fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
 }
 
 fn parse_args() -> ArgMatches {
-    let matches = App::new("dystonse-gtfs-data")
+    #[allow(unused_mut)]
+    let mut app = App::new("dystonse-gtfs-data")
         .subcommand(Importer::get_subcommand())
         .subcommand(Analyser::get_subcommand())
-        .subcommand(Predictor::get_subcommand())        
+        .subcommand(Predictor::get_subcommand())            
         .arg(Arg::new("verbose")
             .short('v')
             .long("verbose")
@@ -171,8 +178,14 @@ fn parse_args() -> ArgMatches {
             .about("The path of the GTFS schedule that is used to look up any static GTFS data.")
             .takes_value(true)
             .value_name("GTFS_SCHEDULE")
-        )
-        .get_matches();
+        );
+
+        #[cfg(feature = "monitor")]
+        {
+            app = app.subcommand(Monitor::get_subcommand());
+        } 
+
+        let matches = app.get_matches();
     return matches;
 }
 
@@ -216,6 +229,11 @@ impl Main {
             ("predict", Some(sub_args)) => {
                 let mut predictor = Predictor::new(&self, sub_args)?;
                 predictor.run()
+            },
+            #[cfg(feature = "monitor")]
+            ("monitor", Some(sub_args)) => {
+                let mut monitor = Monitor::new(&self, sub_args)?;
+                monitor.run()
             },
             _ => panic!("Invalid arguments."),
         }

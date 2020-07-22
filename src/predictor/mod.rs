@@ -25,7 +25,7 @@ pub struct Predictor<'a> {
 
 impl<'a> Predictor<'a> {
     pub fn get_subcommand() -> App<'a> {
-        App::new("predict")
+        App::new("predict").about("Looks up delay predictions from the statistics for a specified event.")
             .subcommand(App::new("start")
                 .about("Starts the predictor module and keeps running so it can answer requests for predictions.")
             )
