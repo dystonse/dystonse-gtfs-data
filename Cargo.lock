@@ -695,6 +695,7 @@ dependencies = [
  "tokio",
  "typed-html",
  "ureq",
+ "url 2.1.1",
  "zip",
 ]
 

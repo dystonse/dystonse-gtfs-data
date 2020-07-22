@@ -12,6 +12,7 @@ use hyper::{Body, Request, Response, Server, Method, StatusCode};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use futures::executor::block_on;
+use itertools::Itertools;
 
 mod css;
 use css::CSS;
@@ -84,7 +85,8 @@ async fn hello_dystonse(req: Request<Body>, schedule: Arc<Gtfs>) -> Result<Respo
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => {
             let author = "Dystonse GbR";
-
+            println!("{} Haltestellen gefunden.", schedule.stops.len());
+            //TODO: handle the different GTFS_SOURCE_IDs in some way
             let mut doc: DOMTree<String> = html!(
                 <html>
                     <head>
@@ -95,23 +97,34 @@ async fn hello_dystonse(req: Request<Body>, schedule: Arc<Gtfs>) -> Result<Respo
                     <body>
                         <h1>"Reiseplaner"</h1>
                         <p class="official">
-                            "Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV planen."
+                            "Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen."
                         </p>
-                        <p class="dropdown" >
-                            <label for="start">"Start-Haltestelle:"</label>
-                            <input list="stop_list" id="stops" name="stops" />
-                            <datalist id="stop_list">
-                                { schedule.stops.iter().map(|(id, stop)| html!(
-                                    <option value=id label=stop.name.clone()/>
-                                )) }
-                            </datalist>
-                        </p>
+                        <form method="get" action="/stop-by-name">
+                            <p class="dropdown" >
+                                <label for="start">"Start-Haltestelle:"</label>
+                                <input list="stop_list" id="start" name="start" />
+                                <datalist id="stop_list">
+                                    { schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().map(|name| html!(
+                                        <option>{ text!("{}", name) }</option>
+                                    )) }
+                                </datalist>
+                            </p>
+                            <input type="submit" value="Absenden"/>
+                        </form>
                     </body>
                 </html>
             );
             let doc_string = doc.to_string();
             *response.body_mut() = Body::from(doc_string);
             response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+        },
+        (&Method::GET, "/stop-by-name") => {
+            let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
+            let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
+            //let stop_id = schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id)} else {None}).next().unwrap();
+            let new_path = format!("/{}", stop_name);
+            response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
+            *response.status_mut() = StatusCode::FOUND;
         },
         // TODO: this needs to be adapted!
         (&Method::POST, "/echo") => {

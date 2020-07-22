@@ -40,3 +40,4 @@ hyper = { version = "0.13", optional = true }
 typed-html = { git = "https://github.com/bodil/typed-html#4c13ecca", optional = true }
 tokio = { version = "0.2", features = ["full"], optional = true }
 futures = {version = "0.3", optional = true}
+url = "2.1.1"

@@ -1,5 +1,9 @@
 pub const CSS: &str = r"
 body {
-    color: red;
+    color: #dddddd;
+    background-color: #666666;
+}
+.dropdown input {
+    width: 100%;
 }
 ";
