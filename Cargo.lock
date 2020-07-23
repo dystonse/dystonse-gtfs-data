@@ -681,6 +681,7 @@ dependencies = [
  "lazy_static",
  "mysql",
  "parse_duration",
+ "percent-encoding 2.1.0",
  "plotters",
  "prost",
  "rand 0.7.3",

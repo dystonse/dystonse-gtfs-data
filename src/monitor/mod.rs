@@ -18,6 +18,7 @@ mod css;
 use css::CSS;
 
 use typed_html::{html, dom::DOMTree, text};
+use percent_encoding::percent_decode_str;
 
 #[derive(Clone)]
 pub struct Monitor {
@@ -82,9 +83,10 @@ async fn serve_monitor(schedule: Arc<Gtfs>) {
 async fn hello_dystonse(req: Request<Body>, schedule: Arc<Gtfs>) -> Result<Response<Body>, Infallible> {
     let mut response = Response::new(Body::empty());
 
-    match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => {
-            let author = "Dystonse GbR";
+    let part_parts : Vec<&str> = req.uri().path().split('/').collect();
+    let author = "Dystonse GbR";
+    match &part_parts[1..] {
+        [""] => { 
             println!("{} Haltestellen gefunden.", schedule.stops.len());
             //TODO: handle the different GTFS_SOURCE_IDs in some way
             let mut doc: DOMTree<String> = html!(
@@ -118,20 +120,47 @@ async fn hello_dystonse(req: Request<Body>, schedule: Arc<Gtfs>) -> Result<Respo
             *response.body_mut() = Body::from(doc_string);
             response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
         },
-        (&Method::GET, "/stop-by-name") => {
+        ["stop-by-name"] => {
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
             let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
-            //let stop_id = schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id)} else {None}).next().unwrap();
-            let new_path = format!("/{}", stop_name);
+            let new_path = format!("/stop/{}", stop_name);
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
         },
-        // TODO: this needs to be adapted!
-        (&Method::POST, "/echo") => {
-            *response.body_mut() = req.into_body();
+       ["stop", stop_name] => {
+            let stop_name = percent_decode_str(stop_name).decode_utf8_lossy();
+            let stop_ids : Vec<String> = schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
+
+            // TODO get real departures from the database and/or schedule
+            // probably we need to query the database to know which departures we should show, and then use the schedule to 
+            // get all the data needed to actually show something
+            let departures = vec![("429", "Hauptbahnhof", "13:22", "+2"), ("411", "Querum", "13:45", "+0")];
+            let mut doc: DOMTree<String> = html!(
+                <html>
+                    <head>
+                        <title>"ÖPNV-Reiseplaner"</title>
+                        <meta name="author" content=author/>
+                        <style>{ text!("{}", CSS)}</style>
+                    </head>
+                    <body>
+                        <h1>{ text!("Abfahrten für {} (Dummy-Daten)", stop_name) }</h1>
+                        <ul>
+                            { departures.iter().map(|(route_name, headsign, time, delay)| html!(
+                                <li>{ text!("{} nach {} um {} ({})", route_name, headsign, time, delay) }</li>
+                            )) }
+                        </ul>
+                    </body>
+                </html>
+            );
+            let doc_string = doc.to_string();
+            *response.body_mut() = Body::from(doc_string);
+            response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
         },
-        _ => {
+        slice => {
+            let doc_string = format!("404: Keine Seite entsprach dem Muster {:?}.", slice);
+            *response.body_mut() = Body::from(doc_string);
             *response.status_mut() = StatusCode::NOT_FOUND;
+            response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
         },
     };
 
