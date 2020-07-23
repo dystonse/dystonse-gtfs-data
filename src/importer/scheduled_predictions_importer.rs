@@ -25,7 +25,7 @@ pub struct ScheduledPredictionsImporter<'a> {
 
 lazy_static!{
     // For how many days in the future we want to prepare predictions:
-    static ref PREDICTION_BUFFER_SIZE : Duration = Duration::days(8);
+    static ref PREDICTION_BUFFER_SIZE : Duration = Duration::days(7) + Duration::hours(12);
 
     // How many minutes of scheduled predictions we want to compute in one iteration,
     // before we try to process the next batch of realtime updates:

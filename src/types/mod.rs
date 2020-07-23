@@ -32,6 +32,7 @@ pub struct PredictionBasis {
 // used to store where a prediction was generated from
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OriginType {
+    Unknown,
     Realtime,
     Schedule,
 }
@@ -39,8 +40,17 @@ pub enum OriginType {
 impl OriginType {
     pub fn to_int(&self) -> u8 {
         match self {
+            Self::Unknown => 0,
             Self::Realtime => 1,
             Self::Schedule => 2,
+        }
+    }
+
+    pub fn from_int(num: u8) -> Self {
+        match num {
+            1 => Self::Realtime,
+            2 => Self::Schedule,
+            _ => Self::Unknown
         }
     }
 }

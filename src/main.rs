@@ -42,7 +42,7 @@ type FnResult<R> = std::result::Result<R, Box<dyn Error>>;
 
 pub struct Main {
     verbose: bool,
-    pool: Pool,
+    pool: Arc<Pool>,
     args: ArgMatches,
     source: String,
     dir: String,
@@ -209,7 +209,7 @@ impl Main {
         Ok(Main {
             args,
             verbose,
-            pool,
+            pool: Arc::new(pool),
             source,
             dir,
             gtfs_cache: Mutex::new(FileCache::<Gtfs>::new()),
@@ -234,8 +234,7 @@ impl Main {
             },
             #[cfg(feature = "monitor")]
             ("monitor", Some(sub_args)) => {
-                let mut monitor = Monitor::new(&self, sub_args)?;
-                monitor.run()
+                Monitor::run(&self, sub_args)
             },
             _ => panic!("Invalid arguments."),
         }
