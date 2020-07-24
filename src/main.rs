@@ -278,6 +278,7 @@ impl Main {
             let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
             schedule_filenames.last().or_error("No schedule found when trying to find the newest schedule file.")?.clone() //return the newest file (last filename)
         };
+        println!("Using schedule '{}'", schedule_filename);
         Ok(schedule_filename)
     }
 

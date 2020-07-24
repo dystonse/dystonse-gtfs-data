@@ -1,5 +1,5 @@
-use crate::{FnResult, Main, date_and_time};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
+use crate::{FnResult, Main, date_and_time, OrError};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration};
 use clap::{App, ArgMatches};
 use crate::types::*;
 use std::sync::Arc;
@@ -25,7 +25,8 @@ use dystonse_curves::{IrregularDynamicCurve, Tup};
 #[derive(Clone)]
 pub struct Monitor {
     pub schedule: Arc<Gtfs>,
-    pub pool: Arc<Pool>
+    pub pool: Arc<Pool>,
+    pub source: String
 }
 
 impl Monitor {
@@ -37,7 +38,8 @@ impl Monitor {
     pub fn run(main: &Main, _sub_args: &ArgMatches) -> FnResult<()> {
         let monitor = Monitor {
             schedule: main.get_schedule()?.clone(),
-            pool: main.pool.clone()
+            pool: main.pool.clone(),
+            source: main.source.clone(),
         };
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
@@ -66,7 +68,7 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
             Ok::<_, Infallible>(service_fn( move |request: Request<Body>| {
                 let monitor = monitor.clone();
                 async move {
-                    hello_dystonse(request, monitor.clone()).await
+                    handle_request(request, monitor.clone()).await
                 }
             }))
         }
@@ -81,7 +83,7 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
     }
 }
 
-async fn hello_dystonse(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
+async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
     let mut response = Response::new(Body::empty());
 
     let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).collect();
@@ -159,13 +161,25 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, stop_name: String) {
-     let stop_ids : Vec<String> = monitor.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
+fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, stop_name: String) -> FnResult<()> {
+    let stop_ids : Vec<String> = monitor.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
+    
+    println!("Found {} stop_ids for {}: {:?}", stop_ids.len(), stop_name, stop_ids);
 
     // TODO get real departures from the database and/or schedule
     // probably we need to query the database to know which departures we should show, and then use the schedule to 
     // get all the data needed to actually show something
-    let departures = vec![("429", "Hauptbahnhof", "13:22", "+2"), ("411", "Querum", "13:45", "+0")];
+    
+    let mut departures : Vec<DbPrediction> = Vec::new();
+    let min_time = Utc::now().naive_utc() - Duration::hours(7); // TODO remove dirty hack
+    let max_time = min_time + Duration::minutes(30);
+
+    for stop_id in stop_ids {
+        departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
+    }
+
+    println!("Found {} departure predictions.", departures.len());
+
     let doc: DOMTree<String> = html!(
         <html>
             <head>
@@ -173,11 +187,16 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
                 <style>{ text!("{}", CSS)}</style>
             </head>
             <body>
-                <h1>{ text!("Abfahrten für {} (Dummy-Daten)", stop_name) }</h1>
+                <h1>{ text!("Abfahrten für {}", stop_name) }</h1>
                 <ul>
-                    { departures.iter().map(|(route_name, headsign, time, delay)| html!(
-                        <li>{ text!("{} nach {} um {} ({})", route_name, headsign, time, delay) }</li>
-                    )) }
+                    { 
+                        departures.iter().map(|dep| {
+                            match create_departure_output(&dep, &monitor) {
+                                Ok(string) => html!(<li>{text!("{}", string)}</li>),
+                                Err(e) => html!(<li>{text!("Fehler: {:?}", e)}</li>)
+                            }
+                        })
+                    }
                 </ul>
             </body>
         </html>
@@ -185,6 +204,20 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     let doc_string = doc.to_string();
     *response.body_mut() = Body::from(doc_string);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+
+    Ok(())
+}
+
+fn create_departure_output(dep: &DbPrediction, monitor: &Arc<Monitor>) -> FnResult<String> {
+    let route_name = monitor.schedule.get_route(&dep.route_id)?.short_name.clone();
+    let trip = monitor.schedule.get_trip(&dep.trip_id)?;
+    let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
+    let stop_index = trip.get_stop_index_by_id(&dep.stop_id).or_error("stop_index is None")?;
+    let time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
+    let time_absolute = date_and_time(&dep.trip_start_date, time_seconds as i32);
+    let min = dep.prediction_min;
+    let max = dep.prediction_max;
+    Ok(format!("{} nach {} um {} ({} bis {})", route_name, headsign, time_absolute, min, max))
 }
 
 
@@ -192,13 +225,14 @@ struct DbPrediction {
     pub route_id: String,
     pub trip_id: String,
     pub trip_start_date: NaiveDate,
-    pub trip_start_time: i32, // seconds from midnight, may be outside 0:00 .. 24:00
+    pub trip_start_time: Duration, // time from midnight, may be outside 0:00 .. 24:00
     pub prediction_min: NaiveDateTime, 
     pub prediction_max: NaiveDateTime,
     pub precision_type: PrecisionType,
     pub origin_type: OriginType,
     pub sample_size: i32,
-    pub prediction_curve: IrregularDynamicCurve<f32, f32>
+    pub prediction_curve: IrregularDynamicCurve<f32, f32>,
+    pub stop_id: String,
 }
 
 impl FromRow for DbPrediction {
@@ -214,7 +248,8 @@ impl FromRow for DbPrediction {
             origin_type:        OriginType::from_int(row.get_opt(7).unwrap().unwrap()),
             sample_size:        row.get_opt(8).unwrap().unwrap(),
             prediction_curve:   IrregularDynamicCurve::<f32, f32>
-                                    ::deserialize_compact(row.get_opt(9).unwrap().unwrap())
+                                    ::deserialize_compact(row.get_opt(9).unwrap().unwrap()),
+            stop_id:            row.get_opt(10).unwrap().unwrap(),
         })
     }
 }
@@ -239,7 +274,8 @@ fn get_predictions(
             `precision_type`,
             `origin_type`,
             `sample_size`,
-            `prediction_curve`
+            `prediction_curve`,
+            `stop_id`
         FROM
             `predictions` 
         WHERE 
