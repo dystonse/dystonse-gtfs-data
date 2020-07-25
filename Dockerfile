@@ -1,4 +1,4 @@
-FROM rust:1.41 as builder
+FROM rust:1.45 as builder
 WORKDIR /usr/src/myapp
 RUN apt-get update && apt-get install -y protobuf-compiler
 COPY ./Cargo.* ./

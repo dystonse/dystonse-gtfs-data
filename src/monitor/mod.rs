@@ -14,13 +14,15 @@ use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use itertools::Itertools;
 
+use gnuplot::*;
+
 mod css;
 use css::CSS;
 
 use typed_html::{html, dom::DOMTree, text};
 use percent_encoding::percent_decode_str;
 
-use dystonse_curves::{IrregularDynamicCurve, Tup};
+use dystonse_curves::{IrregularDynamicCurve, Tup, Curve};
 
 #[derive(Clone)]
 pub struct Monitor {
@@ -83,6 +85,7 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
     }
 }
 
+#[feature(slice_patterns)]
 async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
     let mut response = Response::new(Body::empty());
 
@@ -217,7 +220,20 @@ fn create_departure_output(dep: &DbPrediction, monitor: &Arc<Monitor>) -> FnResu
     let time_absolute = date_and_time(&dep.trip_start_date, time_seconds as i32);
     let min = dep.prediction_min;
     let max = dep.prediction_max;
-    Ok(format!("{} nach {} um {} ({} bis {})", route_name, headsign, time_absolute, min, max))
+    let p05 = dep.prediction_curve.x_at_y(0.05);
+    let p50 = dep.prediction_curve.x_at_y(0.50);
+    let p95 = dep.prediction_curve.x_at_y(0.95);
+
+    let mut fg = Figure::new();
+    let axes = fg.axes2d();
+    let c_plot = dep.prediction_curve.get_values_as_vectors();
+    axes.lines_points(&c_plot.0, &c_plot.1, &[Color("grey")]);
+    // TODO generate a unique name for a temporary file here, 
+    // generate an img-Element with that filename, and then
+    // when the request for the image arrives, wait until the file is written.
+    fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
+
+    Ok(format!("{} nach {} um {} ({} bis {}, zu 95% zwischen {} und {}, Median {})", route_name, headsign, time_absolute, min, max, p05, p95, p50))
 }
 
 
