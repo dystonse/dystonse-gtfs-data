@@ -194,7 +194,7 @@ impl<'a> Predictor<'a> {
 
         // unwrap that, or try a default prediction if it failed:
         specific_prediction.or_else(|e| {
-            eprintln!("⚠️ No specific_prediction because: {}", e);
+            // eprintln!("⚠️ No specific_prediction because: {}", e);
 
             // prepare some more lookup parameters
             let key = DefaultCurveKey {
@@ -266,16 +266,16 @@ impl<'a> Predictor<'a> {
                     time_slot: ts.clone()
                 };
                 let potential_curveset_data = &rvdata.curve_sets[et].get(&key);
-                let route_name = &self.schedule.get_route(route_id).unwrap().short_name;
+                // let route_name = &self.schedule.get_route(route_id).unwrap().short_name;
                 let curve_set_data = match potential_curveset_data {
                     Some(data) => *data,
                     None => {
                         if *ts == TimeSlot::DEFAULT {
-                            println!("No specific curveset found for route {}, key {:?}", route_name, key);
+                            // println!("No specific curveset found for route {}, key {:?}", route_name, key);
                             // println!("Present Keys: {:?}", rvdata.curve_sets[et].keys());
                             bail!("No specific curveset found");
                         } else {
-                            println!("No specific curveset with specific TimeSlot found for route {}, key {:?}. Using TimeSlot::DEFAULT instead.", route_name, key);
+                            // println!("No specific curveset with specific TimeSlot found for route {}, key {:?}. Using TimeSlot::DEFAULT instead.", route_name, key);
                             return self.predict_specific(route_id, route_variant, start, stop_sequence, &TimeSlot::DEFAULT, et, trip);
                         }
                     }
