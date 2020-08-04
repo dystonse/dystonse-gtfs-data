@@ -55,12 +55,12 @@ impl Monitor {
 
 
 async fn serve_monitor(monitor: Arc<Monitor>) {
-    // We'll bind to 127.0.0.1:3000
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let port = 3000;
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let monitor = monitor.clone();
 
     // A `Service` is needed for every connection, so this
-    // creates one from our `hello_dystonse` function.
+    // creates one from our `handle_request` function.
     let make_svc = make_service_fn(move |_conn| {
 
         let monitor = monitor.clone();
@@ -78,7 +78,7 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
 
     let server = Server::bind(&addr).serve(make_svc);
 
-    println!("Waiting for connections…");
+    println!("Waiting for connections on {}…", addr);
     // Run this server for... forever!
     if let Err(e) = server.await {
         eprintln!("server error: {}", e);
@@ -94,6 +94,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     match &path_parts_str[1..] {
         [""] => generate_search_page(&mut response, &monitor),
         ["stop-by-name"] => {
+            // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
             let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
             let new_path = format!("/stop/{}", stop_name);
@@ -174,7 +175,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     // get all the data needed to actually show something
     
     let mut departures : Vec<DbPrediction> = Vec::new();
-    let min_time = Utc::now().naive_utc() - Duration::hours(7); // TODO remove dirty hack
+    let min_time = Utc::now().naive_utc();
     let max_time = min_time + Duration::minutes(30);
 
     for stop_id in stop_ids {
