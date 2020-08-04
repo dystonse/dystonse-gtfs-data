@@ -267,7 +267,19 @@ impl<'a> Predictor<'a> {
                 };
                 let potential_curveset_data = &rvdata.curve_sets[et].get(&key);
                 let route_name = &self.schedule.get_route(route_id).unwrap().short_name;
-                let curve_set_data = potential_curveset_data.or_error(&format!("No specific curveset found for route {}, key {:?}", route_name, key))?; 
+                let curve_set_data = match potential_curveset_data {
+                    Some(data) => *data,
+                    None => {
+                        if *ts == TimeSlot::DEFAULT {
+                            println!("No specific curveset found for route {}, key {:?}", route_name, key);
+                            // println!("Present Keys: {:?}", rvdata.curve_sets[et].keys());
+                            bail!("No specific curveset found");
+                        } else {
+                            println!("No specific curveset with specific TimeSlot found for route {}, key {:?}. Using TimeSlot::DEFAULT instead.", route_name, key);
+                            return self.predict_specific(route_id, route_variant, start, stop_sequence, &TimeSlot::DEFAULT, et, trip);
+                        }
+                    }
+                }; 
                 if curve_set_data.curve_set.curves.is_empty() {
                     bail!("Found specific curveset, but it was empty.");
                 }
@@ -281,7 +293,7 @@ impl<'a> Predictor<'a> {
                         let curve = curve_set_data.curve_set.curve_at_x_with_continuation(delay as f32);
                         let curve_data = CurveData {
                             curve,
-                            precision_type: PrecisionType::Specific,
+                            precision_type: if *ts == TimeSlot::DEFAULT { PrecisionType::FallbackSpecific } else { PrecisionType::Specific },
                             sample_size: curve_set_data.sample_size
                         };
                         return Ok(PredictionResult::CurveData(curve_data));

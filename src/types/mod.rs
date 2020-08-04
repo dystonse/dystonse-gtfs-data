@@ -60,11 +60,12 @@ impl OriginType {
 //TODO: come up with better names!
 pub enum PrecisionType {
     Unknown,
-    Specific,        // depends on realtime delay on a previous stop
-    SemiSpecific,    // depends on recorded data for this specific stop, but without current realtime data
-    General,         // depends on RouteType, TimeSlot, RouteSection
-    FallbackGeneral, // depends on RouteType
-    SuperGeneral     // average of everything
+    Specific,          // depends on realtime delay on a previous stop, separated by TimeSlot
+    FallbackSpecific,  // depends on realtime delay on a previous stop, for default TimeSlot
+    SemiSpecific,      // depends on recorded data for this specific stop, but without current realtime data
+    General,           // depends on RouteType, TimeSlot, RouteSection
+    FallbackGeneral,   // depends on RouteType
+    SuperGeneral       // average of everything
 }
 
 impl PrecisionType {
@@ -72,6 +73,7 @@ impl PrecisionType {
         match self {
             Self::Unknown => 0,
             Self::Specific => 1,
+            Self::FallbackSpecific => 6,
             Self::SemiSpecific => 2,
             Self::General => 3,
             Self::FallbackGeneral => 4,
@@ -87,6 +89,7 @@ impl PrecisionType {
             3 => Self::General,
             4 => Self::FallbackGeneral,
             5 => Self::SuperGeneral,
+            6 => Self::FallbackSpecific,
             _ => Self::Unknown 
         }
     }

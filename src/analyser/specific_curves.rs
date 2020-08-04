@@ -142,48 +142,46 @@ impl<'a> SpecificCurveCreator<'a> {
         // Every stop with more than t or less then -t delay will be ignored.
         let t = 3000; 
 
-        for ts in &TimeSlot::TIME_SLOTS {
+        for ts in &TimeSlot::TIME_SLOTS_WITH_DEFAULT {
             // TODO here we filter all rows based on departure:true, maybe we should actually filter twice, once for each [departure, arrival]
-            let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, EventType::Departure)).collect();
+            for et in &EventType::TYPES {
+                let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, **et)).collect();
 
-            // Iterate over all start stations
-            for (i_s, st_s) in trip.stop_times.iter().enumerate() {
-                // Locally select the rows which match the start station
-                let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
+                // Iterate over all start stations
+                for (i_s, st_s) in trip.stop_times.iter().enumerate() {
+                    // Locally select the rows which match the start station
+                    let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
 
-                // this is where the general_delay curves are created
-                for e_t in &EventType::TYPES {
-                    if let Ok(res) = self.generate_delay_curve_data(&rows_matching_start, **e_t) {
-                        route_variant_data.general_delay[**e_t].insert(i_s as u32, res);
+                    // this is where the general_delay curves are created
+                    if let Ok(res) = self.generate_delay_curve_data(&rows_matching_start, **et) {
+                        route_variant_data.general_delay[**et].insert(i_s as u32, res);
                     }
-                }
-                
-                // Iterate over end stations, and only use the ones after the start station
-                for (i_e, st_e) in trip.stop_times.iter().enumerate() {
-                    if i_e > i_s {
-                        // Locally select rows that are matching the end station
-                        let rows_matching_end : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
-                        
-                        // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
-                        // which is given by (date, trip_id).
-                        // TODO: also match start_time? 
-                        // TODO: use VehicleIdentifier from PerScheduleImporter (should be moved to types)
+                     
+                    // Iterate over end stations, and only use the ones after the start station
+                    for (i_e, st_e) in trip.stop_times.iter().enumerate() {
+                        if i_e > i_s {
+                            // Locally select rows that are matching the end station
+                            let rows_matching_end : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_e.stop.id).collect();
+                            
+                            // now rows_matching_start and rows_matching_end are disjunctive sets which can be joined by their vehicle
+                            // which is given by (date, trip_id).
+                            // TODO: also match start_time? 
+                            // TODO: use VehicleIdentifier from PerScheduleImporter (should be moved to types)
 
-                        let vec_size = usize::min(rows_matching_start.len(), rows_matching_end.len());
+                            let vec_size = usize::min(rows_matching_start.len(), rows_matching_end.len());
 
-                        let mut matching_pairs : EventPair<Vec<(f32, f32)>> = EventPair{
-                            arrival: Vec::<(f32, f32)>::with_capacity(vec_size), 
-                            departure: Vec::<(f32, f32)>::with_capacity(vec_size)
-                        };
-                        for row_s in &rows_matching_start {
-                            for row_e in &rows_matching_end {
-                                if row_s.trip_start_date == row_e.trip_start_date && 
-                                   row_s.trip_start_time == row_e.trip_start_time && 
-                                           row_s.trip_id == row_e.trip_id {
-                                    // Only use rows where delay is not None
-                                    // TODO filter those out at the DB level or in the above filter expressions
-                                    if let Some(d_s) = row_s.delay.departure {
-                                        for et in &EventType::TYPES {
+                            let mut matching_pairs : EventPair<Vec<(f32, f32)>> = EventPair{
+                                arrival: Vec::<(f32, f32)>::with_capacity(vec_size), 
+                                departure: Vec::<(f32, f32)>::with_capacity(vec_size)
+                            };
+                            for row_s in &rows_matching_start {
+                                for row_e in &rows_matching_end {
+                                    if row_s.trip_start_date == row_e.trip_start_date && 
+                                    row_s.trip_start_time == row_e.trip_start_time && 
+                                            row_s.trip_id == row_e.trip_id {
+                                        // Only use rows where delay is not None
+                                        // TODO filter those out at the DB level or in the above filter expressions
+                                        if let Some(d_s) = row_s.delay.departure {
                                             if let Some(d_e) = row_e.delay[**et] {
                                                 // Filter out rows with too much positive or negative delay
                                                 if d_s < t && d_s > -t && d_e < t && d_e > -t {
@@ -196,20 +194,18 @@ impl<'a> SpecificCurveCreator<'a> {
                                                 }
                                             }
                                         }
-                                        
+                                        break;
                                     }
-                                    break;
                                 }
                             }
-                        }
-                        // For the start station i_s and the end station i_e we now have a collection of matching
-                        // pairs of observations, i.e. each pair means:
-                        // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
+                            // For the start station i_s and the end station i_e we now have a collection of matching
+                            // pairs of observations, i.e. each pair means:
+                            // "The vehicle which had p.0 delay at i_s arrived with p.1 delay at i_e."
 
-                        // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
-                        
-                        for et in &EventType::TYPES {
-                            // Don't generate a graphic if we have too few pairs.
+                            // println!("Stop #{} and #{} have {} and {} rows each, with {} matching", i_s, i_e, rows_matching_start.len(), rows_matching_end.len(), matching_pairs.len());
+                            
+                            
+                            // Don't generate statistics if we have too few pairs.
                             if matching_pairs[**et].len() > 20 {
                                 let stop_pair_data = self.generate_curves_for_stop_pair(&matching_pairs[**et]);
                                 if let Ok(actual_data) = stop_pair_data {

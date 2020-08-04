@@ -113,6 +113,15 @@ impl TimeSlot {
         max_hour: 4,
     };
 
+    pub const DEFAULT : TimeSlot = TimeSlot {
+        id: 12, 
+        description: "Always",
+        min_weekday: Weekday::Mon,
+        max_weekday: Weekday::Sun,
+        min_hour: 0,
+        max_hour: 24,
+    };
+
     pub const TIME_SLOTS : [&'static TimeSlot; 11] = [
         &Self::WORKDAY_MORNING, 
         &Self::WORKDAY_MORNING_RUSH, 
@@ -125,6 +134,21 @@ impl TimeSlot {
         &Self::SUNDAY_DAY,
         &Self::NIGHT_BEFORE_WORKDAY,
         &Self::NIGHT_BEFORE_WEEKEND_DAY
+        ];
+
+    pub const TIME_SLOTS_WITH_DEFAULT : [&'static TimeSlot; 12] = [
+        &Self::WORKDAY_MORNING, 
+        &Self::WORKDAY_MORNING_RUSH, 
+        &Self::WORKDAY_LATE_MORNING,
+        &Self::WORKDAY_NOON_RUSH,
+        &Self::WORKDAY_AFTERNOON,
+        &Self::WORKDAY_AFTERNOON_RUSH,
+        &Self::WORKDAY_EVENING,
+        &Self::SATURDAY_DAY,
+        &Self::SUNDAY_DAY,
+        &Self::NIGHT_BEFORE_WORKDAY,
+        &Self::NIGHT_BEFORE_WEEKEND_DAY,
+        &Self::DEFAULT
         ];
 
 
