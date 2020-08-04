@@ -193,7 +193,9 @@ impl<'a> Predictor<'a> {
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
         // unwrap that, or try a default prediction if it failed:
-        specific_prediction.or_else(|_| {
+        specific_prediction.or_else(|e| {
+            eprintln!("⚠️ No specific_prediction because: {}", e);
+
             // prepare some more lookup parameters
             let key = DefaultCurveKey {
                 route_type: self.schedule.get_route(route_id)?.route_type,
@@ -251,7 +253,7 @@ impl<'a> Predictor<'a> {
         
         match start {
             None => { 
-                // get general curve for target stop:
+                // get general curve for target stop (a.k.a. SemiSpecific):
                 let curve_data = rvdata.general_delay[et].get(&end_stop_index).or_error(&format!("No curve_data for stop_sequence {}.", stop_sequence))?;
                 return Ok(PredictionResult::CurveData(curve_data.clone()));
             },
