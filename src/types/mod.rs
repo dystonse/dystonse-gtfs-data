@@ -30,7 +30,7 @@ pub struct PredictionBasis {
 }
 
 // used to store where a prediction was generated from
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub enum OriginType {
     Unknown,
     Realtime,
@@ -57,13 +57,14 @@ impl OriginType {
 
 // Info about how precisely the base dataset matches the curve's purpose
 #[derive(Debug, Serialize, Deserialize, Clone)]
+//TODO: come up with better names!
 pub enum PrecisionType {
     Unknown,
-    Specific, 
-    SemiSpecific,
-    General,
-    FallbackGeneral, //TODO: come up with better names!
-    SuperGeneral
+    Specific,        // depends on realtime delay on a previous stop
+    SemiSpecific,    // depends on recorded data for this specific stop, but without current realtime data
+    General,         // depends on RouteType, TimeSlot, RouteSection
+    FallbackGeneral, // depends on RouteType
+    SuperGeneral     // average of everything
 }
 
 impl PrecisionType {

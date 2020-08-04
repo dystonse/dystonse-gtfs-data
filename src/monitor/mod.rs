@@ -177,12 +177,54 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     let mut departures : Vec<DbPrediction> = Vec::new();
     let min_time = Utc::now().naive_utc();
     let max_time = min_time + Duration::minutes(30);
+    let fmt = "%H:%M";
 
     for stop_id in stop_ids {
         departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
     }
 
     println!("Found {} departure predictions.", departures.len());
+
+    for dep in &mut departures {
+        let _res = dep.compute_meta_data(monitor);
+    }
+
+    // Remove the top and bottom 1% of the predicted time span. 
+    // They mostly contain outliers with several hours of (sometimes negative) delay.
+    departures.retain(|dep| {
+        if dep.meta_data.is_some() {
+            let time_absolute_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
+            let time_absolute_99 = dep.get_absolute_time_for_probability(0.99).unwrap();
+            
+            time_absolute_01 < max_time && time_absolute_99 > min_time
+        } else {
+            false
+        }
+    });
+
+    println!("Kept {} departure predictions based on removing the top and bottom 1%.", departures.len());
+
+
+    // Remove duplicates, for which there is a scheduled predcition and a realtime prediction
+    // which concern the same vehicle, but have not been overwritten in the DB  due to
+    // different primary keys (probably a changed trip_id).
+    let departures_copy = departures.clone();
+
+    // local function, which is used in the retain predicate below
+    fn is_duplicate(a: &DbPrediction, b: &DbPrediction) -> bool {
+        b.route_id == a.route_id &&
+        b.trip_start_date == a.trip_start_date &&
+        b.trip_start_time == a.trip_start_time &&
+        b.origin_type == OriginType::Realtime
+    }
+
+    departures.retain(|dep| {
+        dep.origin_type == OriginType::Realtime || !departures_copy.iter().any(|dc| is_duplicate(dep, dc))
+    });
+
+    println!("Kept {} departure predictions after removing duplicates.", departures.len());
+
+    departures.sort_by_cached_key(|dep| dep.get_absolute_time_for_probability(0.50).unwrap());
 
     let doc: DOMTree<String> = html!(
         <html>
@@ -191,7 +233,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
                 <style>{ text!("{}", CSS)}</style>
             </head>
             <body>
-                <h1>{ text!("Abfahrten für {}", stop_name) }</h1>
+                <h1>{ text!("Abfahrten für {} von {} bis {}", stop_name, min_time.format(fmt), max_time.format(fmt)) }</h1>
                 <ul>
                     { 
                         departures.iter().map(|dep| {
@@ -213,31 +255,31 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
 }
 
 fn create_departure_output(dep: &DbPrediction, monitor: &Arc<Monitor>) -> FnResult<String> {
-    let route_name = monitor.schedule.get_route(&dep.route_id)?.short_name.clone();
-    let trip = monitor.schedule.get_trip(&dep.trip_id)?;
-    let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
-    let stop_index = trip.get_stop_index_by_id(&dep.stop_id).or_error("stop_index is None")?;
-    let time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
-    let time_absolute = date_and_time(&dep.trip_start_date, time_seconds as i32);
-    let min = dep.prediction_min;
-    let max = dep.prediction_max;
-    let p05 = dep.prediction_curve.x_at_y(0.05);
-    let p50 = dep.prediction_curve.x_at_y(0.50);
-    let p95 = dep.prediction_curve.x_at_y(0.95);
+    let md = dep.meta_data.as_ref().unwrap();
+    let p_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
+    let p_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
+    let p_95 = dep.get_absolute_time_for_probability(0.95).unwrap();
+    
+    // let mut fg = Figure::new();
+    // let axes = fg.axes2d();
+    // let c_plot = dep.prediction_curve.get_values_as_vectors();
+    // axes.lines_points(&c_plot.0, &c_plot.1, &[Color("grey")]);
+    // // TODO generate a unique name for a temporary file here, 
+    // // generate an img-Element with that filename, and then
+    // // when the request for the image arrives, wait until the file is written.
+    // fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
 
-    let mut fg = Figure::new();
-    let axes = fg.axes2d();
-    let c_plot = dep.prediction_curve.get_values_as_vectors();
-    axes.lines_points(&c_plot.0, &c_plot.1, &[Color("grey")]);
-    // TODO generate a unique name for a temporary file here, 
-    // generate an img-Element with that filename, and then
-    // when the request for the image arrives, wait until the file is written.
-    fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
+    let fmt = "%H:%M";
 
-    Ok(format!("{} nach {} um {} ({} bis {}, zu 95% zwischen {} und {}, Median {})", route_name, headsign, time_absolute, min, max, p05, p95, p50))
+    Ok(format!("{} nach {} um {} ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
+        md.route_name, md.headsign, 
+        md.scheduled_time_absolute.format(fmt), dep.prediction_min.format(fmt), dep.prediction_max.format(fmt), 
+        p_05.format(fmt), p_95.format(fmt), p_50.format(fmt),
+        dep.origin_type, dep.precision_type, dep.sample_size
+    ))
 }
 
-
+#[derive(Debug, Clone)]
 struct DbPrediction {
     pub route_id: String,
     pub trip_id: String,
@@ -250,6 +292,43 @@ struct DbPrediction {
     pub sample_size: i32,
     pub prediction_curve: IrregularDynamicCurve<f32, f32>,
     pub stop_id: String,
+
+    pub meta_data: Option<DbPredictionMetaData>,
+}
+
+#[derive(Debug, Clone)]
+struct DbPredictionMetaData {
+    pub route_name : String,
+    pub headsign : String,
+    pub stop_index : usize,
+    pub scheduled_time_seconds : u32,
+    pub scheduled_time_absolute : NaiveDateTime,
+}
+
+impl DbPrediction {
+    pub fn compute_meta_data(&mut self, monitor: &Arc<Monitor>) -> FnResult<()> {
+        let trip = monitor.schedule.get_trip(&self.trip_id)?;
+        let route_name = monitor.schedule.get_route(&self.route_id)?.short_name.clone();
+        let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
+        let stop_index = trip.get_stop_index_by_id(&self.stop_id).or_error("stop_index is None")?;
+        let scheduled_time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
+        let scheduled_time_absolute = date_and_time(&self.trip_start_date, scheduled_time_seconds as i32);
+
+        self.meta_data = Some(DbPredictionMetaData{ 
+            route_name,
+            headsign,
+            stop_index,
+            scheduled_time_seconds,
+            scheduled_time_absolute,
+        });
+        
+        Ok(())
+    }
+
+    pub fn get_absolute_time_for_probability(&self, prob: f32) -> FnResult<NaiveDateTime> {
+        let x = self.prediction_curve.x_at_y(prob);
+        Ok(date_and_time(&self.trip_start_date, self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_seconds as i32 + x as i32))
+    }
 }
 
 impl FromRow for DbPrediction {
@@ -267,6 +346,7 @@ impl FromRow for DbPrediction {
             prediction_curve:   IrregularDynamicCurve::<f32, f32>
                                     ::deserialize_compact(row.get_opt(9).unwrap().unwrap()),
             stop_id:            row.get_opt(10).unwrap().unwrap(),
+            meta_data:          None,
         })
     }
 }
