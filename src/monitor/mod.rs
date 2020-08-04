@@ -1,9 +1,9 @@
 use crate::{FnResult, Main, date_and_time, OrError};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration};
+use chrono::{NaiveDate, NaiveDateTime, Utc, Duration};
 use clap::{App, ArgMatches};
 use crate::types::*;
 use std::sync::Arc;
-use gtfs_structures::{Gtfs, Trip, Stop};
+use gtfs_structures::Gtfs;
 use mysql::*;
 use mysql::prelude::*;
 
@@ -13,8 +13,6 @@ use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use itertools::Itertools;
-
-use gnuplot::*;
 
 mod css;
 use css::CSS;
@@ -56,7 +54,7 @@ impl Monitor {
 
 async fn serve_monitor(monitor: Arc<Monitor>) {
     let port = 3000;
-    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let monitor = monitor.clone();
 
     // A `Service` is needed for every connection, so this
@@ -85,7 +83,6 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
     }
 }
 
-#[feature(slice_patterns)]
 async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
     let mut response = Response::new(Body::empty());
 
@@ -150,9 +147,9 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, arrival: IrregularDynamicCurve<f32, f32>, journey: &[String]) {
+fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, _arrival: IrregularDynamicCurve<f32, f32>, journey: &[String]) {
     if journey.len() == 1 {
-        generate_stop_page(response, monitor, journey[0].clone());
+        let _res = generate_stop_page(response, monitor, journey[0].clone());
     } else {
         generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Currently, only journeys with length 1 are supported, found '{:?}'.", journey));
     }
@@ -237,7 +234,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
                 <ul>
                     { 
                         departures.iter().map(|dep| {
-                            match create_departure_output(&dep, &monitor) {
+                            match create_departure_output(&dep) {
                                 Ok(string) => html!(<li>{text!("{}", string)}</li>),
                                 Err(e) => html!(<li>{text!("Fehler: {:?}", e)}</li>)
                             }
@@ -254,7 +251,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     Ok(())
 }
 
-fn create_departure_output(dep: &DbPrediction, monitor: &Arc<Monitor>) -> FnResult<String> {
+fn create_departure_output(dep: &DbPrediction) -> FnResult<String> {
     let md = dep.meta_data.as_ref().unwrap();
     let p_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
     let p_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
