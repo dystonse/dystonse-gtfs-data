@@ -9,7 +9,7 @@ use super::{TimeSlot, CurveSetData, CurveData, EventPair, EventType};
 
 use simple_error::bail;
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
 pub struct CurveSetKey {
     pub start_stop_index: u32,
     pub end_stop_index: u32,

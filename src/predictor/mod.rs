@@ -266,7 +266,8 @@ impl<'a> Predictor<'a> {
                     time_slot: ts.clone()
                 };
                 let potential_curveset_data = &rvdata.curve_sets[et].get(&key);
-                let curve_set_data = potential_curveset_data.or_error("No specific curveset found")?; 
+                let route_name = self.schedule.get_route(route_id).unwrap().short_name;
+                let curve_set_data = potential_curveset_data.or_error(format!("No specific curveset found for route {}, key {:?}", route_name, key))?; 
                 if curve_set_data.curve_set.curves.is_empty() {
                     bail!("Found specific curveset, but it was empty.");
                 }
