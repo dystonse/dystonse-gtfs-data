@@ -11,7 +11,7 @@ use std::{thread, time};
 use ureq::get;
 use mysql::*;
 use mysql::prelude::*;
-use chrono::{NaiveDate, NaiveTime, Local, Duration, DateTime, Utc};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Local, Duration, DateTime, Utc};
 use std::sync::Mutex;
 use std::collections::HashMap;
 
@@ -44,7 +44,8 @@ pub struct Importer<'a>  {
     verbose: bool,
     perform_cleanup: bool,
     last_ping_time_mutex: Mutex<Option<DateTime<Local>>>,
-    current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>> //used in per_schedule_importer, but declared here for persistence
+    current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>>, //used in per_schedule_importer, but declared here for persistence
+    timeout_until: Mutex<Option<NaiveDateTime>>, //used in scheduled_predictions_importer, but declared here for persistence
 }
 
 
@@ -134,6 +135,7 @@ impl<'a> Importer<'a>  {
             perform_cleanup: args.is_present("cleanup"),
             last_ping_time_mutex: Mutex::new(None),
             current_prediction_basis: Mutex::new(HashMap::new()),
+            timeout_until: Mutex::new(None),
         }
     }
 
