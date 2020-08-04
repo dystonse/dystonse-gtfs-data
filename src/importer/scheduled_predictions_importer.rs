@@ -21,6 +21,7 @@ pub struct ScheduledPredictionsImporter<'a> {
     verbose: bool,
     predictor: Predictor<'a>,
     predictions_statements: Option<BatchedStatements>,
+    timeout_until: Option<NaiveDateTime>,
 }
 
 lazy_static!{
@@ -35,6 +36,10 @@ lazy_static!{
     // The time range will be extended until this number of trips is found.
     // Don't set this const below 1 or predictions may stall forever.
     static ref PREDICTION_MIN_BATCH_COUNT : usize = 250;
+
+    // How long we pause scheduled scheduled predictions when we reached
+    // the end of the PREDICTION_BUFFER_SIZE
+    static ref PREDICTION_FULL_TIMEOUT : Duration = Duration::minutes(20);
 }
 
 impl<'a> ScheduledPredictionsImporter<'a> {
@@ -49,12 +54,23 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             verbose,
             predictor: Predictor::new(importer.main, &importer.main.args)?,
             predictions_statements: None,
+            timeout_until: None,
         };
         instance.init_predictions_statements()?;
         Ok(instance)
     }
 
-    pub fn make_scheduled_predictions(&self) -> FnResult<()> {
+    pub fn make_scheduled_predictions(&mut self) -> FnResult<()> {
+        if let Some(until) = self.timeout_until {
+            if Utc::now().naive_utc() < until {
+                println!("Skipping scheduled prediction because of timeout until {}.", until);
+                return Ok(());
+            } else {
+                println!("Reached end of timeout.");
+                self.timeout_until = None;
+            }
+        }
+
         // we use absolute timestamps of scheduled trip start times to track
         // which is the latest trip for which we already have schedule-based
         // predictions
@@ -68,6 +84,8 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         let time_limit = Utc::now().naive_utc() + *PREDICTION_BUFFER_SIZE;
 
         let mut end = if begin >= (time_limit - *PREDICTION_MIN_BATCH_DURATION) {
+            self.timeout_until = Some(Utc::now().naive_utc() + *PREDICTION_FULL_TIMEOUT);
+            println!("Prediction buffer will be full after this iteration, setting timeout.");
             time_limit
         } else {
             begin + *PREDICTION_MIN_BATCH_DURATION

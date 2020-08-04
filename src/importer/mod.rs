@@ -313,7 +313,7 @@ impl<'a> Importer<'a>  {
                     },
                     Ok(false) => {
                         match ScheduledPredictionsImporter::new(&self, self.verbose) {
-                            Ok(spi) => {
+                            Ok(mut spi) => {
                                 if self.verbose {
                                     println!("No realtime data to import. Starting to import predictions from schedule...");
                                 }
