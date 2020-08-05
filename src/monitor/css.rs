@@ -6,4 +6,7 @@ body {
 .dropdown input {
     width: 100%;
 }
+a:link, a:visited, a:hover {
+    color: #fff;
+}
 ";

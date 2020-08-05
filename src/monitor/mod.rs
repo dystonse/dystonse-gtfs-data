@@ -1,7 +1,8 @@
 use crate::{FnResult, Main, date_and_time, OrError};
-use chrono::{NaiveDate, NaiveDateTime, Utc, Duration};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration};
 use clap::{App, ArgMatches};
 use crate::types::*;
+use crate::FileCache;
 use std::sync::Arc;
 use gtfs_structures::Gtfs;
 use mysql::*;
@@ -21,12 +22,14 @@ use typed_html::{html, dom::DOMTree, text};
 use percent_encoding::percent_decode_str;
 
 use dystonse_curves::{IrregularDynamicCurve, Tup, Curve};
+use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct Monitor {
     pub schedule: Arc<Gtfs>,
     pub pool: Arc<Pool>,
-    pub source: String
+    pub source: String,
+    pub stats: Arc<DelayStatistics>
 }
 
 impl Monitor {
@@ -36,10 +39,13 @@ impl Monitor {
 
     /// Runs the actions that are selected via the command line args
     pub fn run(main: &Main, _sub_args: &ArgMatches) -> FnResult<()> {
+        let stats = FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).or_error("No delay statistics (all_curves.exp) found.")?;
+
         let monitor = Monitor {
             schedule: main.get_schedule()?.clone(),
             pool: main.pool.clone(),
             source: main.source.clone(),
+            stats,
         };
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
@@ -104,6 +110,9 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
             let arrival = IrregularDynamicCurve::new(points);
             handle_route_with_stop(&mut response, &monitor, arrival, journey);
+        },
+        ["info", route_id, trip_id, date_text, time_text] => {
+            generate_info_page(&mut response, &monitor, String::from(*route_id), String::from(*trip_id), NaiveDate::from_str(date_text).unwrap(), NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0));
         },
         slice => {
             generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
@@ -235,7 +244,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
                     { 
                         departures.iter().map(|dep| {
                             match create_departure_output(&dep) {
-                                Ok(string) => html!(<li>{text!("{}", string)}</li>),
+                                Ok(li) => li,
                                 Err(e) => html!(<li>{text!("Fehler: {:?}", e)}</li>)
                             }
                         })
@@ -251,7 +260,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     Ok(())
 }
 
-fn create_departure_output(dep: &DbPrediction) -> FnResult<String> {
+fn create_departure_output(dep: &DbPrediction) -> FnResult<Box<typed_html::elements::li<String>>> {
     let md = dep.meta_data.as_ref().unwrap();
     let p_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
     let p_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -268,12 +277,81 @@ fn create_departure_output(dep: &DbPrediction) -> FnResult<String> {
 
     let fmt = "%H:%M";
 
-    Ok(format!("{} nach {} um {} ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
-        md.route_name, md.headsign, 
-        md.scheduled_time_absolute.format(fmt), dep.prediction_min.format(fmt), dep.prediction_max.format(fmt), 
+    let link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
+    let link_text = text!("{} nach {} um {}", md.route_name, md.headsign, md.scheduled_time_absolute.format(fmt));
+    let after_text = text!(" ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
+        dep.prediction_min.format(fmt), dep.prediction_max.format(fmt), 
         p_05.format(fmt), p_95.format(fmt), p_50.format(fmt),
         dep.origin_type, dep.precision_type, dep.sample_size
-    ))
+    );
+
+    Ok(html!(<li><a href=link>{link_text}</a>{after_text}</li>))
+}
+
+fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, route_id: String, trip_id: String, start_date: NaiveDate, start_time: NaiveTime) -> FnResult<()> {
+    let route = monitor.schedule.get_route(&route_id)?;
+    let route_name = route.short_name.clone();
+    let trip = monitor.schedule.get_trip(&trip_id)?;
+    let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
+    let route_variant = trip.route_variant.as_ref().unwrap();
+
+    
+    let doc: DOMTree<String> = html!(
+        <html>
+            <head>
+                <title>"ÖPNV-Reiseplaner"</title>
+                <style>{ text!("{}", CSS)}</style>
+            </head>
+            <body>
+                <h1>{ text!("Informationen für Linie {} nach {}", route_name, headsign)}</h1>
+                <h2>"Statistische Analysen"</h2>
+                { 
+                    match monitor.stats.specific.get(&route_id) {
+                        None => html!(<ul><li>{text!("Keine Linien-spezifischen Statistiken  vorhanden.")}</li></ul>),
+                        Some(route_data) => {
+                            match route_data.variants.get(&route_variant.parse()?) {
+                                None => html!(<ul><li>{text!("Keine Statistiken für die Linien-Variante {} vorhanden", route_variant)}</li></ul>),
+                                Some(route_variant_data) => html!(<ul>{ 
+                                    EventType::TYPES.iter().map(|et| {
+                                        let curve_set_keys = route_variant_data.curve_sets[**et].keys();
+                                        let general_keys = route_variant_data.general_delay[**et].keys();
+                                        html!(<li>{
+                                            text!("Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves. ", **et, curve_set_keys.len(), general_keys.len())
+                                        }<ul>{
+                                            TimeSlot::TIME_SLOTS_WITH_DEFAULT.iter().map(|ts| {
+                                                html!(
+                                                <li>{
+                                                    text!("Timeslot: {}", ts.description)
+                                                    }<ul>{
+                                                        route_variant_data.curve_sets[**et].keys().filter_map(|key: &CurveSetKey| {
+                                                            if key.time_slot.id == ts.id {
+                                                                let data : &CurveSetData = route_variant_data.curve_sets[**et].get(&key).unwrap();
+                                                                Some(html!(<li>{
+                                                                    text!("Von {} nach {} ({} Samples)", key.start_stop_index, key.end_stop_index, data.sample_size)
+                                                                }</li>))
+                                                            } else { None }
+                                                        })
+                                                    }</ul>
+                                                </li>)
+                                            })
+                                            
+                                        }</ul></li>)
+                                    })
+                                }</ul>)
+                            }
+                        }
+                    }
+                }
+                <h2>"Echtzeitdaten"</h2>
+                "(Noch nicht implementiert)"
+            </body>
+        </html>
+    );
+    let doc_string = doc.to_string();
+    *response.body_mut() = Body::from(doc_string);
+    response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
