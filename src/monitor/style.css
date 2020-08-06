@@ -1,10 +1,352 @@
 body {
-    color: #dddddd;
-    background-color: #666666;
+    color: #000;
+    background-color: #fff;
 }
+
 .dropdown input {
     width: 100%;
 }
+
 a:link, a:visited, a:hover {
+    color: #aaa;
+}
+
+body {
+    padding: 20px;
+    font-family: "Helvetica Neue", Helvetica;
+}
+
+.header {
+    display: flex;
+    padding-bottom: 5px;
+    min-width: 100%;
+     color: #000;
+    border-radius: 5px;
+    font-size: 22px;
+    font-weight: 300;
+    align-items: center;
+}
+
+.outer {
+    display: block;
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    margin-bottom: 15px;
+    overflow: hidden;
+    text-decoration: none;
+}
+
+.outer:hover {
+    border-color: #000;
+}
+
+.outer:hover .line {
+    background-color: #ccc;
+}
+
+.line {
+    display: flex;
+    min-width: 100%;
+    background-color: #eee;
+    color: #000;
+    font-size: 38px;
+    font-weight: 400;
+    align-items: center;
+    padding-top: 10px;
+    padding-bottom: 5px;
+}
+
+.timing {
+    display: flex;
+    padding-left: 5px;
+    padding-right: 5px;
+    align-items: center;
+}
+
+/*
+.head,
+.area {
+    border:1px solid black;
+}*/
+
+.timing {
+    flex-basis: 330px;
+}
+
+.time {
+    margin-left: 10px;
+    flex-basis: 160px;
+}
+
+.min, .med, .max {
+    flex-basis: 60px;
+    text-align: center;
+    font-size: 28px;
+}
+
+.type {
+    flex-basis: 80px;
+    padding-right: 10px;
+}
+
+.route {
+    flex-basis: 100px;
+    text-align: center;
+}
+
+.headsign {
+    flex-basis: 160px;
+    flex-grow: 1;
+}
+
+.source {
+    flex-basis: 40px;
+    margin-right: 10px;
+}
+
+.area.min,
+.area.max {
+    font-weight: 100;
+}
+
+.area.med {
+    font-weight: 500;
+}
+
+.bubble {
+    display: block;
+    border-radius: 20px;
+    width: 40px;
+    height: 40px;
     color: #fff;
+    font-size: 15px;
+    text-align: center;
+    line-height: 40px;
+    text-align: center;
+    font-weight: 500;
+}
+
+.head.type {
+    text-align: right;
+}
+
+.area.type .bubble {
+    margin-left: auto;
+}
+
+.area.type .bubble.b {
+    background-color: rgb(139, 81, 162);
+}
+.area.type .bubble.s {
+    background-color: rgb(69, 179, 5);
+}
+.area.type .bubble.u {
+    background-color: rgb(45, 124, 244);
+}
+.area.type .bubble.m {
+    background-color: #c00;
+    border-radius: 0;
+}
+.area.type .bubble.f {
+    background-color: rgb(65, 174, 247);
+}
+.area.type .bubble.d {
+    background-color: #aaa;
+}
+
+.area.source .bubble {
+    background-color: #0a0;
+}
+
+.area.type .bubble {
+    margin-left: auto;
+}
+
+.area.source .bubble.a {
+    background-color: rgb(1, 150, 55);
+}
+.area.source .bubble.b {
+    background-color: rgb(177, 186, 5);
+}
+.area.source .bubble.c {
+    background-color: rgb(193, 146, 28);
+}
+.area.source .bubble.d {
+    background-color: rgb(187, 41, 15);
+}
+.area.source .bubble.e {
+    background-color: rgb(110, 111, 111);
+}
+
+
+.area.headsign {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-stretch: condensed;
+    font-weight: 300;
+}
+
+.visu {
+    min-width: 100%;
+    background-color: #90B9CA;
+    color: #000;
+    height: 12px;
+    background-image: url(../grad.png);
+    background-size: 100% 100%;
+    image-rendering: pixelated;
+}
+
+.timeline {
+    padding-bottom: 20px;
+    position: relative;
+}
+
+.timebar {
+    position: absolute;
+    width: 3px;
+    top: 5px;
+    bottom: 0;
+    background-color: #90B9CA;
+    z-index: -4;
+}
+
+.timebar-5 {
+    position: absolute;
+    width: 1px;
+    top: 5px;
+    bottom: 0;
+    background-color: #90B9CA;
+    z-index: -4;
+    margin-bottom: 20px;
+}
+
+.timebar span {
+    position: absolute;
+    display: block;
+    top: 100%;
+    left: -20px;
+    right: -20px;
+    text-align: center;
+    color: #90B9CA;
+    font-weight: 300;
+    font-size: 14px;
+}
+
+@media (max-width: 1000px) {
+
+    .header {
+        font-size: 18px;
+    }
+
+    .line {
+        font-size: 24px;
+    }
+
+    .timing {
+        flex-basis: 220px;
+    }
+
+    .time {
+        margin-left: 10px;
+        flex-basis: 120px;
+    }
+
+    .min, .med, .max {
+        flex-basis: 40px;
+        text-align: center;
+        font-size: 24px;
+    }
+
+    .type {
+        flex-basis: 50px;
+    }
+
+    .route {
+        flex-basis: 70px;
+    }
+
+    .headsign {
+        flex-basis: 120px;
+    }
+
+    .bubble {
+        border-radius: 15px;
+        width: 30px;
+        height: 30px;
+        line-height: 30px;
+        font-weight: 300;
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 660px) {
+    body {
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    h1 {
+        font-size: 26px;
+        font-weight: 500;
+    }
+
+    .timing {
+        flex-basis: 80px;
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .time {
+        grid-column: span 3;
+        text-align: center;
+        font-size: 18px;
+    }
+
+    .line {
+        padding-top: 5px;
+        font-size: 22px;
+    }
+
+    .outer {
+        margin-bottom: 10px;
+    }
+
+    .line.time {
+        font-size: 24px;
+    }
+
+    .min, .med, .max {
+        text-align: center;
+        font-size: 18px;
+    }
+
+    .route {
+        flex-basis: 50px;
+    }
+
+    .area.headsign {
+        font-weight: 200;
+        font-stretch: unset;
+        letter-spacing: -0.025em;
+    }
+
+    .type,
+    .source {
+        flex-basis: 20px;
+    }
+
+    .bubble {
+        border-radius: 10px;
+        width: 20px;
+        height: 20px;
+        line-height: 20px;
+        font-weight: 300;
+        font-size: 9px;
+    }
+
+    .timebar span {
+        margin-top: 20px;
+        transform: rotate(-90deg);
+    }
 }

@@ -4,7 +4,7 @@ use clap::{App, ArgMatches};
 use crate::types::*;
 use crate::FileCache;
 use std::sync::Arc;
-use gtfs_structures::Gtfs;
+use gtfs_structures::{Gtfs, RouteType};
 use mysql::*;
 use mysql::prelude::*;
 
@@ -189,7 +189,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     // get all the data needed to actually show something
     
     let mut departures : Vec<DbPrediction> = Vec::new();
-    let min_time = Utc::now().naive_utc();
+    let min_time = Utc::now().naive_utc() - Duration::hours(4);
     let max_time = min_time + Duration::minutes(30);
     let fmt = "%H:%M";
 
@@ -246,10 +246,23 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     <head>
         <title>ÖPNV-Reiseplaner</title>
         <style>{css}</style>
+        <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
         <h1>Abfahrten für {stop_name} von {min_time} bis {max_time}</h1>
-        <ul>"#,
+            <div class="header">
+            <div class="timing">
+                <div class="head time">Plan</div>
+                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">-</div>
+                <div class="head med">○</div>
+                <div class="head max">+</div>
+            </div>
+            <div class="head type">Typ</div>
+            <div class="head route">Linie</div>
+            <div class="head headsign">Ziel</div>
+            <div class="head source">Daten</div>
+        </div>
+        <div class="timeline">"#,
         css = CSS,
         stop_name = stop_name,
         min_time = min_time.format(fmt),
@@ -258,9 +271,16 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     for dep in departures {
         write_departure_output(&mut w, &dep)?;
     }
+    for m in (0..31).step_by(1) {
+        writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+            class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
+            percent = m as f32 / 30.0 * 100.0,
+            time = (min_time + Duration::minutes(m)).format(fmt)
+        );
+    }
     write!(&mut w, r#"
-        </ul>
-    </body>
+    </div>
+</body>
 </html>"#,
     );
     *response.body_mut() = Body::from(w);
@@ -271,9 +291,12 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
 
 fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
-    let p_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
-    let p_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
-    let p_95 = dep.get_absolute_time_for_probability(0.95).unwrap();
+    let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
+    let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
+    let a_99 = dep.get_absolute_time_for_probability(0.99).unwrap();
+    let r_01 = dep.get_relative_time_for_probability(0.01) / 60;
+    let r_50 = dep.get_relative_time_for_probability(0.50) / 60;
+    let r_99 = dep.get_relative_time_for_probability(0.99) / 60;
     
     // let mut fg = Figure::new();
     // let axes = fg.axes2d();
@@ -284,23 +307,86 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
     // // when the request for the image arrives, wait until the file is written.
     // fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
 
-    let fmt = "%H:%M";
-
     let link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
-    let link_text = format!("{} nach {} um {}", md.route_name, md.headsign, md.scheduled_time_absolute.format(fmt));
-    let after_text = format!(" ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
-        dep.prediction_min.format(fmt), dep.prediction_max.format(fmt), 
-        p_05.format(fmt), p_95.format(fmt), p_50.format(fmt),
-        dep.origin_type, dep.precision_type, dep.sample_size
-    );
+
+    let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
+        (OriginType::Realtime, PrecisionType::Specific) => ("E","Aktuelle Echtzeitdaten"),
+        (OriginType::Realtime, PrecisionType::FallbackSpecific) => ("E","Aktuelle Echtzeitdaten"),
+        (OriginType::Realtime, _) => ("U","Ungenutzte Echtzeitdaten"),
+        (OriginType::Schedule, _) => ("P","Fahrplandaten"),
+        (OriginType::Unknown, _)  => ("?","Unbekannte Datenquelle")
+    };
+
+    let (precision_letter, precision_description) = match dep.precision_type {
+        PrecisionType::Specific           => ("S+", "Spezifische Prognose für diese Linie, Haltestelle und Tageszeit"),
+        PrecisionType::FallbackSpecific   => ("S" , "Spezifische Prognose für diese Linie und Haltestelle"),
+        PrecisionType::SemiSpecific       => ("S-", "Spezifische Prognose für diese Linie und Haltestelle, jedoch ohne Echtzeitdaten zu nutzen"),
+        PrecisionType::General            => ("G+", "Generelle Prognose für Fahrzeugart, Tageszeit und Routenabschnitt"),
+        PrecisionType::FallbackGeneral    => ("G" , "Generelle Prognose für Fahrzeugart"),
+        PrecisionType::SuperGeneral       => ("G-", "Standardprognose, sehr ungenau"),
+        PrecisionType::Unknown            => ("?" , "Unbekanntes Prognoseverfahren"),
+    };
+
+    let (type_letter, type_class) = match md.route_type {
+        RouteType::Bus     => ("Bus", "b"),
+        RouteType::Rail    => ("Bahn"  , "s"),
+        RouteType::Subway  => ("U"  , "u"),
+        RouteType::Tramway => ("Tram"  , "m"),
+        RouteType::Ferry   => ("F"  , "f"),
+        _                  => ("?"  , "d"),
+    };
+
+    let source_class = match (origin_letter, precision_letter) {
+        ("E","S+") => "a",
+        ("E","S") => "a",
+        (_,"S-") => "b",
+        (_,"G+") => "c",
+        (_,"G") => "d",
+        (_,"G-") => "d",
+        (_,_) => "e",
+    };
 
     write!(&mut w, r#"
-            <li><a href="{link}">{link_text}</a>{after_text}</li>"#,
-    link = link,
-    link_text = link_text,
-    after_text = after_text
+        <a href="{link}" class="outer">
+            <div class="line">
+                <div class="timing">
+                    <div class="area time">{time}</div>
+                    <div class="area min" title="Frühestens {min_tooltip}">{min}</div>
+                    <div class="area med" title="Vermutlich {med_tooltip}">{med}</div>
+                    <div class="area max" title="Spätstens {max_tooltip}">{max}</div>
+                </div>
+                <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
+                <div class="area route">{route_name}</div>
+                <div class="area headsign">{headsign}</div>
+                <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
+            </div>
+            <div class="visu"></div>
+        </a>"#,
+        link = link,
+        time = md.scheduled_time_absolute.format("%H:%M"),
+        min = format_delay(r_01),
+        min_tooltip = a_01.format("%H:%M:%S"),
+        med = format_delay(r_50),
+        med_tooltip = a_50.format("%H:%M:%S"),
+        max = format_delay(r_99),
+        max_tooltip = a_99.format("%H:%M:%S"),
+        type_letter = type_letter,
+        type_class = type_class,
+        route_name = md.route_name,
+        headsign = md.headsign,
+        source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
+        source_short = format!("{}/{}", origin_letter, precision_letter),
+        source_class = source_class,
     );
     Ok(())
+}
+
+fn format_delay(delay: i32) -> String {
+    if delay > 0 {
+        format!("+{}", delay)
+    } else  {
+        format!("{}", delay)
+    }
 }
 
 fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, route_id: String, trip_id: String, start_date: NaiveDate, start_time: NaiveTime) -> FnResult<()> {
@@ -394,12 +480,15 @@ struct DbPredictionMetaData {
     pub stop_index : usize,
     pub scheduled_time_seconds : u32,
     pub scheduled_time_absolute : NaiveDateTime,
+    pub route_type: RouteType,
 }
 
 impl DbPrediction {
     pub fn compute_meta_data(&mut self, monitor: &Arc<Monitor>) -> FnResult<()> {
         let trip = monitor.schedule.get_trip(&self.trip_id)?;
-        let route_name = monitor.schedule.get_route(&self.route_id)?.short_name.clone();
+        let route = monitor.schedule.get_route(&self.route_id)?;
+        let route_name = route.short_name.clone();
+        let route_type = route.route_type;
         let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
         let stop_index = trip.get_stop_index_by_id(&self.stop_id).or_error("stop_index is None")?;
         let scheduled_time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
@@ -411,6 +500,7 @@ impl DbPrediction {
             stop_index,
             scheduled_time_seconds,
             scheduled_time_absolute,
+            route_type,
         });
         
         Ok(())
@@ -419,6 +509,10 @@ impl DbPrediction {
     pub fn get_absolute_time_for_probability(&self, prob: f32) -> FnResult<NaiveDateTime> {
         let x = self.prediction_curve.x_at_y(prob);
         Ok(date_and_time(&self.trip_start_date, self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_seconds as i32 + x as i32))
+    }
+
+    pub fn get_relative_time_for_probability(&self, prob: f32) -> i32 {
+        self.prediction_curve.x_at_y(prob) as i32
     }
 }
 
