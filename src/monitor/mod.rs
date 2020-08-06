@@ -189,7 +189,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
     // get all the data needed to actually show something
     
     let mut departures : Vec<DbPrediction> = Vec::new();
-    let min_time = Utc::now().naive_utc() - Duration::hours(4);
+    let min_time = Utc::now().naive_utc();
     let max_time = min_time + Duration::minutes(30);
     let fmt = "%H:%M";
 
