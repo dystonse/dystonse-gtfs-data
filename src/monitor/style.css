@@ -1,4 +1,3 @@
-pub const CSS: &str = r"
 body {
     color: #dddddd;
     background-color: #666666;
@@ -9,4 +8,3 @@ body {
 a:link, a:visited, a:hover {
     color: #fff;
 }
-";

@@ -193,7 +193,7 @@ impl<'a> Predictor<'a> {
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
         // unwrap that, or try a default prediction if it failed:
-        specific_prediction.or_else(|e| {
+        specific_prediction.or_else(|_| {
             // eprintln!("⚠️ No specific_prediction because: {}", e);
 
             // prepare some more lookup parameters

@@ -15,14 +15,13 @@ use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use itertools::Itertools;
 
-mod css;
-use css::CSS;
-
-use typed_html::{html, dom::DOMTree, text};
 use percent_encoding::percent_decode_str;
 
 use dystonse_curves::{IrregularDynamicCurve, Tup, Curve};
 use std::str::FromStr;
+use std::io::Write;
+
+const CSS:&'static str = include_str!("style.css");
 
 #[derive(Clone)]
 pub struct Monitor {
@@ -124,35 +123,44 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
 
 fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
     println!("{} Haltestellen gefunden.", monitor.schedule.stops.len());
-    //TODO: handle the different GTFS_SOURCE_IDs in some way
-    let doc: DOMTree<String> = html!(
-        <html>
-            <head>
-                <title>"ÖPNV-Reiseplaner"</title>
-                <style>{ text!("{}", CSS)}</style>
-            </head>
-            <body>
-                <h1>"Reiseplaner"</h1>
-                <p class="official">
-                    "Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen."
-                </p>
-                <form method="get" action="/stop-by-name">
-                    <p class="dropdown" >
-                        <label for="start">"Start-Haltestelle:"</label>
-                        <input list="stop_list" id="start" name="start" />
-                        <datalist id="stop_list">
-                            { monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().map(|name| html!(
-                                <option>{ text!("{}", name) }</option>
-                            )) }
-                        </datalist>
-                    </p>
-                    <input type="submit" value="Absenden"/>
-                </form>
-            </body>
-        </html>
+    // TODO: handle the different GTFS_SOURCE_IDs in some way
+    // TODO: compress output, of this page specifically. Adding compression to hyper is
+    // explained / shown in the middle of this blog post: https://dev.to/deciduously/hyper-webapp-template-4lj7
+
+    let mut w = Vec::new();
+    write!(&mut w, r#"
+<html>
+    <head>
+        <title>ÖPNV-Reiseplaner</title>
+        <style>
+{css}
+        </style>
+    </head>
+    <body>
+        <h1>Reiseplaner</h1>
+        <p class="official">
+            Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
+        </p>
+        <form method="get" action="/stop-by-name">
+            <p class="dropdown" >
+                <label for="start">Start-Haltestelle:</label>
+                <input list="stop_list" id="start" name="start" />
+                <datalist id="stop_list">"#,
+    css=CSS);
+    for name in monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
+        write!(&mut w, r#"
+                    <option>{name}</option>"#,
+        name=name);
+    }
+    write!(&mut w, r#"
+                </datalist>
+            </p>
+            <input type="submit" value="Absenden"/>
+        </form>
+    </body>
+</html>"#
     );
-    let doc_string = doc.to_string();
-    *response.body_mut() = Body::from(doc_string);
+    *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
@@ -232,35 +240,36 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
 
     departures.sort_by_cached_key(|dep| dep.get_absolute_time_for_probability(0.50).unwrap());
 
-    let doc: DOMTree<String> = html!(
-        <html>
-            <head>
-                <title>"ÖPNV-Reiseplaner"</title>
-                <style>{ text!("{}", CSS)}</style>
-            </head>
-            <body>
-                <h1>{ text!("Abfahrten für {} von {} bis {}", stop_name, min_time.format(fmt), max_time.format(fmt)) }</h1>
-                <ul>
-                    { 
-                        departures.iter().map(|dep| {
-                            match create_departure_output(&dep) {
-                                Ok(li) => li,
-                                Err(e) => html!(<li>{text!("Fehler: {:?}", e)}</li>)
-                            }
-                        })
-                    }
-                </ul>
-            </body>
-        </html>
+    let mut w = Vec::new();
+    write!(&mut w, r#"
+<html>
+    <head>
+        <title>ÖPNV-Reiseplaner</title>
+        <style>{css}</style>
+    </head>
+    <body>
+        <h1>Abfahrten für {stop_name} von {min_time} bis {max_time}</h1>
+        <ul>"#,
+        css = CSS,
+        stop_name = stop_name,
+        min_time = min_time.format(fmt),
+        max_time = max_time.format(fmt)
     );
-    let doc_string = doc.to_string();
-    *response.body_mut() = Body::from(doc_string);
+    for dep in departures {
+        write_departure_output(&mut w, &dep)?;
+    }
+    write!(&mut w, r#"
+        </ul>
+    </body>
+</html>"#,
+    );
+    *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
     Ok(())
 }
 
-fn create_departure_output(dep: &DbPrediction) -> FnResult<Box<typed_html::elements::li<String>>> {
+fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let p_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
     let p_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -278,77 +287,84 @@ fn create_departure_output(dep: &DbPrediction) -> FnResult<Box<typed_html::eleme
     let fmt = "%H:%M";
 
     let link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
-    let link_text = text!("{} nach {} um {}", md.route_name, md.headsign, md.scheduled_time_absolute.format(fmt));
-    let after_text = text!(" ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
+    let link_text = format!("{} nach {} um {}", md.route_name, md.headsign, md.scheduled_time_absolute.format(fmt));
+    let after_text = format!(" ({} bis {}, zu 95% zwischen {} und {}, Median {}), Origin: {:?}, Precision: {:?}, Sample Size: {}", 
         dep.prediction_min.format(fmt), dep.prediction_max.format(fmt), 
         p_05.format(fmt), p_95.format(fmt), p_50.format(fmt),
         dep.origin_type, dep.precision_type, dep.sample_size
     );
 
-    Ok(html!(<li><a href=link>{link_text}</a>{after_text}</li>))
+    write!(&mut w, r#"
+            <li><a href="{link}">{link_text}</a>{after_text}</li>"#,
+    link = link,
+    link_text = link_text,
+    after_text = after_text
+    );
+    Ok(())
 }
 
 fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, route_id: String, trip_id: String, start_date: NaiveDate, start_time: NaiveTime) -> FnResult<()> {
     let route = monitor.schedule.get_route(&route_id)?;
-    let route_name = route.short_name.clone();
     let trip = monitor.schedule.get_trip(&trip_id)?;
-    let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
     let route_variant = trip.route_variant.as_ref().unwrap();
 
-    
-    let doc: DOMTree<String> = html!(
-        <html>
-            <head>
-                <title>"ÖPNV-Reiseplaner"</title>
-                <style>{ text!("{}", CSS)}</style>
-            </head>
-            <body>
-                <h1>{ text!("Informationen für Linie {} nach {}", route_name, headsign)}</h1>
-                <h2>"Statistische Analysen"</h2>
-                { 
-                    match monitor.stats.specific.get(&route_id) {
-                        None => html!(<ul><li>{text!("Keine Linien-spezifischen Statistiken  vorhanden.")}</li></ul>),
-                        Some(route_data) => {
-                            match route_data.variants.get(&route_variant.parse()?) {
-                                None => html!(<ul><li>{text!("Keine Statistiken für die Linien-Variante {} vorhanden", route_variant)}</li></ul>),
-                                Some(route_variant_data) => html!(<ul>{ 
-                                    EventType::TYPES.iter().map(|et| {
-                                        let curve_set_keys = route_variant_data.curve_sets[**et].keys();
-                                        let general_keys = route_variant_data.general_delay[**et].keys();
-                                        html!(<li>{
-                                            text!("Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves. ", **et, curve_set_keys.len(), general_keys.len())
-                                        }<ul>{
-                                            TimeSlot::TIME_SLOTS_WITH_DEFAULT.iter().map(|ts| {
-                                                html!(
-                                                <li>{
-                                                    text!("Timeslot: {}", ts.description)
-                                                    }<ul>{
-                                                        route_variant_data.curve_sets[**et].keys().filter_map(|key: &CurveSetKey| {
-                                                            if key.time_slot.id == ts.id {
-                                                                let data : &CurveSetData = route_variant_data.curve_sets[**et].get(&key).unwrap();
-                                                                Some(html!(<li>{
-                                                                    text!("Von {} nach {} ({} Samples)", key.start_stop_index, key.end_stop_index, data.sample_size)
-                                                                }</li>))
-                                                            } else { None }
-                                                        })
-                                                    }</ul>
-                                                </li>)
-                                            })
-                                            
-                                        }</ul></li>)
-                                    })
-                                }</ul>)
-                            }
-                        }
-                    }
-                }
-                <h2>"Echtzeitdaten"</h2>
-                "(Noch nicht implementiert)"
-            </body>
-        </html>
+    let mut w = Vec::new();
+    write!(&mut w, r#"
+<html>
+    <head>
+        <title>"ÖPNV-Reiseplaner"</title>
+        <style>{css}</style>
+    </head>
+    <body>
+        <h1>Informationen für Linie {route_name} (route_id {route_id}, route_variant {route_variant}) nach {headsign}</h1>
+        <h2>Statistische Analysen</h2>"#,
+        css = CSS,
+        route_name = route.short_name.clone(),
+        route_id = route_id,
+        route_variant = route_variant,
+        headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone()
     );
-    let doc_string = doc.to_string();
-    *response.body_mut() = Body::from(doc_string);
+
+    match monitor.stats.specific.get(&route_id) {
+        None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken  vorhanden."); },
+        Some(route_data) => {
+            match route_data.variants.get(&route_variant.parse()?) {
+                None =>  { writeln!(&mut w, "        Keine Statistiken für die Linien-Variante {} vorhanden.</li></ul>", route_variant);} ,
+                Some(route_variant_data) => {
+                    writeln!(&mut w, "        <ul>"); 
+                    for et in &EventType::TYPES {
+                        let curve_set_keys = route_variant_data.curve_sets[**et].keys();
+                        let general_keys = route_variant_data.general_delay[**et].keys();
+                        writeln!(&mut w, "            <li>Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves.", **et, curve_set_keys.len(), general_keys.len());
+                        for ts in TimeSlot::TIME_SLOTS_WITH_DEFAULT.iter() {
+                            write!(&mut w, r#"
+                            <li>Timeslot: {ts_description}
+                                <ul>
+                            "#, ts_description = ts.description);
+                            for key in route_variant_data.curve_sets[**et].keys() {
+                                if key.time_slot.id == ts.id {
+                                    let data : &CurveSetData = route_variant_data.curve_sets[**et].get(&key).unwrap();
+                                    writeln!(&mut w, "                            <li>Von {} nach {} ({} Samples)</li>", key.start_stop_index, key.end_stop_index, data.sample_size);
+                                } 
+                            }
+                            write!(&mut w, r#"
+                                </li>
+                            </ul>"#);
+                        }
+                        writeln!(&mut w, "            </li>");
+                    }
+                    writeln!(&mut w, "        </ul>");
+                }
+            }
+        }
+    }
+    write!(&mut w, r#"
+        <h2>Echtzeitdaten</h2>
+        (Noch nicht implementiert)
+    </body>
+</html>"#
+    );
+    *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
     Ok(())

@@ -1,5 +1,3 @@
-#![recursion_limit="1024"]
-
 mod importer;
 mod analyser;
 mod predictor;
