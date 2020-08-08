@@ -1,10 +1,10 @@
 use crate::{FnResult, Main, date_and_time, OrError};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration, Timelike};
 use clap::{App, ArgMatches};
 use crate::types::*;
 use crate::FileCache;
 use std::sync::Arc;
-use gtfs_structures::{Gtfs, RouteType};
+use gtfs_structures::{Gtfs, RouteType, StopTime};
 use mysql::*;
 use mysql::prelude::*;
 
@@ -91,30 +91,30 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
 async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
     let mut response = Response::new(Body::empty());
 
-    let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).collect();
+    let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).filter(|p| !p.is_empty()).collect();
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
-    match &path_parts_str[1..] {
-        [""] => generate_search_page(&mut response, &monitor),
+    match &path_parts_str[..] {
+        [] => generate_search_page(&mut response, &monitor),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
             let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
-            let new_path = format!("/stop/{}", stop_name);
+            let start_time = Utc::now().naive_local().format("%d.%m.%y %H:%M");
+            let new_path = format!("/{}/{}/", start_time, stop_name);
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
-        },
-        ["stop", ..] => {
-            let journey = &path_parts[2..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
-            let start_time: f32 = 123.0; // TODO insert f32 represention of the current time here
-            let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
-            let arrival = IrregularDynamicCurve::new(points);
-            handle_route_with_stop(&mut response, &monitor, arrival, journey);
         },
         ["info", route_id, trip_id, date_text, time_text] => {
             generate_info_page(&mut response, &monitor, String::from(*route_id), String::from(*trip_id), NaiveDate::from_str(date_text).unwrap(), NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0));
         },
-        slice => {
-            generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
+        _ => {
+            // TODO use https://crates.io/crates/chrono_locale for German day and month names
+            let start_time = NaiveDateTime::parse_from_str(&path_parts[0], "%d.%m.%y %H:%M").unwrap();
+            let journey = &path_parts[1..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
+            // let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
+            // let arrival = IrregularDynamicCurve::new(points);
+            handle_route_with_stop(&mut response, &monitor, start_time, journey);
+            //generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
         },
     };
 
@@ -164,9 +164,11 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, _arrival: IrregularDynamicCurve<f32, f32>, journey: &[String]) {
+fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, arrival: NaiveDateTime, journey: &[String]) {
     if journey.len() == 1 {
-        let _res = generate_stop_page(response, monitor, journey[0].clone());
+        let _res = generate_first_stop_page(response, monitor, arrival, journey[0].clone());
+    } else if journey.len() == 2 {
+        let _res = generate_trip_page(response, monitor, journey[1].clone(), arrival);
     } else {
         generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Currently, only journeys with length 1 are supported, found '{:?}'.", journey));
     }
@@ -179,20 +181,15 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, stop_name: String) -> FnResult<()> {
+fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, arrival: NaiveDateTime, stop_name: String) -> FnResult<()> {
     let stop_ids : Vec<String> = monitor.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
     
     println!("Found {} stop_ids for {}: {:?}", stop_ids.len(), stop_name, stop_ids);
 
-    // TODO get real departures from the database and/or schedule
-    // probably we need to query the database to know which departures we should show, and then use the schedule to 
-    // get all the data needed to actually show something
-    
     let mut departures : Vec<DbPrediction> = Vec::new();
-    let min_time = Utc::now().naive_utc();
+    let min_time = arrival - Duration::minutes(arrival.time().minute() as i64 % 5); // round to previous nice time
     let max_time = min_time + Duration::minutes(30);
-    let fmt = "%H:%M";
-
+    
     for stop_id in stop_ids {
         departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
     }
@@ -249,7 +246,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
-        <h1>Abfahrten für {stop_name} von {min_time} bis {max_time}</h1>
+        <h1>Abfahrten für {stop_name}, {date} von {min_time} bis {max_time}</h1>
             <div class="header">
             <div class="timing">
                 <div class="head time">Plan</div>
@@ -265,8 +262,9 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
         <div class="timeline">"#,
         css = CSS,
         stop_name = stop_name,
-        min_time = min_time.format(fmt),
-        max_time = max_time.format(fmt)
+        date = min_time.format("%A, %e. %B"),
+        min_time = min_time.format("%H:%M"),
+        max_time = max_time.format("%H:%M")
     );
     for dep in departures {
         write_departure_output(&mut w, &dep)?;
@@ -275,7 +273,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
         writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
             class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
             percent = m as f32 / 30.0 * 100.0,
-            time = (min_time + Duration::minutes(m)).format(fmt)
+            time = (min_time + Duration::minutes(m)).format("%H:%M")
         );
     }
     write!(&mut w, r#"
@@ -288,6 +286,59 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, st
 
     Ok(())
 }
+
+fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, trip_id: String, min_time: NaiveDateTime) -> FnResult<()> {
+    let trip = monitor.schedule.get_trip(&trip_id)?;
+    let route = monitor.schedule.get_route(&trip.route_id)?;
+    
+    let mut w = Vec::new();
+    write!(&mut w, r#"
+<html>
+    <head>
+        <title>ÖPNV-Reiseplaner</title>
+        <style>{css}</style>
+        <meta name=viewport content="width=device-width, initial-scale=1">
+    </head>
+    <body>
+        <h1>Halte für Linie {route_name} nach {headsign}</h1>
+            <div class="header">
+            <div class="timing">
+                <div class="head time">Plan</div>
+                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">-</div>
+                <div class="head med">○</div>
+                <div class="head max">+</div>
+            </div>
+            <div class="head type">Typ</div>
+            <div class="head route">Linie</div>
+            <div class="head headsign">Ziel</div>
+            <div class="head source">Daten</div>
+        </div>
+        <div class="timeline">"#,
+        css = CSS,
+        route_name = route.short_name,
+        headsign = trip.trip_headsign.as_ref().unwrap(),
+    );
+    for stop_time in &trip.stop_times {
+        write_stop_time_output(&mut w, &stop_time)?;
+    }
+    for m in (0..31).step_by(1) {
+        writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+            class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
+            percent = m as f32 / 30.0 * 100.0,
+            time = (min_time + Duration::minutes(m)).format("%H:%M")
+        );
+    }
+    write!(&mut w, r#"
+    </div>
+</body>
+</html>"#,
+    );
+    *response.body_mut() = Body::from(w);
+    response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+
+    Ok(())
+}
+
 
 fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
@@ -307,7 +358,9 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
     // // when the request for the image arrives, wait until the file is written.
     // fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
 
-    let link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
+    let trip_link =  format!("{}/", dep.trip_id);
+    //let trip_link =  format!("{} nach {} um {}/", dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
+    // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
     let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
         (OriginType::Realtime, PrecisionType::Specific) => ("E","Aktuelle Echtzeitdaten"),
@@ -347,7 +400,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
     };
 
     write!(&mut w, r#"
-        <a href="{link}" class="outer">
+        <a href="{trip_link}" class="outer">
             <div class="line">
                 <div class="timing">
                     <div class="area time">{time}</div>
@@ -362,7 +415,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
             </div>
             <div class="visu"></div>
         </a>"#,
-        link = link,
+        trip_link = trip_link,
         time = md.scheduled_time_absolute.format("%H:%M"),
         min = format_delay(r_01),
         min_tooltip = a_01.format("%H:%M:%S"),
@@ -377,6 +430,51 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
         source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
         source_short = format!("{}/{}", origin_letter, precision_letter),
         source_class = source_class,
+    );
+    Ok(())
+}
+
+fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult<()> {
+    let stop_link = format!("{}/", stop_time.stop.name);
+    let scheduled_time = NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0);
+    let a_01 = scheduled_time;
+    let a_50 = scheduled_time;
+    let a_99 = scheduled_time;
+    let r_01 = 0;
+    let r_50 = 0;
+    let r_99 = 0;
+
+    write!(&mut w, r#"
+        <a href="{stop_link}" class="outer">
+            <div class="line">
+                <div class="timing">
+                    <div class="area time">{time}</div>
+                    <div class="area min" title="Frühestens {min_tooltip}">{min}</div>
+                    <div class="area med" title="Vermutlich {med_tooltip}">{med}</div>
+                    <div class="area max" title="Spätstens {max_tooltip}">{max}</div>
+                </div>
+                <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
+                <div class="area route">{route_name}</div>
+                <div class="area headsign">{headsign}</div>
+                <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
+            </div>
+            <div class="visu"></div>
+        </a>"#,
+        stop_link = stop_link,
+        time = scheduled_time.format("%H:%M"),
+        min = format_delay(r_01),
+        min_tooltip = a_01.format("%H:%M:%S"),
+        med = format_delay(r_50),
+        med_tooltip = a_50.format("%H:%M:%S"),
+        max = format_delay(r_99),
+        max_tooltip = a_99.format("%H:%M:%S"),
+        type_letter = "?",
+        type_class = "",
+        route_name = "",
+        headsign = stop_time.stop.name,
+        source_long = "",
+        source_short = "?",
+        source_class = "",
     );
     Ok(())
 }
@@ -398,7 +496,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, ro
     write!(&mut w, r#"
 <html>
     <head>
-        <title>"ÖPNV-Reiseplaner"</title>
+        <title>ÖPNV-Reiseplaner</title>
         <style>{css}</style>
     </head>
     <body>
