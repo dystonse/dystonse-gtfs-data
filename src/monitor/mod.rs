@@ -1,3 +1,5 @@
+mod journey_data;
+
 use crate::{FnResult, Main, date_and_time, OrError};
 use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration};
 use clap::{App, ArgMatches};
