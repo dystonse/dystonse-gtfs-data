@@ -19,9 +19,11 @@ use itertools::Itertools;
 
 use percent_encoding::percent_decode_str;
 
-use dystonse_curves::{IrregularDynamicCurve, Tup, Curve};
+use dystonse_curves::{IrregularDynamicCurve, Curve};
 use std::str::FromStr;
 use std::io::Write;
+
+use journey_data::{JourneyData, JourneyComponent, StopData, TripData};
 
 const CSS:&'static str = include_str!("style.css");
 
@@ -95,6 +97,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
 
     let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).filter(|p| !p.is_empty()).collect();
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
+    println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor),
         ["stop-by-name"] => {
@@ -107,15 +110,26 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             *response.status_mut() = StatusCode::FOUND;
         },
         ["info", route_id, trip_id, date_text, time_text] => {
-            generate_info_page(&mut response, &monitor, String::from(*route_id), String::from(*trip_id), NaiveDate::from_str(date_text).unwrap(), NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0));
+            if let Err(e) = generate_info_page(
+                &mut response, 
+                &monitor, 
+                String::from(*route_id), 
+                String::from(*trip_id), 
+                NaiveDate::from_str(date_text).unwrap(), 
+                NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0)
+            ) {
+                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());  
+            }
         },
         _ => {
             // TODO use https://crates.io/crates/chrono_locale for German day and month names
             let start_time = NaiveDateTime::parse_from_str(&path_parts[0], "%d.%m.%y %H:%M").unwrap();
-            let journey = &path_parts[1..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
+            let journey = &path_parts[0..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
             // let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
             // let arrival = IrregularDynamicCurve::new(points);
-            handle_route_with_stop(&mut response, &monitor, start_time, journey);
+            if let Err(e) = handle_route_with_stop(&mut response, &monitor, start_time, journey) {
+                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+            }
             //generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
         },
     };
@@ -166,33 +180,40 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, arrival: NaiveDateTime, journey: &[String]) {
-    if journey.len() == 1 {
-        let _res = generate_first_stop_page(response, monitor, arrival, journey[0].clone());
-    } else if journey.len() == 2 {
-        let _res = generate_trip_page(response, monitor, journey[1].clone(), arrival);
-    } else {
-        generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Currently, only journeys with length 1 are supported, found '{:?}'.", journey));
+fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, _arrival: NaiveDateTime, journey: &[String]) -> FnResult<()> {
+    let journey = JourneyData::new(monitor.schedule.clone(), &journey)?;
+
+    println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
+    
+    let res = match journey.get_last_component() {
+        JourneyComponent::Stop(stop_data) => generate_first_stop_page(response, monitor, stop_data),
+        JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, trip_data),
+        JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey."))
+    };
+
+    if let Err(e) = res {
+        generate_error_page(response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
     }
+    
+    Ok(())
 }
 
-fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message: &str) {
+fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message: &str) -> FnResult<()> {
     let doc_string = format!("{}: {}", code.as_str(), message);
     *response.body_mut() = Body::from(doc_string);
     *response.status_mut() = code;
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    Ok(())
 }
 
-fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, arrival: NaiveDateTime, stop_name: String) -> FnResult<()> {
-    let stop_ids : Vec<String> = monitor.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
-    
-    println!("Found {} stop_ids for {}: {:?}", stop_ids.len(), stop_name, stop_ids);
+fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, stop_data: &StopData) -> FnResult<()> {
+    println!("Found {} stop_ids for {}: {:?}", stop_data.stop_ids.len(), stop_data.stop_name, stop_data.stop_ids);
 
     let mut departures : Vec<DbPrediction> = Vec::new();
-    let min_time = arrival - Duration::minutes(arrival.time().minute() as i64 % 5); // round to previous nice time
+    let min_time = stop_data.min_time.unwrap() - Duration::minutes(stop_data.min_time.unwrap().time().minute() as i64 % 5); // round to previous nice time
     let max_time = min_time + Duration::minutes(30);
     
-    for stop_id in stop_ids {
+    for stop_id in &stop_data.stop_ids {
         departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
     }
 
@@ -263,7 +284,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         </div>
         <div class="timeline">"#,
         css = CSS,
-        stop_name = stop_name,
+        stop_name = stop_data.stop_name,
         date = min_time.format("%A, %e. %B"),
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
@@ -289,8 +310,8 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     Ok(())
 }
 
-fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, trip_id: String, min_time: NaiveDateTime) -> FnResult<()> {
-    let trip = monitor.schedule.get_trip(&trip_id)?;
+fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, trip_data: &TripData) -> FnResult<()> {
+    let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let mut w = Vec::new();
@@ -327,7 +348,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
             class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
             percent = m as f32 / 30.0 * 100.0,
-            time = (min_time + Duration::minutes(m)).format("%H:%M")
+            time = (trip_data.start_departure + Duration::minutes(m)).format("%H:%M")
         );
     }
     write!(&mut w, r#"
@@ -360,8 +381,9 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
     // // when the request for the image arrives, wait until the file is written.
     // fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
 
-    let trip_link =  format!("{}/", dep.trip_id);
-    //let trip_link =  format!("{} nach {} um {}/", dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
+    //let trip_link =  format!("{}/", dep.trip_id);
+    let trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
+    let trip_link =  format!("{} {} nach {} um {}/", route_type_to_str(md.route_type), md.route_name, md.headsign, md.scheduled_time_absolute.format("%H:%M"));
     // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
     let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
@@ -640,7 +662,7 @@ fn get_predictions(
     monitor: &Arc<Monitor>,
     source: String, 
     event_type: EventType, 
-    stop_id: String, 
+    stop_id: &str, 
     min_time: NaiveDateTime, 
     max_time: NaiveDateTime
 ) -> FnResult<Vec<DbPrediction>> {
@@ -689,4 +711,21 @@ fn get_predictions(
         .collect();
 
     Ok(db_predictions)
+}
+
+pub fn route_type_to_str(route_type: RouteType) -> &'static str {
+    match route_type {
+        RouteType::Tramway    => "Tram",
+        RouteType::Subway     => "U-Bahn",
+        RouteType::Rail       => "Zug",
+        RouteType::Bus        => "Bus",
+        RouteType::Ferry      => "Fähre",
+        RouteType::CableCar   => "Kabelbahn",
+        RouteType::Gondola    => "Seilbahn",
+        RouteType::Funicular  => "Standseilbahn",
+        RouteType::Coach      => "Reisebus",
+        RouteType::Air        => "Flugzeug",
+        RouteType::Taxi       => "Taxi",
+        RouteType::Other(u16) => "Fahrzeug",
+    }
 }
