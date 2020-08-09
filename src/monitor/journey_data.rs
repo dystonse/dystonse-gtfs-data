@@ -149,25 +149,18 @@ impl JourneyData {
                 continue;
             }
 
-
-            println!("Trip {} has correct headsign.", id);
-
             // look up trips with route (by route name and route type)
             if let Ok(route) = self.schedule.get_route(&trip.route_id) {
                 if route.short_name != route_name {
                     continue;
                 }
 
-                println!("Trip {} has correct route_name.", id);
-                
                 // TODO use translated route type names!!
                 if route_type_to_str(route.route_type) != route_type_string {
                     continue;
                 } else {
                     route_type = route.route_type;
                 }
-
-                println!("Trip {} has correct route_type.", id);
             } else {
                 // could not find route -> then we don't want to use this trip
                 continue; 
@@ -179,20 +172,16 @@ impl JourneyData {
             if  filtered_trip_days.is_empty() {
                 continue;
             } else {
-                println!("Trip {} has trip days: {:?}.", id, filtered_trip_days);
                 // only use trips that include the stop we want to start from:
                 if let Some(stop_time) = trip.stop_times.iter().filter(|st| st.stop.name == stop_data.stop_name).next() {
-                    println!("Trip {} has a stop at {}.", id, stop_data.stop_name);
                     if let Some(scheduled_departure) = stop_time.departure_time {
                         for d in filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
                             let scheduled_datetime = start_departure.date().and_time(NaiveTime::from_num_seconds_from_midnight(scheduled_departure, 0)) + Duration::days(*d as i64 - 1);
-                            println!("Trip {} has scheduled_datetime at day {}: {}.", id, d, scheduled_datetime);
                             // compare if this is the one we're looking for:
                             if scheduled_datetime != start_departure {
                                 continue;
                             } else {
-                                println!("Trip {} has correct departure time.", id);
                                 // now we can finally gather the remaining info:
                                 trip_id = id.clone();
                                 route_id = trip.route_id.clone();

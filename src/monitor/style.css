@@ -3,6 +3,10 @@ body {
     background-color: #fff;
 }
 
+form {
+    margin-bottom: 0;
+}
+
 div.search {
     width: 100%;
     display: flex;
@@ -225,6 +229,7 @@ body {
 
 .timeline {
     padding-bottom: 20px;
+    margin-bottom: 40px;
     position: relative;
 }
 

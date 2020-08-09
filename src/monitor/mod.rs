@@ -100,6 +100,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor, false),
+        ["favicon.ico"] | ["grad.png"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
         ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -119,7 +120,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
                 NaiveDate::from_str(date_text).unwrap(), 
                 NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0)
             ) {
-                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());  
+                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
             }
         },
         _ => {
@@ -129,7 +130,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             // let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
             // let arrival = IrregularDynamicCurve::new(points);
             if let Err(e) = handle_route_with_stop(&mut response, &monitor, start_time, journey) {
-                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
+                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
             }
             //generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
         },
