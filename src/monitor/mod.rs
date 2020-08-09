@@ -99,7 +99,8 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
     println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
-        [] => generate_search_page(&mut response, &monitor),
+        [] => generate_search_page(&mut response, &monitor, false),
+        ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
@@ -137,7 +138,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     Ok(response)
 }
 
-fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
+fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, embed: bool) {
     println!("{} Haltestellen gefunden.", monitor.schedule.stops.len());
     // TODO: handle the different GTFS_SOURCE_IDs in some way
     // TODO: compress output, of this page specifically. Adding compression to hyper is
@@ -152,17 +153,27 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
 {css}
         </style>
     </head>
-    <body>
+    <body>"#,
+        css = CSS,
+    );
+
+    if !embed {
+        write!(&mut w, r#"
         <h1>Reiseplaner</h1>
         <p class="official">
             Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
-        </p>
-        <form method="get" action="/stop-by-name">
-            <p class="dropdown" >
+        </p>"#);
+    }
+
+    write!(&mut w, r#"
+        <form method="get" action="/stop-by-name" target="{target}">
+            <div class="search">
                 <label for="start">Start-Haltestelle:</label>
-                <input list="stop_list" id="start" name="start" />
+                <input list="stop_list" id="start" name="start" value="{initial_value}" />
                 <datalist id="stop_list">"#,
-    css=CSS);
+        target = if embed { "_blank" } else { "_self" },
+        initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
+    );
     for name in monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
         write!(&mut w, r#"
                     <option>{name}</option>"#,
@@ -170,8 +181,8 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>) {
     }
     write!(&mut w, r#"
                 </datalist>
-            </p>
-            <input type="submit" value="Absenden"/>
+                <input id="button" type="submit" value="Abfahrten anzeigen"/>
+            </div>
         </form>
     </body>
 </html>"#

@@ -3,9 +3,35 @@ body {
     background-color: #fff;
 }
 
-.dropdown input {
+div.search {
     width: 100%;
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
 }
+
+div.search label {
+    margin-top: auto;
+    margin-bottom: auto;
+}
+
+div.search #start {
+    flex: 1;
+    font-size: 14px;
+}
+
+div.search #button {
+    background-color: #eee;
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    font-size: 14px;
+}
+
+div.search #button:hover {
+    background-color: #ccc;
+    border-color: #000;
+}
+
 
 a:link, a:visited, a:hover {
     color: #aaa;
@@ -20,7 +46,7 @@ body {
     display: flex;
     padding-bottom: 5px;
     min-width: 100%;
-     color: #000;
+    color: #000;
     border-radius: 5px;
     font-size: 22px;
     font-weight: 300;
@@ -289,6 +315,19 @@ body {
     h1 {
         font-size: 26px;
         font-weight: 500;
+    }
+
+    div.search {
+        flex-direction: column;
+    }
+
+    div.search #button {
+        height: 44px;
+        font-size: 18px;
+    }
+
+    div.search #start {
+        font-size: 16px;
     }
 
     .timing {

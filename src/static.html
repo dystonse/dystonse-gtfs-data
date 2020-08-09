@@ -8,6 +8,20 @@
 </head>
 
 <body>
+    <h1>Suche</h1>
+    <form method="get" action="/stop-by-name" target="_self">
+        <div class="search">
+            <label for="start">Start-Haltestelle:</label>
+            <input list="stop_list" id="start" name="start" />
+            <datalist id="stop_list">
+                <option>A</option>
+                <option>B</option>
+                <option>C</option>
+                <option>D</option>
+            </datalist>
+            <input id="button" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+    </form>
     <h1>Abfahrten ab Braunschweig Rudolfplatz</h1>
     <div class="header">
         <div class="timing">
