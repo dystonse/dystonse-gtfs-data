@@ -126,14 +126,13 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
         },
-        ["info", route_id, trip_id, date_text, time_text] => {
+        ["info", ..] => {
+            let journey = JourneyData::new(monitor.schedule.clone(), &path_parts[1..]).unwrap();
+
             if let Err(e) = generate_info_page(
                 &mut response, 
                 &monitor, 
-                String::from(*route_id), 
-                String::from(*trip_id), 
-                NaiveDate::from_str(date_text).unwrap(), 
-                NaiveTime::from_num_seconds_from_midnight(time_text.parse().unwrap(), 0)
+                &journey
             ) {
                 generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
             }
@@ -569,9 +568,14 @@ fn format_delay(delay: i32) -> String {
     }
 }
 
-fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, route_id: String, trip_id: String, start_date: NaiveDate, start_time: NaiveTime) -> FnResult<()> {
-    let route = monitor.schedule.get_route(&route_id)?;
-    let trip = monitor.schedule.get_trip(&trip_id)?;
+fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult<()> {
+    println!("generate_info_page");
+    let trip_data = match journey.get_last_component() {
+        JourneyComponent::Trip(trip_data) => trip_data,
+        _ => bail!("No trip at journey end"),
+    };
+    let route = monitor.schedule.get_route(&trip_data.route_id)?;
+    let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
     let route_variant = trip.route_variant.as_ref().unwrap();
 
     let mut w = Vec::new();
@@ -590,13 +594,13 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, ro
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
         route_name = route.short_name.clone(),
-        route_id = route_id,
+        route_id = trip_data.route_id,
         route_variant = route_variant,
         headsign = utf8_percent_encode(&trip.trip_headsign.as_ref().or_error("trip_headsign is None")?, PATH_ELEMENT_ESCAPE).to_string(),
     );
 
-    match monitor.stats.specific.get(&route_id) {
-        None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken  vorhanden."); },
+    match monitor.stats.specific.get(&trip_data.route_id) {
+        None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken vorhanden."); },
         Some(route_data) => {
             match route_data.variants.get(&route_variant.parse()?) {
                 None =>  { writeln!(&mut w, "        Keine Statistiken für die Linien-Variante {} vorhanden.</li></ul>", route_variant);} ,
