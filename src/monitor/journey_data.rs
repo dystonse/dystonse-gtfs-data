@@ -1,11 +1,12 @@
 use chrono::{NaiveTime, NaiveDateTime, Duration};
 //use dystonse_curves::Curve;
 use simple_error::bail;
-use crate::{FnResult, OrError};
+use crate::{FnResult, OrError, date_and_time};
 use gtfs_structures::{Gtfs, RouteType};
 use std::sync::Arc;
 use regex::Regex;
 use super::route_type_to_str;
+use percent_encoding::percent_decode_str;
 
 pub struct JourneyData {
     pub start_date_time: NaiveDateTime,
@@ -88,7 +89,7 @@ impl JourneyData {
     }
 
     pub fn parse_stop_data(&self, stop_string: &str) -> FnResult<StopData> {
-        let stop_name = String::from(stop_string);
+        let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
         let stop_ids : Vec<String> = self.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
 
         if stop_ids.is_empty() {
@@ -121,7 +122,7 @@ impl JourneyData {
         let route_type_string: String = trip_element_captures[1].to_string();
         let mut route_type = RouteType::Other(0);
         let route_name: String = trip_element_captures[2].to_string();
-        let trip_headsign: String = trip_element_captures[3].to_string();
+        let trip_headsign: String = percent_decode_str(&trip_element_captures[3]).decode_utf8_lossy().to_string();
         let some_trip_headsign = Some(trip_headsign.clone());
         let time: NaiveTime = NaiveTime::parse_from_str(&trip_element_captures[4], "%H:%M")?;
         
@@ -177,7 +178,7 @@ impl JourneyData {
                     if let Some(scheduled_departure) = stop_time.departure_time {
                         for d in filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
-                            let scheduled_datetime = start_departure.date().and_time(NaiveTime::from_num_seconds_from_midnight(scheduled_departure, 0)) + Duration::days(*d as i64 - 1);
+                            let scheduled_datetime = date_and_time(&start_departure.date(), scheduled_departure as i32) + Duration::days(*d as i64 - 1);
                             // compare if this is the one we're looking for:
                             if scheduled_datetime != start_departure {
                                 continue;

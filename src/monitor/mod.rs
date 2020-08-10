@@ -17,7 +17,10 @@ use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use itertools::Itertools;
 
-use percent_encoding::percent_decode_str;
+use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
+
+const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
+
 
 use dystonse_curves::{IrregularDynamicCurve, Curve};
 use std::str::FromStr;
@@ -116,7 +119,10 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
             let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
             let start_time = Utc::now().naive_local().format("%d.%m.%y %H:%M");
-            let new_path = format!("/{}/{}/", start_time, stop_name);
+            let new_path = format!("/{}/{}/", 
+                start_time, 
+                utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
+            );
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
         },
@@ -332,11 +338,16 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         write_departure_output(&mut w, &dep)?;
     }
     for m in (0..31).step_by(1) {
-        writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-            class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
-            percent = m as f32 / 30.0 * 100.0,
-            time = (min_time + Duration::minutes(m)).format("%H:%M")
-        );
+        if m % 5 == 0 {
+            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+                percent = m as f32 / 30.0 * 100.0,
+            );
+        } else {
+            writeln!(&mut w, r#"    <div class="timebar-5" style="left: {percent:.1}%;"></div>"#,
+                percent = m as f32 / 30.0 * 100.0,
+            );
+        }
     }
     write!(&mut w, r#"
     </div>
@@ -426,7 +437,11 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
 
     //let trip_link =  format!("{}/", dep.trip_id);
     let trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
-    let trip_link =  format!("{} {} nach {} um {}/", route_type_to_str(md.route_type), md.route_name, md.headsign, md.scheduled_time_absolute.format("%H:%M"));
+    let trip_link =  format!("{} {} nach {} um {}/", 
+        route_type_to_str(md.route_type), 
+        md.route_name, 
+        utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
+        md.scheduled_time_absolute.format("%H:%M"));
     // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
     let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
@@ -577,7 +592,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, ro
         route_name = route.short_name.clone(),
         route_id = route_id,
         route_variant = route_variant,
-        headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone()
+        headsign = utf8_percent_encode(&trip.trip_headsign.as_ref().or_error("trip_headsign is None")?, PATH_ELEMENT_ESCAPE).to_string(),
     );
 
     match monitor.stats.specific.get(&route_id) {
