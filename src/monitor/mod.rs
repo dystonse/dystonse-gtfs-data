@@ -605,36 +605,86 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
             match route_data.variants.get(&route_variant.parse()?) {
                 None =>  { writeln!(&mut w, "        Keine Statistiken für die Linien-Variante {} vorhanden.</li></ul>", route_variant);} ,
                 Some(route_variant_data) => {
-                    writeln!(&mut w, "        <ul>"); 
                     for et in &EventType::TYPES {
                         let curve_set_keys = route_variant_data.curve_sets[**et].keys();
                         let general_keys = route_variant_data.general_delay[**et].keys();
-                        writeln!(&mut w, "            <li>Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves.", **et, curve_set_keys.len(), general_keys.len());
+                        writeln!(&mut w, "            <h3>Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves</h3>", **et, curve_set_keys.len(), general_keys.len());
                         for ts in TimeSlot::TIME_SLOTS_WITH_DEFAULT.iter() {
-                            write!(&mut w, r#"
-                            <li>Timeslot: {ts_description}
-                                <ul>
-                            "#, ts_description = ts.description);
-                            for key in route_variant_data.curve_sets[**et].keys() {
-                                if key.time_slot.id == ts.id {
-                                    let data : &CurveSetData = route_variant_data.curve_sets[**et].get(&key).unwrap();
-                                    writeln!(&mut w, "                            <li>Von {} nach {} ({} Samples)</li>", key.start_stop_index, key.end_stop_index, data.sample_size);
-                                } 
+                            
+
+                            if route_variant_data.curve_sets[**et].keys().any(|key| key.time_slot == **ts) {
+                                write!(&mut w, r#"
+                                <h4>Timeslot: {ts_description}</h4>"#, ts_description = ts.description);
+                                write!(&mut w, r#"
+                                    <table>
+                                        <tr>
+                                            <td></td>"#);
+
+                                for s_i in 0..trip.stop_times.len() {
+                                    write!(&mut w, "<td><b>{}</b></td>", s_i);
+                                }
+                                write!(&mut w, "</tr>");
+
+                                for s_i in 0..trip.stop_times.len() {
+                                    write!(&mut w, "<tr>
+                                        <td><b>{}</b></td>", s_i);
+                                    for e_i in 0..trip.stop_times.len() {
+                                        if e_i > s_i {
+                                            let count = match route_variant_data.curve_sets[**et].get(&CurveSetKey{
+                                                    start_stop_index: s_i as u32, end_stop_index: e_i as u32, time_slot: (**ts).clone()
+                                                }) {
+                                                Some(csd) => write!(&mut w, "<td><b>{}</b></td>", csd.sample_size),
+                                                None => write!(&mut w, r#"<td style="color:#666;">0</td>"#)
+                                            };
+                                        } else {
+                                            write!(&mut w, "<td></td>");
+                                        }
+                                    }
+                                    write!(&mut w, "</tr>");
+                                }
+                                write!(&mut w, "</table>");
+                            } else {
+                                //write!(&mut w, ": nix");
                             }
-                            write!(&mut w, r#"
-                                </li>
-                            </ul>"#);
-                        }
-                        writeln!(&mut w, "            </li>");
+                        }    
                     }
-                    writeln!(&mut w, "        </ul>");
                 }
             }
         }
     }
-    write!(&mut w, r#"
-        <h2>Echtzeitdaten</h2>
-        (Noch nicht implementiert)
+
+    let stats = get_record_pair_statistics(&monitor.clone(), &monitor.source, &trip_data.route_id, &route_variant)?;
+
+    write!(&mut w, r#"<h2>Echtzeitdaten</h2>
+                                    <table>
+                                        <tr>
+                                            <td></td>"#);
+
+    for st_e in &trip.stop_times {
+        //überschriften: end-haltestellen (zeile)
+        write!(&mut w, "<td><b>{}</b></td>", st_e.stop_sequence);
+
+    }
+    for st_s in &trip.stop_times {
+            //start-haltestellen: je 1 zeile
+
+            //header:
+            write!(&mut w, "</tr><tr><td><b>{}</b></td>", st_s.stop_sequence);
+            for st_e in &trip.stop_times {
+                //inhalte: je 1 zelle
+                if st_e.stop_sequence > st_s.stop_sequence {
+                    match stats.iter().filter(|pair| pair.s == st_s.stop_sequence && pair.e == st_e.stop_sequence).next() {
+                        Some(pair) => write!(&mut w, "<td><b>{}</b></td>", pair.c),
+                        None => write!(&mut w, r#"<td style="color:#666;">0</td>"#)
+                    }?;
+                } else {
+                    write!(&mut w, "<td></td>"); 
+                }
+            }
+            write!(&mut w, "</tr>");
+    }
+
+    write!(&mut w, r#"</table>
     </body>
 </html>"#
     );
@@ -722,6 +772,53 @@ impl FromRow for DbPrediction {
             meta_data:          None,
         })
     }
+}
+
+struct DbStat {
+    s: u16, //start: stop_sequence
+    e: u16, //end: stop_sequence
+    c: u32 // count: number of matching entries
+}
+
+fn get_record_pair_statistics(monitor: &Arc<Monitor>, source: &str, route_id: &str, route_variant: &str) -> FnResult<Vec<DbStat>> {
+    let mut conn = monitor.pool.get_conn()?;
+    let stmt = conn.prep(
+        r"SELECT 
+            r1.stop_sequence, r2.stop_sequence, COUNT(*) 
+        FROM 
+            `records` as r1, `records` as r2
+        WHERE 
+            r1.source = r2.source AND
+            r1.route_id = r2.route_id AND
+            r1.trip_id = r2.trip_id AND
+            r1.trip_start_date = r2.trip_start_date AND
+            r1.trip_start_time = r2.trip_start_time AND
+            r1.stop_sequence < r2.stop_sequence AND
+            r1.source = :source AND
+            r1.route_id = :route_id AND
+            r1.route_variant = :route_variant
+        GROUP BY 
+            r1.stop_sequence, r2.stop_sequence")?;
+
+    let mut result = conn.exec_iter(
+        &stmt,
+        params! {
+            "source" => source,
+            "route_id" => route_id,
+            "route_variant" => route_variant,
+        },
+    )?;
+
+    let result_set = result.next_set().unwrap()?;
+
+    let db_counts: Vec<_> = result_set
+        .map(|row| {
+            let item: (usize, usize, usize) = from_row(row.unwrap());
+            DbStat{s: item.0 as u16, e: item.1 as u16, c: item.2 as u32}
+        })
+        .collect();
+
+    Ok(db_counts)
 }
 
 fn get_predictions(

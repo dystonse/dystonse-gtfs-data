@@ -23,6 +23,15 @@ body.embed {
     background-color: rgb(195, 243, 255);
 }
 
+table, th, td {
+    border: 1px solid black;
+    border-collapse: collapse;
+  }
+
+td {
+    min-width: 20px;
+}
+
 form {
     margin-bottom: 0;
 }
