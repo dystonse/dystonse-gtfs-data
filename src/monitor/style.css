@@ -12,7 +12,7 @@
 @font-face {
     font-family: SourceSansPro;
     src: url(/fonts/SourceSansPro-Light.ttf);
-    font-weight: light;
+    font-weight: lighter;
   }
 
 body {
@@ -82,7 +82,7 @@ body {
     color: #000;
     border-radius: 5px;
     font-size: 22px;
-    font-weight: 300;
+    font-weight: normal;
     align-items: center;
 }
 
@@ -109,7 +109,7 @@ body {
     background-color: #eee;
     color: #000;
     font-size: 38px;
-    font-weight: 400;
+    font-weight: bold;
     align-items: center;
     padding-top: 10px;
     padding-bottom: 5px;
@@ -165,11 +165,11 @@ body {
 
 .area.min,
 .area.max {
-    font-weight: 100;
+    font-weight: lighter;
 }
 
 .area.med {
-    font-weight: 500;
+    font-weight: bold;
 }
 
 .bubble {
@@ -182,7 +182,7 @@ body {
     text-align: center;
     line-height: 40px;
     text-align: center;
-    font-weight: 500;
+    font-weight: bold;
 }
 
 .head.type {
@@ -243,7 +243,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     font-stretch: condensed;
-    font-weight: 300;
+    font-weight: normal;
 }
 
 .visu {
@@ -289,7 +289,7 @@ body {
     right: -20px;
     text-align: center;
     color: #90B9CA;
-    font-weight: 300;
+    font-weight: normal;
     font-size: 14px;
 }
 
@@ -335,7 +335,7 @@ body {
         width: 30px;
         height: 30px;
         line-height: 30px;
-        font-weight: 300;
+        font-weight: normal;
         font-size: 12px;
     }
 }
@@ -348,7 +348,7 @@ body {
 
     h1 {
         font-size: 26px;
-        font-weight: 500;
+        font-weight: bold;
     }
 
     div.search {
@@ -399,7 +399,7 @@ body {
     }
 
     .area.headsign {
-        font-weight: 200;
+        font-weight: lighter;
         font-stretch: unset;
         letter-spacing: -0.025em;
     }
@@ -414,7 +414,7 @@ body {
         width: 20px;
         height: 20px;
         line-height: 20px;
-        font-weight: 300;
+        font-weight: normal;
         font-size: 9px;
     }
 

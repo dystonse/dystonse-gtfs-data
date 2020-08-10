@@ -113,7 +113,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor, false),
-        ["grad.png"] | ["fonts"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
+        ["grad.png"] | ["fonts", _] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
         ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
