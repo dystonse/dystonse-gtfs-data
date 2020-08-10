@@ -49,6 +49,7 @@ pub enum JourneyComponent<'a> {
 impl JourneyData {
     // parse string vector (from URL) to get all necessary data
     pub fn new(schedule: Arc<Gtfs>, journey: &[String]) -> FnResult<Self> {
+        println!("JourneyData::new with {:?}", journey);
         let start_date_time = NaiveDateTime::parse_from_str(&journey[0], "%d.%m.%y %H:%M")?;
         let stops : Vec<StopData> = Vec::new();
         let trips : Vec<TripData> = Vec::new();

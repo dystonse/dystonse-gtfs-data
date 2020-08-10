@@ -16,6 +16,7 @@ use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
 use itertools::Itertools;
+use simple_error::bail;
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
@@ -112,7 +113,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor, false),
-        ["grad.png"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
+        ["grad.png"] | ["fonts"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
         ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -134,6 +135,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
                 &monitor, 
                 &journey
             ) {
+                eprintln!("Fehler: {}", e);
                 generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
             }
         },
@@ -144,11 +146,8 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             }
 
             // TODO use https://crates.io/crates/chrono_locale for German day and month names
-            let start_time = NaiveDateTime::parse_from_str(&path_parts[0], "%d.%m.%y %H:%M").unwrap();
-            let journey = &path_parts[0..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
-            // let points = vec![Tup{x: start_time, y: 0.0}, Tup{x: start_time + 1.0, y: 1.0}];
-            // let arrival = IrregularDynamicCurve::new(points);
-            if let Err(e) = handle_route_with_stop(&mut response, &monitor, start_time, journey) {
+            if let Err(e) = handle_route_with_stop(&mut response, &monitor,  &path_parts) {
+                eprintln!("Fehler: {}", e);
                 generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
             }
             //generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
@@ -220,7 +219,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 }
 
-fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, _arrival: NaiveDateTime, journey: &[String]) -> FnResult<()> {
+fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<()> {
     let journey = JourneyData::new(monitor.schedule.clone(), &journey)?;
 
     println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
@@ -232,6 +231,7 @@ fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>,
     };
 
     if let Err(e) = res {
+        eprintln!("Fehler: {}", e);
         generate_error_page(response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
     }
     
