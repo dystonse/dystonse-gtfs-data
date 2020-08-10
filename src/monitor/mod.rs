@@ -26,6 +26,15 @@ use std::io::Write;
 use journey_data::{JourneyData, JourneyComponent, StopData, TripData};
 
 const CSS:&'static str = include_str!("style.css");
+const FAVICON_HEADERS: &'static str = r#"
+<link rel="apple-touch-icon" sizes="180x180" href="/favicons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicons/favicon-16x16.png">
+<link rel="manifest" href="/favicons/site.webmanifest">
+<link rel="mask-icon" href="/favicons/safari-pinned-tab.svg" color="\#5bbad5">
+<meta name="msapplication-TileColor" content="\#00aba9">
+<meta name="theme-color" content="\#ffffff">
+"#;
 
 #[derive(Clone)]
 pub struct Monitor {
@@ -100,7 +109,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor, false),
-        ["favicon.ico"] | ["grad.png"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
+        ["grad.png"] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
         ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -124,6 +133,11 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             }
         },
         _ => {
+            if path_parts[0].starts_with("favicon") {
+                generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap();
+                return Ok(response);
+            }
+
             // TODO use https://crates.io/crates/chrono_locale for German day and month names
             let start_time = NaiveDateTime::parse_from_str(&path_parts[0], "%d.%m.%y %H:%M").unwrap();
             let journey = &path_parts[0..]; // we would need half-open pattern matching to get rid of this line, see https://github.com/rust-lang/rust/issues/67264
@@ -153,13 +167,22 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
         <style>
 {css}
         </style>
-    </head>
-    <body>"#,
+
+{favicon_headers}
+
+    </head>"#,
         css = CSS,
+        favicon_headers = FAVICON_HEADERS,
     );
+    
+    if embed {
+        write!(&mut w, r#"
+    <body class="embed">"#);
+    }
 
     if !embed {
         write!(&mut w, r#"
+    <body>
         <h1>Reiseplaner</h1>
         <p class="official">
             Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
@@ -278,6 +301,9 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     <head>
         <title>ÖPNV-Reiseplaner</title>
         <style>{css}</style>
+        
+        {favicon_headers}
+
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
@@ -296,6 +322,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         </div>
         <div class="timeline">"#,
         css = CSS,
+        favicon_headers = FAVICON_HEADERS,
         stop_name = stop_data.stop_name,
         date = min_time.format("%A, %e. %B"),
         min_time = min_time.format("%H:%M"),
@@ -332,6 +359,9 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     <head>
         <title>ÖPNV-Reiseplaner</title>
         <style>{css}</style>
+
+        {favicon_headers}
+
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
@@ -350,6 +380,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         </div>
         <div class="timeline">"#,
         css = CSS,
+        favicon_headers = FAVICON_HEADERS,
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
     );
@@ -534,11 +565,15 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, ro
     <head>
         <title>ÖPNV-Reiseplaner</title>
         <style>{css}</style>
+
+        {favicon_headers}
+
     </head>
     <body>
         <h1>Informationen für Linie {route_name} (route_id {route_id}, route_variant {route_variant}) nach {headsign}</h1>
         <h2>Statistische Analysen</h2>"#,
         css = CSS,
+        favicon_headers = FAVICON_HEADERS,
         route_name = route.short_name.clone(),
         route_id = route_id,
         route_variant = route_variant,

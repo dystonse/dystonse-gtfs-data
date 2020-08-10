@@ -2,6 +2,9 @@ body {
     color: #000;
     background-color: #fff;
 }
+body.embed {
+    background-color: rgb(195, 243, 255);
+}
 
 form {
     margin-bottom: 0;
