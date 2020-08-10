@@ -90,7 +90,31 @@ impl JourneyData {
 
     pub fn parse_stop_data(&self, stop_string: &str) -> FnResult<StopData> {
         let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
-        let stop_ids : Vec<String> = self.schedule.stops.iter().filter_map(|(id, stop)| if stop.name == stop_name {Some(id.to_string())} else {None}).collect();
+        let mut stop_names : Vec<String> = vec![stop_name.clone()];
+        // make sure that different spellings of "Bahnhof" are considered as the same stop name:
+        let bahnhofs = ["Hauptbahnhof", "Hbf", "Bahnhof", "Bf"];
+        let mut contains_bahnhof = false;
+        for bahnhof in &bahnhofs {
+            if stop_name.contains(bahnhof) {
+                contains_bahnhof = true;
+                for other_bahnhof in &bahnhofs {
+                    if bahnhof != other_bahnhof {
+                        stop_names.push(stop_name.replace(bahnhof, other_bahnhof));
+                    }
+                }
+                stop_names.push(stop_name.replace(bahnhof, "").trim().to_string());
+            }
+        }
+        if !contains_bahnhof {
+            for bahnhof in &bahnhofs {
+                stop_names.push(format!("{} {}", stop_name, bahnhof));
+            }
+        }
+
+        if stop_names.len() > 1 {
+            println!("Extended stop_names to {:?}", stop_names);
+        }
+        let stop_ids : Vec<String> = self.schedule.stops.iter().filter_map(|(id, stop)| if stop_names.contains(&stop.name) {Some(id.to_string())} else {None}).collect();
 
         if stop_ids.is_empty() {
             bail!("No stop_ids found for stop_name {}", stop_name);
