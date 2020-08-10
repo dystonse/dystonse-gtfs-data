@@ -375,7 +375,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
-        <h1>Halte für Linie {route_name} nach {headsign}</h1>
+        <h1>Halte für {route_type} Linie {route_name} nach {headsign}</h1>
             <div class="header">
             <div class="timing">
                 <div class="head time">Plan</div>
@@ -391,11 +391,16 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         <div class="timeline">"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
+        route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
     );
     for stop_time in &trip.stop_times {
-        write_stop_time_output(&mut w, &stop_time)?;
+        // don't display stops that are before the stop where we change into this trip
+        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() {
+            write_stop_time_output(&mut w, &stop_time)?;
+        }
+        
     }
     for m in (0..31).step_by(1) {
         writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
