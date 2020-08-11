@@ -225,7 +225,7 @@ fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>,
     println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
     
     let res = match journey.get_last_component() {
-        JourneyComponent::Stop(stop_data) => generate_first_stop_page(response, monitor, stop_data),
+        JourneyComponent::Stop(stop_data) => generate_first_stop_page(response, monitor, &journey, stop_data),
         JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, trip_data),
         JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey."))
     };
@@ -246,7 +246,7 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
     Ok(())
 }
 
-fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, stop_data: &StopData) -> FnResult<()> {
+fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
     println!("Found {} stop_ids for {}: {:?}", stop_data.stop_ids.len(), stop_data.stop_name, stop_data.stop_ids);
 
     let mut departures : Vec<DbPrediction> = Vec::new();
@@ -337,7 +337,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         max_time = max_time.format("%H:%M")
     );
     for dep in departures {
-        write_departure_output(&mut w, &dep)?;
+        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone())?;
     }
     for m in (0..31).step_by(1) {
         if m % 5 == 0 {
@@ -424,7 +424,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
 }
 
 
-fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<()> {
+fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -444,11 +444,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
 
     //let trip_link =  format!("{}/", dep.trip_id);
     let trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
-    let trip_link =  format!("{} {} nach {} um {}/", 
-        route_type_to_str(md.route_type), 
-        md.route_name, 
-        utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
-        md.scheduled_time_absolute.format("%H:%M"));
+
     // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
     let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
@@ -471,7 +467,22 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
 
     let (type_letter, type_class) = match md.route_type {
         RouteType::Bus     => ("Bus", "b"),
-        RouteType::Rail    => ("Bahn"  , "s"),
+        RouteType::Rail    => {
+            // RB RE S RS IC DPN MEX
+            if md.route_name.starts_with("RB") {
+                ("RB"  , "r")
+            } else if md.route_name.starts_with("RE") {
+                ("RE"  , "r")
+            } else if md.route_name.starts_with("S") {
+                ("S"  , "s")
+            } else if md.route_name.starts_with("RS") {
+                ("RS"  , "s")
+            } else if md.route_name.starts_with("IC") {
+                ("IC"  , "r")
+            } else {
+                ("Bahn"  , "z")
+            }
+        },
         RouteType::Subway  => ("U"  , "u"),
         RouteType::Tramway => ("Tram"  , "m"),
         RouteType::Ferry   => ("F"  , "f"),
@@ -488,8 +499,30 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
         (_,_) => "e",
     };
 
+    let mut stop_name = stop_data.stop_name.clone();
+
+    // prepare info for departured from extended stops list
+    let mut extended_stop_info : String = String::from("");
+    if let Some(d) = stop_data.extended_stops_distances.get(&dep.stop_id) {
+        stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
+        extended_stop_info = format!(
+            r#"<div class="area walk" title="Abfahrt von {}, Entfernung ca. {:.0} m (Luftlinie)"><span>{:.0} m</span></div>"#,
+            stop_name,
+             d, 
+             d);
+    }
+    
+    // trip link
+    let trip_link =  format!("{prefix}{stop}/{r_type} {route} nach {headsign} um {time}/", 
+        prefix = stop_data.journey_prefix,
+        stop = utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
+        r_type = route_type_to_str(md.route_type), 
+        route = md.route_name, 
+        headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
+        time = md.scheduled_time_absolute.format("%H:%M"));
+
     write!(&mut w, r#"
-        <a href="{trip_link}" class="outer">
+        <a href="{trip_link}" class="outer">    
             <div class="line">
                 <div class="timing">
                     <div class="area time">{time}</div>
@@ -500,6 +533,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
                 <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
                 <div class="area route">{route_name}</div>
                 <div class="area headsign">{headsign}</div>
+                {extended_stop_info}
                 <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
             </div>
             <div class="visu"></div>
@@ -516,6 +550,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction) -> FnResult<(
         type_class = type_class,
         route_name = md.route_name,
         headsign = md.headsign,
+        extended_stop_info = extended_stop_info,
         source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
         source_short = format!("{}/{}", origin_letter, precision_letter),
         source_class = source_class,

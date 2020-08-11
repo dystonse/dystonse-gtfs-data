@@ -6,11 +6,16 @@ use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
 use super::route_type_to_str;
-use percent_encoding::percent_decode_str;
 use geo::prelude::*;
 use geo::point;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
+
+use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
+
+const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
+
+const EXTENDED_STOPS_MAX_DISTANCE: f32 = 500.0;
 
 pub struct JourneyData {
     pub start_date_time: NaiveDateTime,
@@ -21,10 +26,12 @@ pub struct JourneyData {
 
 #[derive(Debug)]
 pub struct StopData {
+    pub journey_prefix: String,
     pub stop_name: String,
     pub stop_ids: Vec<String>,
     pub extended_stop_ids: Vec<String>,
     pub extended_stop_names: Vec<String>,
+    pub extended_stops_distances: HashMap<String, f32>,
     pub min_time: Option<NaiveDateTime>,
     pub max_time: Option<NaiveDateTime>,
     //arrival_curve: Option<Curve>,
@@ -32,6 +39,7 @@ pub struct StopData {
 
 #[derive(Debug)]
 pub struct TripData {
+    pub journey_prefix: String,
     // can be parsed from URL:
     pub route_type: RouteType,
     pub route_name: String,
@@ -75,19 +83,24 @@ impl JourneyData {
     pub fn parse_journey(&mut self, journey: &[String]) -> FnResult<()> {
 
         let mut journey_iter = journey.iter();
-        journey_iter.next(); // skip first item, which is the datetime.
+        let timestring = journey_iter.next().unwrap(); 
+        let mut prefix = format!("/{}/", timestring);
         loop {
             // assume that the first, third, etc.. part is a stop string:
             if let Some(stop_string) = journey_iter.next() {
-                let mut stop_data = self.parse_stop_data(stop_string)?;
+                let mut stop_data = self.parse_stop_data(&prefix, &utf8_percent_encode(&stop_string, PATH_ELEMENT_ESCAPE).to_string())?;
                 stop_data.min_time = Some(self.start_date_time);
                 self.stops.push(stop_data);
+
+                prefix = format!("{}{}/", prefix, stop_string);
             } else { 
                 break;
             }
             // assume that the second, fourth, etc.. part is a trip string:
             if let Some(trip_string) = journey_iter.next() {
-                self.trips.push(self.parse_trip_data(trip_string, self.stops.last().unwrap())?);
+                self.trips.push(self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_string, PATH_ELEMENT_ESCAPE).to_string(), self.stops.last().unwrap())?);
+
+                prefix = format!("{}{}/", prefix, trip_string);
             } else { 
                 break; 
             }
@@ -95,7 +108,7 @@ impl JourneyData {
         Ok(())
     }
 
-    pub fn parse_stop_data(&self, stop_string: &str) -> FnResult<StopData> {
+    pub fn parse_stop_data(&self, prefix: &str, stop_string: &str) -> FnResult<StopData> {
         let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
 
         
@@ -134,13 +147,25 @@ impl JourneyData {
         // search nearby stops
         let mut extended_stop_ids : HashSet<String> = HashSet::new();
         let mut extended_stop_names : HashSet<String> = HashSet::new();
+        let mut extended_stops_distances : HashMap<String, f32> = HashMap::new();
         for (other_stop_id, other_stop) in &self.schedule.stops {
             let other_stop_geo = point!(x: other_stop.latitude.unwrap(), y: other_stop.longitude.unwrap());
             for stop_geo in &stop_geos {
-                let distance = stop_geo.haversine_distance(&other_stop_geo);
-                if distance < 500.0 {
-                    println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
+                let distance = stop_geo.haversine_distance(&other_stop_geo) as f32;
+                if distance < EXTENDED_STOPS_MAX_DISTANCE {
+                    //println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
                     extended_stop_ids.insert(other_stop_id.clone());
+                    if let Some(d) =  extended_stops_distances.get(other_stop_id) {
+                        if *d < distance {
+                            extended_stops_distances.insert(other_stop_id.clone(), distance);
+                            println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
+                        }
+                    } else {
+                        if !stops.iter().any(|stop| stop.id == *other_stop_id) { //don't insert the main stop
+                           extended_stops_distances.insert(other_stop_id.clone(), distance as f32); 
+                           println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
+                        }
+                    }
                     extended_stop_names.insert(other_stop.name.clone());
                 }
             }
@@ -151,12 +176,14 @@ impl JourneyData {
             stop_ids: stops.iter().map(|stop| stop.id.clone()).collect(),
             extended_stop_ids: Vec::from_iter(extended_stop_ids),
             extended_stop_names: Vec::from_iter(extended_stop_names),
+            extended_stops_distances,
             min_time: None,
-            max_time: None
+            max_time: None,
+            journey_prefix: String::from(prefix),
         })
     }
 
-    pub fn parse_trip_data(&self, trip_string: &str, stop_data: &StopData) -> FnResult<TripData> {
+    pub fn parse_trip_data(&self, prefix: &str, trip_string: &str, stop_data: &StopData) -> FnResult<TripData> {
         
         // Regex to parse stuff like: "Bus 420 nach Wolfenbüttel Bahnhof um 21:39", 
         // or more generally: route_type route_name nach trip_headsign um start_departure.time
@@ -258,7 +285,8 @@ impl JourneyData {
             trip_id,
             route_id,
             start_id,
-            start_index
+            start_index,
+            journey_prefix: String::from(prefix),
         })
     }
 
