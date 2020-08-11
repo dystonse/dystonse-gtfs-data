@@ -317,7 +317,7 @@ body {
     height: 12px;
     /* background-image: url(/grad.png); */
     background-size: 100% 100%;
-    image-rendering: crisp-edges;
+   /* image-rendering: crisp-edges; */
 }
 
 .timeline {

@@ -173,7 +173,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
         </style>
 
 {favicon_headers}
-
+        <meta name=viewport content="width=device-width, initial-scale=1">
     </head>"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
@@ -269,16 +269,16 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     // They mostly contain outliers with several hours of (sometimes negative) delay.
     departures.retain(|dep| {
         if dep.meta_data.is_some() {
-            let time_absolute_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
-            let time_absolute_99 = dep.get_absolute_time_for_probability(0.99).unwrap();
+            let time_absolute_05 = dep.get_absolute_time_for_probability(0.05).unwrap();
+            let time_absolute_95 = dep.get_absolute_time_for_probability(0.95).unwrap();
             
-            time_absolute_01 < max_time && time_absolute_99 > min_time
+            time_absolute_05 < max_time && time_absolute_95 > min_time
         } else {
             false
         }
     });
 
-    println!("Kept {} departure predictions based on removing the top and bottom 1%.", departures.len());
+    println!("Kept {} departure predictions based on removing the top and bottom 5%.", departures.len());
  
 
     // Remove duplicates, for which there is a scheduled predcition and a realtime prediction
@@ -611,7 +611,7 @@ fn format_delay(delay: i32) -> String {
 }
 
 fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<String> {
-    const WIDTH: usize = 150;
+    const WIDTH: usize = 60;
 
     let min_rel = dep.get_relative_time(min_time)?;
     let max_rel = dep.get_relative_time(max_time)?;
@@ -628,7 +628,10 @@ fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: 
         let f = (max_rel - min_rel) / (WIDTH as f32);
         let probs_abs = (0..(WIDTH + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f));
         let probs_rel : Vec<f32> = probs_abs.tuple_windows().map(|(a,b)| b-a).collect();
-        let max = probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
+        let mut max = *probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
+        if max < 0.05 {
+            max = 0.05;
+        }
         for i in 0..WIDTH {
             let prob = probs_rel[i] / max;
             let color = YELLOW_GREEN_BLUE.eval_continuous(prob as f64);
