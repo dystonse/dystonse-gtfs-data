@@ -26,6 +26,7 @@ const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').a
 use dystonse_curves::{IrregularDynamicCurve, Curve};
 use std::str::FromStr;
 use std::io::Write;
+use colorous::*;
 
 use journey_data::{JourneyData, JourneyComponent, StopData, TripData};
 
@@ -337,7 +338,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         max_time = max_time.format("%H:%M")
     )?;
     for dep in departures {
-        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone())?;
+        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone(), min_time, max_time)?;
     }
     for m in (0..31).step_by(1) {
         if m % 5 == 0 {
@@ -424,7 +425,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
 }
 
 
-fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>) -> FnResult<()> {
+fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -521,6 +522,8 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
         time = md.scheduled_time_absolute.format("%H:%M"));
 
+    let image_url = generate_png_data_url(&dep, min_time, max_time)?;
+
     write!(&mut w, r#"
         <a href="{trip_link}" class="outer">    
             <div class="line">
@@ -536,7 +539,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
                 {extended_stop_info}
                 <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
             </div>
-            <div class="visu"></div>
+            <div class="visu" style="background-image:url('{image_url}')"></div>
         </a>"#,
         trip_link = trip_link,
         time = md.scheduled_time_absolute.format("%H:%M"),
@@ -554,7 +557,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
         source_short = format!("{}/{}", origin_letter, precision_letter),
         source_class = source_class,
-    );
+        image_url = image_url
     )?;
     Ok(())
 }
@@ -605,6 +608,38 @@ fn format_delay(delay: i32) -> String {
     } else  {
         format!("{}", delay)
     }
+}
+
+fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<String> {
+    const WIDTH: usize = 150;
+
+    let min_rel = dep.get_relative_time(min_time)?;
+    let max_rel = dep.get_relative_time(max_time)?;
+
+    let mut buf : Vec<u8> = Vec::new();
+    // block for scoped borrow of buf
+    {
+        let mut encoder = png::Encoder::new(&mut buf, WIDTH as u32, 1);
+        encoder.set_color(png::ColorType::RGBA);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut png = encoder.write_header()?;
+
+        let mut array: [u8; WIDTH * 4] = [255; WIDTH * 4];
+        let f = (max_rel - min_rel) / (WIDTH as f32);
+        let probs_abs = (0..(WIDTH + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f));
+        let probs_rel : Vec<f32> = probs_abs.tuple_windows().map(|(a,b)| b-a).collect();
+        let max = probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
+        for i in 0..WIDTH {
+            let prob = probs_rel[i] / max;
+            let color = YELLOW_GREEN_BLUE.eval_continuous(prob as f64);
+            array[i * 4 + 0] = color.r;
+            array[i * 4 + 1] = color.g;
+            array[i * 4 + 2] = color.b;
+        }
+        png.write_image_data(&array)?; // Save
+    }
+    let b64_data = base64::encode_config(buf, base64::STANDARD);
+    Ok(format!("data:image/png;base64,{}", b64_data))
 }
 
 fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult<()> {
@@ -790,6 +825,14 @@ impl DbPrediction {
 
     pub fn get_relative_time_for_probability(&self, prob: f32) -> i32 {
         self.prediction_curve.x_at_y(prob) as i32
+    }
+
+    pub fn get_relative_time(&self, time: NaiveDateTime) -> FnResult<f32> {
+        Ok(-self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_absolute.signed_duration_since(time).num_seconds() as f32)
+    }
+
+    pub fn get_probability_for_relative_time(&self, relative_seconds: f32) -> f32 {
+        self.prediction_curve.y_at_x(relative_seconds)
     }
 }
 

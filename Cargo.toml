@@ -42,3 +42,5 @@ futures = {version = "0.3", optional = true}
 url = "2.1.1"
 percent-encoding = "2.1.0"
 geo = "0.14.1"
+png = "0.16.7"
+base64 = "0.12.3"
