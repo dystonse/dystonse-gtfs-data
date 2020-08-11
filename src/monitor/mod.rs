@@ -253,7 +253,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     let min_time = stop_data.min_time.unwrap() - Duration::minutes(stop_data.min_time.unwrap().time().minute() as i64 % 5); // round to previous nice time
     let max_time = min_time + Duration::minutes(30);
     
-    for stop_id in &stop_data.stop_ids {
+    for stop_id in &stop_data.extended_stop_ids {
         departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
     }
 
@@ -261,6 +261,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
 
     for dep in &mut departures {
         let _res = dep.compute_meta_data(monitor);
+        // println!("res: {:?}", res);
     }
 
     // Remove the top and bottom 1% of the predicted time span. 
@@ -277,7 +278,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     });
 
     println!("Kept {} departure predictions based on removing the top and bottom 1%.", departures.len());
-
+ 
 
     // Remove duplicates, for which there is a scheduled predcition and a realtime prediction
     // which concern the same vehicle, but have not been overwritten in the DB  due to
@@ -312,13 +313,13 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
     <body>
-        <h1>Abfahrten für {stop_name}, {date} von {min_time} bis {max_time}</h1>
+        <h1>Abfahrten für {stop_name} <span class="extended_stops" title="{stop_names}">(und {stops_number} weitere)</span>, {date} von {min_time} bis {max_time}</h1>
             <div class="header">
             <div class="timing">
                 <div class="head time">Plan</div>
                 <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">-</div>
-                <div class="head med">○</div>
-                <div class="head max">+</div>
+                <div class="head med" title="Mittlere Abfahrt">○</div>
+                <div class="head max" title="Späteste Abfahrt, die in 99% der Fälle nicht überschritten wird">+</div>
             </div>
             <div class="head type">Typ</div>
             <div class="head route">Linie</div>
@@ -329,6 +330,8 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
         stop_name = stop_data.stop_name,
+        stop_names = stop_data.extended_stop_names.join(",\n"),
+        stops_number = stop_data.extended_stop_names.len() - 1,
         date = min_time.format("%A, %e. %B"),
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
@@ -343,7 +346,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
                 percent = m as f32 / 30.0 * 100.0,
             );
         } else {
-            writeln!(&mut w, r#"    <div class="timebar-5" style="left: {percent:.1}%;"></div>"#,
+            writeln!(&mut w, r#"    <div class="small_timebar" style="left: {percent:.1}%;"></div>"#,
                 percent = m as f32 / 30.0 * 100.0,
             );
         }
@@ -383,9 +386,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
                 <div class="head med">○</div>
                 <div class="head max">+</div>
             </div>
-            <div class="head type">Typ</div>
-            <div class="head route">Linie</div>
-            <div class="head headsign">Ziel</div>
+            <div class="head stopname">Haltestelle</div>
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
@@ -397,14 +398,16 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     );
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
-        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() {
+        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() { 
             write_stop_time_output(&mut w, &stop_time)?;
         }
+        // TODO: the change stop needs to be displayed differently 
+        // (departure time instead of arrival, not clickable, visibly marked as departure)
         
     }
     for m in (0..31).step_by(1) {
         writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-            class = if m % 5 == 0 { "timebar" } else { "timebar-5" },
+            class = if m % 5 == 0 { "timebar" } else { "small_timebar" },
             percent = m as f32 / 30.0 * 100.0,
             time = (trip_data.start_departure + Duration::minutes(m)).format("%H:%M")
         );
@@ -539,9 +542,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult
                     <div class="area med" title="Vermutlich {med_tooltip}">{med}</div>
                     <div class="area max" title="Spätstens {max_tooltip}">{max}</div>
                 </div>
-                <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
-                <div class="area route">{route_name}</div>
-                <div class="area headsign">{headsign}</div>
+                <div class="area stopname">{stopname}</div>
                 <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
             </div>
             <div class="visu"></div>
@@ -554,10 +555,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult
         med_tooltip = a_50.format("%H:%M:%S"),
         max = format_delay(r_99),
         max_tooltip = a_99.format("%H:%M:%S"),
-        type_letter = "?",
-        type_class = "",
-        route_name = "",
-        headsign = stop_time.stop.name,
+        stopname = stop_time.stop.name,
         source_long = "",
         source_short = "?",
         source_class = "",

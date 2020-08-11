@@ -2,11 +2,15 @@ use chrono::{NaiveTime, NaiveDateTime, Duration};
 //use dystonse_curves::Curve;
 use simple_error::bail;
 use crate::{FnResult, OrError, date_and_time};
-use gtfs_structures::{Gtfs, RouteType};
+use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
 use super::route_type_to_str;
 use percent_encoding::percent_decode_str;
+use geo::prelude::*;
+use geo::point;
+use std::collections::HashSet;
+use std::iter::FromIterator;
 
 pub struct JourneyData {
     pub start_date_time: NaiveDateTime,
@@ -19,6 +23,8 @@ pub struct JourneyData {
 pub struct StopData {
     pub stop_name: String,
     pub stop_ids: Vec<String>,
+    pub extended_stop_ids: Vec<String>,
+    pub extended_stop_names: Vec<String>,
     pub min_time: Option<NaiveDateTime>,
     pub max_time: Option<NaiveDateTime>,
     //arrival_curve: Option<Curve>,
@@ -91,39 +97,60 @@ impl JourneyData {
 
     pub fn parse_stop_data(&self, stop_string: &str) -> FnResult<StopData> {
         let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
-        let mut stop_names : Vec<String> = vec![stop_name.clone()];
-        // make sure that different spellings of "Bahnhof" are considered as the same stop name:
-        let bahnhofs = ["Hauptbahnhof", "Hbf", "Bahnhof", "Bf"];
-        let mut contains_bahnhof = false;
-        for bahnhof in &bahnhofs {
-            if stop_name.contains(bahnhof) {
-                contains_bahnhof = true;
-                for other_bahnhof in &bahnhofs {
-                    if bahnhof != other_bahnhof {
-                        stop_names.push(stop_name.replace(bahnhof, other_bahnhof));
-                    }
+
+        
+        // let mut stop_names : Vec<String> = vec![stop_name.clone()];
+        // // make sure that different spellings of "Bahnhof" are considered as the same stop name:
+        // let bahnhofs = ["Hauptbahnhof", "Hbf", "Bahnhof", "Bf", "Hauptbahnhof (U)", "Hbf (U)", "Bahnhof (U)", "Bf (U)", "(U)"];
+        // let mut contains_bahnhof = false;
+        // for bahnhof in &bahnhofs {
+        //     if stop_name.contains(bahnhof) {
+        //         contains_bahnhof = true;
+        //         for other_bahnhof in &bahnhofs {
+        //             if bahnhof != other_bahnhof {
+        //                 stop_names.push(stop_name.replace(bahnhof, other_bahnhof));
+        //             }
+        //         }
+        //         stop_names.push(stop_name.replace(bahnhof, "").trim().to_string());
+        //     }
+        // }
+        // if !contains_bahnhof {
+        //     for bahnhof in &bahnhofs {
+        //         stop_names.push(format!("{} {}", stop_name, bahnhof));
+        //     }
+        // }
+
+        // if stop_names.len() > 1 {
+        //     println!("Extended stop_names to by using name matching {:?}", stop_names);
+        // }
+        let stops : Vec<Arc<Stop>> = self.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
+
+        if stops.is_empty() {
+            bail!("No stops found for stop_name {}", stop_name);
+        }
+
+        let stop_geos : Vec<_> = stops.iter().map(|stop| point!(x: stop.latitude.unwrap(), y: stop.longitude.unwrap())).collect();
+
+        // search nearby stops
+        let mut extended_stop_ids : HashSet<String> = HashSet::new();
+        let mut extended_stop_names : HashSet<String> = HashSet::new();
+        for (other_stop_id, other_stop) in &self.schedule.stops {
+            let other_stop_geo = point!(x: other_stop.latitude.unwrap(), y: other_stop.longitude.unwrap());
+            for stop_geo in &stop_geos {
+                let distance = stop_geo.haversine_distance(&other_stop_geo);
+                if distance < 500.0 {
+                    println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
+                    extended_stop_ids.insert(other_stop_id.clone());
+                    extended_stop_names.insert(other_stop.name.clone());
                 }
-                stop_names.push(stop_name.replace(bahnhof, "").trim().to_string());
             }
-        }
-        if !contains_bahnhof {
-            for bahnhof in &bahnhofs {
-                stop_names.push(format!("{} {}", stop_name, bahnhof));
-            }
-        }
-
-        if stop_names.len() > 1 {
-            println!("Extended stop_names to {:?}", stop_names);
-        }
-        let stop_ids : Vec<String> = self.schedule.stops.iter().filter_map(|(id, stop)| if stop_names.contains(&stop.name) {Some(id.to_string())} else {None}).collect();
-
-        if stop_ids.is_empty() {
-            bail!("No stop_ids found for stop_name {}", stop_name);
         }
 
         Ok(StopData{
             stop_name,
-            stop_ids,
+            stop_ids: stops.iter().map(|stop| stop.id.clone()).collect(),
+            extended_stop_ids: Vec::from_iter(extended_stop_ids),
+            extended_stop_names: Vec::from_iter(extended_stop_names),
             min_time: None,
             max_time: None
         })
@@ -199,7 +226,7 @@ impl JourneyData {
                 continue;
             } else {
                 // only use trips that include the stop we want to start from:
-                if let Some(stop_time) = trip.stop_times.iter().filter(|st| st.stop.name == stop_data.stop_name).next() {
+                if let Some(stop_time) = trip.stop_times.iter().filter(|st| stop_data.extended_stop_names.contains(&st.stop.name)).next() {
                     if let Some(scheduled_departure) = stop_time.departure_time {
                         for d in filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:

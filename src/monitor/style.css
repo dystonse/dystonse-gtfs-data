@@ -75,6 +75,18 @@ body {
     font-family: "SourceSansPro";
 }
 
+.extended_stops {
+    color: #444;
+}
+
+*[title] {
+    text-decoration: underline dotted;
+}
+
+.bubble[title] {
+    text-decoration: underline dotted white;
+}
+
 .header {
     display: flex;
     padding-bottom: 5px;
@@ -154,6 +166,11 @@ body {
 }
 
 .headsign {
+    flex-basis: 160px;
+    flex-grow: 1;
+}
+
+.stopname {
     flex-basis: 160px;
     flex-grow: 1;
 }
@@ -246,6 +263,14 @@ body {
     font-weight: normal;
 }
 
+.area.stopname {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-stretch: condensed;
+    font-weight: normal;
+}
+
 .visu {
     min-width: 100%;
     background-color: #90B9CA;
@@ -271,7 +296,7 @@ body {
     z-index: -4;
 }
 
-.timebar-5 {
+.small_timebar {
     position: absolute;
     width: 1px;
     top: 5px;
