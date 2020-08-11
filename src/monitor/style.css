@@ -80,11 +80,11 @@ body {
 }
 
 *[title] {
-    text-decoration: underline dotted;
+    text-decoration: underline dotted 1px;
 }
 
-.bubble[title] {
-    text-decoration: underline dotted white;
+.area.source {
+    text-decoration-color: white;
 }
 
 .header {
