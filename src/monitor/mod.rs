@@ -258,8 +258,9 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     println!("Found {} departure predictions.", departures.len());
 
     for dep in &mut departures {
-        let _res = dep.compute_meta_data(monitor);
-        // println!("res: {:?}", res);
+        if let Err(e) = dep.compute_meta_data(monitor){
+            eprintln!("Could not compute metadata for departure with trip_id {}: {}", dep.trip_id , e);
+        }
     }
 
     // Remove the top and bottom 1% of the predicted time span. 
@@ -271,7 +272,6 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
             
             time_absolute_01 < max_time && time_absolute_99 > min_time
         } else {
-            println!("No metadata for {:?}", dep);
             false
         }
     });
