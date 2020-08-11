@@ -247,8 +247,6 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
 }
 
 fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
-    println!("Found {} stop_ids for {}: {:?}", stop_data.stop_ids.len(), stop_data.stop_name, stop_data.stop_ids);
-
     let mut departures : Vec<DbPrediction> = Vec::new();
     let min_time = stop_data.min_time.unwrap() - Duration::minutes(stop_data.min_time.unwrap().time().minute() as i64 % 5); // round to previous nice time
     let max_time = min_time + Duration::minutes(30);
@@ -273,6 +271,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
             
             time_absolute_01 < max_time && time_absolute_99 > min_time
         } else {
+            println!("No metadata for {:?}", dep);
             false
         }
     });
