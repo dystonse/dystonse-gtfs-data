@@ -41,3 +41,4 @@ tokio = { version = "0.2", features = ["full"], optional = true }
 futures = {version = "0.3", optional = true}
 url = "2.1.1"
 percent-encoding = "2.1.0"
+geo = "0.14.1"
