@@ -111,9 +111,9 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).filter(|p| !p.is_empty()).collect();
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
     println!("path_parts_str: {:?}", path_parts_str);
-    match &path_parts_str[..] {
+    let res = match &path_parts_str[..] {
         [] => generate_search_page(&mut response, &monitor, false),
-        ["grad.png"] | ["fonts", _] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap(),
+        ["grad.png"] | ["fonts", _] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported."),
         ["embed"] => generate_search_page(&mut response, &monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -126,18 +126,16 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             );
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
+            Ok(())
         },
         ["info", ..] => {
             let journey = JourneyData::new(monitor.schedule.clone(), &path_parts[1..]).unwrap();
 
-            if let Err(e) = generate_info_page(
+            generate_info_page(
                 &mut response, 
                 &monitor, 
                 &journey
-            ) {
-                eprintln!("Fehler: {}", e);
-                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
-            }
+            )
         },
         _ => {
             if path_parts[0].starts_with("favicon") {
@@ -146,18 +144,19 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             }
 
             // TODO use https://crates.io/crates/chrono_locale for German day and month names
-            if let Err(e) = handle_route_with_stop(&mut response, &monitor,  &path_parts) {
-                eprintln!("Fehler: {}", e);
-                generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
-            }
-            //generate_error_page(&mut response, StatusCode::NOT_FOUND, &format!("Keine Seite entsprach dem Muster {:?}.", slice));
+            handle_route_with_stop(&mut response, &monitor,  &path_parts)
         },
     };
+
+    if let Err(e) = res {
+        eprintln!("Fehler: {}", e);
+        generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
+    }
 
     Ok(response)
 }
 
-fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, embed: bool) {
+fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, embed: bool) -> FnResult<()> {
     println!("{} Haltestellen gefunden.", monitor.schedule.stops.len());
     // TODO: handle the different GTFS_SOURCE_IDs in some way
     // TODO: compress output, of this page specifically. Adding compression to hyper is
@@ -177,11 +176,11 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
     </head>"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
-    );
+    )?;
     
     if embed {
         write!(&mut w, r#"
-    <body class="embed">"#);
+    <body class="embed">"#)?;
     }
 
     if !embed {
@@ -190,7 +189,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
         <h1>Reiseplaner</h1>
         <p class="official">
             Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
-        </p>"#);
+        </p>"#)?;
     }
 
     write!(&mut w, r#"
@@ -201,7 +200,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
                 <datalist id="stop_list">"#,
         target = if embed { "_blank" } else { "_self" },
         initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
-    );
+    )?;
     for name in monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
         write!(&mut w, r#"
                     <option>{name}</option>"#,
@@ -214,9 +213,11 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
         </form>
     </body>
 </html>"#
-    );
+    )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+
+    Ok(())
 }
 
 fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<()> {
@@ -334,7 +335,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         date = min_time.format("%A, %e. %B"),
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
-    );
+    )?;
     for dep in departures {
         write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone())?;
     }
@@ -343,18 +344,18 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
             writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
                 time = (min_time + Duration::minutes(m)).format("%H:%M"),
                 percent = m as f32 / 30.0 * 100.0,
-            );
+            )?;
         } else {
             writeln!(&mut w, r#"    <div class="small_timebar" style="left: {percent:.1}%;"></div>"#,
                 percent = m as f32 / 30.0 * 100.0,
-            );
+            )?;
         }
     }
     write!(&mut w, r#"
     </div>
 </body>
 </html>"#,
-    );
+    )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
@@ -394,7 +395,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
-    );
+    )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
         if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() { 
@@ -409,13 +410,13 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
             class = if m % 5 == 0 { "timebar" } else { "small_timebar" },
             percent = m as f32 / 30.0 * 100.0,
             time = (trip_data.start_departure + Duration::minutes(m)).format("%H:%M")
-        );
+        )?;
     }
     write!(&mut w, r#"
     </div>
 </body>
 </html>"#,
-    );
+    )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
@@ -554,6 +555,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         source_short = format!("{}/{}", origin_letter, precision_letter),
         source_class = source_class,
     );
+    )?;
     Ok(())
 }
 
@@ -593,7 +595,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult
         source_long = "",
         source_short = "?",
         source_class = "",
-    );
+    )?;
     Ok(())
 }
 
@@ -634,54 +636,54 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         route_id = trip_data.route_id,
         route_variant = route_variant,
         headsign = utf8_percent_encode(&trip.trip_headsign.as_ref().or_error("trip_headsign is None")?, PATH_ELEMENT_ESCAPE).to_string(),
-    );
+    )?;
 
     match monitor.stats.specific.get(&trip_data.route_id) {
-        None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken vorhanden."); },
+        None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken vorhanden.")?; },
         Some(route_data) => {
             match route_data.variants.get(&route_variant.parse()?) {
-                None =>  { writeln!(&mut w, "        Keine Statistiken für die Linien-Variante {} vorhanden.</li></ul>", route_variant);} ,
+                None =>  { writeln!(&mut w, "        Keine Statistiken für die Linien-Variante {} vorhanden.</li></ul>", route_variant)?;} ,
                 Some(route_variant_data) => {
                     for et in &EventType::TYPES {
                         let curve_set_keys = route_variant_data.curve_sets[**et].keys();
                         let general_keys = route_variant_data.general_delay[**et].keys();
-                        writeln!(&mut w, "            <h3>Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves</h3>", **et, curve_set_keys.len(), general_keys.len());
+                        writeln!(&mut w, "            <h3>Daten ({:?}) für die Linien-Variante: {} Curve Sets, {} General Curves</h3>", **et, curve_set_keys.len(), general_keys.len())?;
                         for ts in TimeSlot::TIME_SLOTS_WITH_DEFAULT.iter() {
                             
 
                             if route_variant_data.curve_sets[**et].keys().any(|key| key.time_slot == **ts) {
                                 write!(&mut w, r#"
-                                <h4>Timeslot: {ts_description}</h4>"#, ts_description = ts.description);
+                                <h4>Timeslot: {ts_description}</h4>"#, ts_description = ts.description)?;
                                 write!(&mut w, r#"
                                     <table>
                                         <tr>
-                                            <td></td>"#);
+                                            <td></td>"#)?;
 
                                 for s_i in 0..trip.stop_times.len() {
-                                    write!(&mut w, "<td><b>{}</b></td>", s_i);
+                                    write!(&mut w, "<td><b>{}</b></td>", s_i)?;
                                 }
-                                write!(&mut w, "</tr>");
+                                write!(&mut w, "</tr>")?;
 
                                 for s_i in 0..trip.stop_times.len() {
                                     write!(&mut w, "<tr>
-                                        <td><b>{}</b></td>", s_i);
+                                        <td><b>{}</b></td>", s_i)?;
                                     for e_i in 0..trip.stop_times.len() {
                                         if e_i > s_i {
                                             let count = match route_variant_data.curve_sets[**et].get(&CurveSetKey{
                                                     start_stop_index: s_i as u32, end_stop_index: e_i as u32, time_slot: (**ts).clone()
                                                 }) {
-                                                Some(csd) => write!(&mut w, "<td><b>{}</b></td>", csd.sample_size),
-                                                None => write!(&mut w, r#"<td style="color:#666;">0</td>"#)
+                                                Some(csd) => write!(&mut w, "<td><b>{}</b></td>", csd.sample_size)?,
+                                                None => write!(&mut w, r#"<td style="color:#666;">0</td>"#)?
                                             };
                                         } else {
-                                            write!(&mut w, "<td></td>");
+                                            write!(&mut w, "<td></td>")?;
                                         }
                                     }
-                                    write!(&mut w, "</tr>");
+                                    write!(&mut w, "</tr>")?;
                                 }
-                                write!(&mut w, "</table>");
+                                write!(&mut w, "</table>")?;
                             } else {
-                                //write!(&mut w, ": nix");
+                                //write!(&mut w, ": nix")?;
                             }
                         }    
                     }
@@ -695,18 +697,18 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     write!(&mut w, r#"<h2>Echtzeitdaten</h2>
                                     <table>
                                         <tr>
-                                            <td></td>"#);
+                                            <td></td>"#)?;
 
     for st_e in &trip.stop_times {
         //überschriften: end-haltestellen (zeile)
-        write!(&mut w, "<td><b>{}</b></td>", st_e.stop_sequence);
+        write!(&mut w, "<td><b>{}</b></td>", st_e.stop_sequence)?;
 
     }
     for st_s in &trip.stop_times {
             //start-haltestellen: je 1 zeile
 
             //header:
-            write!(&mut w, "</tr><tr><td><b>{}</b></td>", st_s.stop_sequence);
+            write!(&mut w, "</tr><tr><td><b>{}</b></td>", st_s.stop_sequence)?;
             for st_e in &trip.stop_times {
                 //inhalte: je 1 zelle
                 if st_e.stop_sequence > st_s.stop_sequence {
@@ -715,16 +717,16 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
                         None => write!(&mut w, r#"<td style="color:#666;">0</td>"#)
                     }?;
                 } else {
-                    write!(&mut w, "<td></td>"); 
+                    write!(&mut w, "<td></td>")?;
                 }
             }
-            write!(&mut w, "</tr>");
+            write!(&mut w, "</tr>")?;
     }
 
     write!(&mut w, r#"</table>
     </body>
 </html>"#
-    );
+    )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
