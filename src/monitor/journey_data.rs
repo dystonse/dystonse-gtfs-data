@@ -201,7 +201,7 @@ impl JourneyData {
         ))?;
 
         let route_type_string: String = trip_element_captures[1].to_string();
-        let mut route_type = RouteType::Other(0);
+        let mut route_type;
         let route_name: String = trip_element_captures[2].to_string();
         let trip_headsign: String = percent_decode_str(&trip_element_captures[3]).decode_utf8_lossy().to_string();
         let some_trip_headsign = Some(trip_headsign.clone());
@@ -218,14 +218,6 @@ impl JourneyData {
         };
 
         // now we will need the schedule, and info about the stop from where we want to start...
-
-        // variables to store the trip's data in:
-        let mut route_id : String = String::from("");
-        let mut start_id = None;
-        let mut start_index = None;
-        let mut trip_id : String = String::from("");
-        let mut trip_start_date;
-        let mut trip_start_time;
 
         for (id, trip) in &self.schedule.trips {
             // look up the trips by headsign
@@ -267,12 +259,12 @@ impl JourneyData {
                                 continue;
                             } else {
                                 // now we can finally gather the remaining info:
-                                trip_id = id.clone();
-                                route_id = trip.route_id.clone();
-                                start_id = Some(stop_time.stop.id.clone());
-                                start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
-                                trip_start_date = start_departure.date() + Duration::days(*d as i64 - 1);
-                                trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
+                                let trip_id = id.clone();
+                                let route_id = trip.route_id.clone();
+                                let start_id = Some(stop_time.stop.id.clone());
+                                let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
+                                let trip_start_date = start_departure.date() + Duration::days(*d as i64 - 1);
+                                let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
                                 
                                 // now we can finally make our struct from all the gathered info :)
                                 return Ok(TripData{
