@@ -24,7 +24,7 @@ const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').a
 
 
 use dystonse_curves::{IrregularDynamicCurve, Curve};
-use std::str::FromStr;
+//use std::str::FromStr;
 use std::io::Write;
 use colorous::*;
 
@@ -205,7 +205,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
     for name in monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
         write!(&mut w, r#"
                     <option>{name}</option>"#,
-        name=name);
+        name=name)?;
     }
     write!(&mut w, r#"
                 </datalist>
@@ -426,7 +426,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
 }
 
 
-fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
+fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, _journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -446,7 +446,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
     // fg.save_to_svg("data/monitor/tmp.svg", 800, 128)?;
 
     //let trip_link =  format!("{}/", dep.trip_id);
-    let trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
+    let _trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
 
     // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
@@ -712,7 +712,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
                                         <td><b>{}</b></td>", s_i)?;
                                     for e_i in 0..trip.stop_times.len() {
                                         if e_i > s_i {
-                                            let count = match route_variant_data.curve_sets[**et].get(&CurveSetKey{
+                                            let _count = match route_variant_data.curve_sets[**et].get(&CurveSetKey{
                                                     start_stop_index: s_i as u32, end_stop_index: e_i as u32, time_slot: (**ts).clone()
                                                 }) {
                                                 Some(csd) => write!(&mut w, "<td><b>{}</b></td>", csd.sample_size)?,
@@ -979,6 +979,6 @@ pub fn route_type_to_str(route_type: RouteType) -> &'static str {
         RouteType::Coach      => "Reisebus",
         RouteType::Air        => "Flugzeug",
         RouteType::Taxi       => "Taxi",
-        RouteType::Other(u16) => "Fahrzeug",
+        RouteType::Other(_u16) => "Fahrzeug",
     }
 }
