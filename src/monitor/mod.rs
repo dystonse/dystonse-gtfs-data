@@ -130,7 +130,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             Ok(())
         },
         ["info", ..] => {
-            let journey = JourneyData::new(monitor.schedule.clone(), &path_parts[1..]).unwrap();
+            let journey = JourneyData::new(monitor.schedule.clone(), &path_parts[1..], monitor.clone()).unwrap();
 
             generate_info_page(
                 &mut response, 
@@ -222,7 +222,7 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
 }
 
 fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<()> {
-    let journey = JourneyData::new(monitor.schedule.clone(), &journey)?;
+    let journey = JourneyData::new(monitor.schedule.clone(), &journey, monitor.clone())?;
 
     println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
     

@@ -1,15 +1,16 @@
 use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Duration};
 //use dystonse_curves::Curve;
 use simple_error::bail;
-use crate::{FnResult, OrError, date_and_time};
+use crate::{FnResult, OrError, date_and_time, types::EventType};
 use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
-use super::route_type_to_str;
+use super::{Monitor, route_type_to_str};
 use geo::prelude::*;
 use geo::point;
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
+use dystonse_curves::{Curve, IrregularDynamicCurve};
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
@@ -34,7 +35,9 @@ pub struct StopData {
     pub extended_stops_distances: HashMap<String, f32>,
     pub min_time: Option<NaiveDateTime>,
     pub max_time: Option<NaiveDateTime>,
-    //arrival_curve: Option<Curve>,
+
+    pub arrival_curve: Option<IrregularDynamicCurve<f32, f32>>,
+    pub arrival_prob: Option<f32>,
 }
 
 #[derive(Debug)]
@@ -64,7 +67,7 @@ pub enum JourneyComponent<'a> {
 
 impl JourneyData {
     // parse string vector (from URL) to get all necessary data
-    pub fn new(schedule: Arc<Gtfs>, journey: &[String]) -> FnResult<Self> {
+    pub fn new(schedule: Arc<Gtfs>, journey: &[String], monitor: Arc<Monitor>) -> FnResult<Self> {
         println!("JourneyData::new with {:?}", journey);
         let start_date_time = NaiveDateTime::parse_from_str(&journey[0], "%d.%m.%y %H:%M")?;
         let stops : Vec<StopData> = Vec::new();
@@ -77,12 +80,12 @@ impl JourneyData {
             schedule: schedule.clone()
         };
 
-        journey_data.parse_journey(journey)?;
+        journey_data.parse_journey(journey, monitor)?;
 
         Ok(journey_data)
     }
 
-    pub fn parse_journey(&mut self, journey: &[String]) -> FnResult<()> {
+    pub fn parse_journey(&mut self, journey: &[String], monitor: Arc<Monitor>) -> FnResult<()> {
 
         let mut journey_iter = journey.iter();
         let timestring = journey_iter.next().unwrap(); 
@@ -90,8 +93,12 @@ impl JourneyData {
         loop {
             // assume that the first, third, etc.. part is a stop string:
             if let Some(stop_string) = journey_iter.next() {
-                let mut stop_data = self.parse_stop_data(&prefix, &utf8_percent_encode(&stop_string, PATH_ELEMENT_ESCAPE).to_string())?;
+                let mut stop_data = self.parse_stop_data(&prefix, &utf8_percent_encode(&stop_string, PATH_ELEMENT_ESCAPE).to_string(), self.trips.last(), monitor.clone())?;
+                // set min time (for first stop only):
+                if stop_data.min_time.is_none() {
                 stop_data.min_time = Some(self.start_date_time);
+                }
+
                 self.stops.push(stop_data);
 
                 prefix = format!("{}{}/", prefix, stop_string);
@@ -100,7 +107,8 @@ impl JourneyData {
             }
             // assume that the second, fourth, etc.. part is a trip string:
             if let Some(trip_string) = journey_iter.next() {
-                self.trips.push(self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_string, PATH_ELEMENT_ESCAPE).to_string(), self.stops.last().unwrap())?);
+                let trip_data = self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_string, PATH_ELEMENT_ESCAPE).to_string(), self.stops.last().unwrap())?;                
+                self.trips.push(trip_data);
 
                 prefix = format!("{}{}/", prefix, trip_string);
             } else { 
@@ -110,7 +118,7 @@ impl JourneyData {
         Ok(())
     }
 
-    pub fn parse_stop_data(&self, prefix: &str, stop_string: &str) -> FnResult<StopData> {
+    pub fn parse_stop_data(&self, prefix: &str, stop_string: &str, prev_trip: Option<&TripData>, monitor: Arc<Monitor>) -> FnResult<StopData> {
         let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
 
         
@@ -138,6 +146,7 @@ impl JourneyData {
         // if stop_names.len() > 1 {
         //     println!("Extended stop_names to by using name matching {:?}", stop_names);
         // }
+
         let stops : Vec<Arc<Stop>> = self.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
 
         if stops.is_empty() {
@@ -173,17 +182,43 @@ impl JourneyData {
             }
         }
 
+        // create info for previous trip/arrival:
+        let mut arrival_curve : Option<IrregularDynamicCurve<f32, f32>> = None;
+        let mut arrival_time_min : Option<NaiveDateTime> = None;
+        let mut arrival_prob : Option<f32> = None;
+
+        if let Some(trip_data) = prev_trip {
+            if let Ok(trip) = self.schedule.get_trip(&trip_data.trip_id) {
+                if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
+                    if let Ok(a_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Arrival){
+                        //set min time and curve:
+                        let arrival_time_min_relative = a_curve.x_at_y(0.01);
+                        let a_time_min = date_and_time(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32) 
+                            + Duration::seconds(arrival_time_min_relative as i64);
+                        arrival_time_min = Some(a_time_min);
+                        arrival_curve = Some(a_curve);
+                    }
+
+                }
+            }
+        } else { //first stop has no trip_data for arrival
+            arrival_prob = Some(1.0);
+        }
+
         Ok(StopData{
             stop_name,
             stop_ids: stops.iter().map(|stop| stop.id.clone()).collect(),
             extended_stop_ids: Vec::from_iter(extended_stop_ids),
             extended_stop_names: Vec::from_iter(extended_stop_names),
             extended_stops_distances,
-            min_time: None,
+            min_time: arrival_time_min,
             max_time: None,
             journey_prefix: String::from(prefix),
+            arrival_curve, //TODO: maybe we need to modify this?
+            arrival_prob,
         })
     }
+
 
     pub fn parse_trip_data(&self, prefix: &str, trip_string: &str, stop_data: &StopData) -> FnResult<TripData> {
         
@@ -299,4 +334,14 @@ impl JourneyData {
             JourneyComponent::Trip(self.trips.last().unwrap())
         }
     }
+}
+
+
+pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
+        
+    // TODO:
+    // look up the required curve from the database
+    // and return it
+    
+    bail!("not yet implemented");
 }
