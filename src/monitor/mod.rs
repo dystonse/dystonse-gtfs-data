@@ -388,6 +388,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
                 <div class="head max">+</div>
             </div>
             <div class="head stopname">Haltestelle</div>
+            <div class="head source">Chance</div>
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
@@ -433,6 +434,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
     let r_01 = dep.get_relative_time_for_probability(0.01) / 60;
     let r_50 = dep.get_relative_time_for_probability(0.50) / 60;
     let r_99 = dep.get_relative_time_for_probability(0.99) / 60;
+    let prob = 100 - (dep.get_probability_for_relative_time(dep.get_relative_time(min_time)?) * 100.0) as i32;
     
     // let mut fg = Figure::new();
     // let axes = fg.axes2d();
@@ -537,6 +539,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
                 <div class="area route">{route_name}</div>
                 <div class="area headsign">{headsign}</div>
                 {extended_stop_info}
+                <div class="area prob {probclass}">{prob} %</div>
                 <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
@@ -557,7 +560,9 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
         source_short = format!("{}/{}", origin_letter, precision_letter),
         source_class = source_class,
-        image_url = image_url
+        image_url = image_url,
+        prob = prob,
+        probclass = if prob == 100 { "hundred" } else { "" }
     )?;
     Ok(())
 }

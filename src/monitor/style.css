@@ -178,6 +178,12 @@ body {
     flex-grow: 1;
 }
 
+.prob {
+    flex-basis: 75px;
+    margin-right: 10px;
+    text-align: right;
+}
+
 .source {
     flex-basis: 40px;
     margin-right: 10px;
@@ -275,6 +281,16 @@ body {
 
 .area.type .bubble {
     margin-left: auto;
+}
+
+.area.prob {
+    font-size: 28px;
+    font-weight: lighter;
+    flex-basis: 50px;
+}
+
+.area.prob.hundred {
+    color: #aaa;
 }
 
 .area.source .bubble.a {
@@ -407,6 +423,11 @@ body {
         flex-basis: 60px;
         font-size: 18px;
         background-size: auto 24px;
+    }
+
+    .area.prob {
+        flex-basis: 60px;
+        font-size: 18px;
     }
 }
 
