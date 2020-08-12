@@ -300,6 +300,24 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
 
     println!("Kept {} departure predictions after removing duplicates.", departures.len());
 
+    // remove departures where the current stop is the last one (which seem to happen for trains quite often):
+    
+    // local function for use in predicate below
+    fn is_at_last_stop(dep: &DbPrediction, monitor: &Arc<Monitor>) -> bool {
+        if let Ok(trip) = &monitor.schedule.get_trip(&dep.trip_id) {
+            if let Some(stop_time) = &trip.stop_times.last() {
+                let last_stop_id = &stop_time.stop.id;
+                return dep.stop_id == *last_stop_id
+            }
+        }
+        false
+    }
+    
+    departures.retain(|dep| !is_at_last_stop(&dep, &monitor.clone()));
+
+    println!("Kept {} departure predictions after removing trips that are at their last stop.", departures.len());
+
+    // sort by median departure time:
     departures.sort_by_cached_key(|dep| dep.get_absolute_time_for_probability(0.50).unwrap());
 
     let mut w = Vec::new();
