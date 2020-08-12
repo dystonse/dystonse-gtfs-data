@@ -255,7 +255,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     let max_time = min_time + Duration::minutes(len_time);
     
     for stop_id in &stop_data.extended_stop_ids {
-        departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
+        departures.extend(get_predictions_for_stop(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
     }
 
     println!("Found {} departure predictions.", departures.len());
@@ -373,6 +373,16 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
+    let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
+    let arrivals = get_predictions_for_trip(
+        monitor,
+        monitor.source.clone(), 
+        EventType::Arrival,
+        &trip_data.trip_id,
+        trip_data.trip_start_date, 
+        trip_data.trip_start_time, 
+        start_sequence + 1)?;
+
     let mut w = Vec::new();
     write!(&mut w, r#"
 <html>
@@ -406,13 +416,15 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
-        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() { 
-            write_stop_time_output(&mut w, &stop_time)?;
+        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() {
+            let arrival = arrivals.iter().filter(|a| a.stop_sequence == stop_time.stop_sequence as usize).next();
+            write_stop_time_output(&mut w, &stop_time, arrival)?;
         }
         // TODO: the change stop needs to be displayed differently 
         // (departure time instead of arrival, not clickable, visibly marked as departure)
         
     }
+
     for m in (0..31).step_by(1) {
         writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
             class = if m % 5 == 0 { "timebar" } else { "small_timebar" },
@@ -432,7 +444,15 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
 }
 
 
-fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data: &JourneyData ,stop_data: &StopData, monitor: &Arc<Monitor>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
+fn write_departure_output(
+    mut w: &mut Vec<u8>, 
+    dep: &DbPrediction, 
+    journey_data: &JourneyData,
+    stop_data: &StopData,
+    monitor: &Arc<Monitor>,
+    min_time: NaiveDateTime,
+    max_time: NaiveDateTime,
+) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
@@ -456,23 +476,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
 
     // let source_link = format!("/info/{}/{}/{}/{}", dep.route_id, dep.trip_id, dep.trip_start_date, dep.trip_start_time.num_seconds());
 
-    let (origin_letter, origin_description) = match (&dep.origin_type, &dep.precision_type) {
-        (OriginType::Realtime, PrecisionType::Specific) => ("E","Aktuelle Echtzeitdaten"),
-        (OriginType::Realtime, PrecisionType::FallbackSpecific) => ("E","Aktuelle Echtzeitdaten"),
-        (OriginType::Realtime, _) => ("U","Ungenutzte Echtzeitdaten"),
-        (OriginType::Schedule, _) => ("P","Fahrplandaten"),
-        (OriginType::Unknown, _)  => ("?","Unbekannte Datenquelle")
-    };
-
-    let (precision_letter, precision_description) = match dep.precision_type {
-        PrecisionType::Specific           => ("S+", "Spezifische Prognose für diese Linie, Haltestelle und Tageszeit"),
-        PrecisionType::FallbackSpecific   => ("S" , "Spezifische Prognose für diese Linie und Haltestelle"),
-        PrecisionType::SemiSpecific       => ("S-", "Spezifische Prognose für diese Linie und Haltestelle, jedoch ohne Echtzeitdaten zu nutzen"),
-        PrecisionType::General            => ("G+", "Generelle Prognose für Fahrzeugart, Tageszeit und Routenabschnitt"),
-        PrecisionType::FallbackGeneral    => ("G" , "Generelle Prognose für Fahrzeugart"),
-        PrecisionType::SuperGeneral       => ("G-", "Standardprognose, sehr ungenau"),
-        PrecisionType::Unknown            => ("?" , "Unbekanntes Prognoseverfahren"),
-    };
+   
 
     let (type_letter, type_class) = match md.route_type {
         RouteType::Bus     => ("Bus", "b"),
@@ -496,16 +500,6 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         RouteType::Tramway => ("Tram"  , "m"),
         RouteType::Ferry   => ("F"  , "f"),
         _                  => ("?"  , "d"),
-    };
-
-    let source_class = match (origin_letter, precision_letter) {
-        ("E","S+") => "a",
-        ("E","S") => "a",
-        (_,"S-") => "b",
-        (_,"G+") => "c",
-        (_,"G") => "d",
-        (_,"G-") => "d",
-        (_,_) => "e",
     };
 
     let mut stop_name = stop_data.stop_name.clone();
@@ -546,7 +540,7 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
                 <div class="area headsign">{headsign}</div>
                 {extended_stop_info}
                 <div class="area prob {probclass}">{prob} %</div>
-                <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
+                {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
         </a>"#,
@@ -563,25 +557,75 @@ fn write_departure_output(mut w: &mut Vec<u8>, dep: &DbPrediction, journey_data:
         route_name = md.route_name,
         headsign = md.headsign,
         extended_stop_info = extended_stop_info,
-        source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, dep.sample_size),
-        source_short = format!("{}/{}", origin_letter, precision_letter),
-        source_class = source_class,
         image_url = image_url,
         prob = prob,
+        source_area = get_source_area(Some(dep)),
         probclass = if prob == 100 { "hundred" } else { "" }
     )?;
     Ok(())
 }
 
-fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult<()> {
+fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
+    if let Some(db_prediction) = db_prediction {
+        let (origin_letter, origin_description) = match (&db_prediction.origin_type, &db_prediction.precision_type) {
+            (OriginType::Realtime, PrecisionType::Specific) => ("E","Aktuelle Echtzeitdaten"),
+            (OriginType::Realtime, PrecisionType::FallbackSpecific) => ("E","Aktuelle Echtzeitdaten"),
+            (OriginType::Realtime, _) => ("U","Ungenutzte Echtzeitdaten"),
+            (OriginType::Schedule, _) => ("P","Fahrplandaten"),
+            (OriginType::Unknown, _)  => ("?","Unbekannte Datenquelle")
+        };
+
+        let (precision_letter, precision_description) = match db_prediction.precision_type {
+            PrecisionType::Specific           => ("S+", "Spezifische Prognose für diese Linie, Haltestelle und Tageszeit"),
+            PrecisionType::FallbackSpecific   => ("S" , "Spezifische Prognose für diese Linie und Haltestelle"),
+            PrecisionType::SemiSpecific       => ("S-", "Spezifische Prognose für diese Linie und Haltestelle, jedoch ohne Echtzeitdaten zu nutzen"),
+            PrecisionType::General            => ("G+", "Generelle Prognose für Fahrzeugart, Tageszeit und Routenabschnitt"),
+            PrecisionType::FallbackGeneral    => ("G" , "Generelle Prognose für Fahrzeugart"),
+            PrecisionType::SuperGeneral       => ("G-", "Standardprognose, sehr ungenau"),
+            PrecisionType::Unknown            => ("?" , "Unbekanntes Prognoseverfahren"),
+        };
+
+        let source_class = match (origin_letter, precision_letter) {
+            ("E","S+") => "a",
+            ("E","S") => "a",
+            (_,"S-") => "b",
+            (_,"G+") => "c",
+            (_,"G") => "d",
+            (_,"G-") => "d",
+            (_,_) => "e",
+        };
+
+        return format!(
+            r#"<div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>"#,
+            source_long = format!("{} und {}, basierend auf {} vorherigen Aufnahmen.", origin_description, precision_description, db_prediction.sample_size),
+            source_short = format!("{}/{}", origin_letter, precision_letter),
+            source_class = source_class,
+        );
+    } else {
+        return format!(
+            r#"<div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>"#,
+            source_long = "Keine Prognose verfügbar",
+            source_short = "-",
+            source_class = "e",
+        );
+    }
+}
+
+fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Option<&DbPrediction>) -> FnResult<()> {
     let stop_link = format!("{}/", stop_time.stop.name);
     let scheduled_time = NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0);
-    let a_01 = scheduled_time;
-    let a_50 = scheduled_time;
-    let a_99 = scheduled_time;
-    let r_01 = 0;
-    let r_50 = 0;
-    let r_99 = 0;
+    let (r_01, r_50,r_99) = if let Some(arrival) = arrival {
+        (
+            arrival.get_relative_time_for_probability(0.01),
+            arrival.get_relative_time_for_probability(0.50),
+            arrival.get_relative_time_for_probability(0.99),
+        )
+    } else {
+        (0,0,0)
+    };
+    let a_01 = scheduled_time + Duration::seconds(r_01 as i64);
+    let a_50 = scheduled_time + Duration::seconds(r_50 as i64);
+    let a_99 = scheduled_time + Duration::seconds(r_99 as i64);
 
     write!(&mut w, r#"
         <a href="{stop_link}" class="outer">
@@ -593,22 +637,20 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime) -> FnResult
                     <div class="area max" title="Spätstens {max_tooltip}">{max}</div>
                 </div>
                 <div class="area stopname">{stopname}</div>
-                <div class="area source" title="{source_long}"><span class="bubble {source_class}">{source_short}</span></div>
+                {source_area}
             </div>
             <div class="visu"></div>
         </a>"#,
         stop_link = stop_link,
         time = scheduled_time.format("%H:%M"),
-        min = format_delay(r_01),
+        min = format_delay(r_01 as i32 / 60),
         min_tooltip = a_01.format("%H:%M:%S"),
-        med = format_delay(r_50),
+        med = format_delay(r_50 as i32 / 60),
         med_tooltip = a_50.format("%H:%M:%S"),
-        max = format_delay(r_99),
+        max = format_delay(r_99 as i32 / 60),
         max_tooltip = a_99.format("%H:%M:%S"),
         stopname = stop_time.stop.name,
-        source_long = "",
-        source_short = "?",
-        source_class = "",
+        source_area = get_source_area(arrival),
     )?;
     Ok(())
 }
@@ -795,6 +837,7 @@ struct DbPrediction {
     pub sample_size: i32,
     pub prediction_curve: IrregularDynamicCurve<f32, f32>,
     pub stop_id: String,
+    pub stop_sequence: usize,
 
     pub meta_data: Option<DbPredictionMetaData>,
 }
@@ -865,6 +908,7 @@ impl FromRow for DbPrediction {
             prediction_curve:   IrregularDynamicCurve::<f32, f32>
                                     ::deserialize_compact(row.get_opt(9).unwrap().unwrap()),
             stop_id:            row.get_opt(10).unwrap().unwrap(),
+            stop_sequence:      row.get_opt(11).unwrap().unwrap(),
             meta_data:          None,
         })
     }
@@ -917,7 +961,7 @@ fn get_record_pair_statistics(monitor: &Arc<Monitor>, source: &str, route_id: &s
     Ok(db_counts)
 }
 
-fn get_predictions(
+fn get_predictions_for_stop(
     monitor: &Arc<Monitor>,
     source: String, 
     event_type: EventType, 
@@ -938,7 +982,8 @@ fn get_predictions(
             `origin_type`,
             `sample_size`,
             `prediction_curve`,
-            `stop_id`
+            `stop_id`,
+            `stop_sequence`
         FROM
             `predictions` 
         WHERE 
@@ -957,6 +1002,65 @@ fn get_predictions(
             "stop_id" => stop_id,
             "min_time" => min_time,
             "max_time" => max_time,
+        },
+    )?;
+
+    let result_set = result.next_set().unwrap()?;
+
+    let db_predictions: Vec<_> = result_set
+        .map(|row| {
+            let item: DbPrediction = from_row(row.unwrap());
+            item
+        })
+        .collect();
+
+    Ok(db_predictions)
+}
+
+fn get_predictions_for_trip(
+    monitor: &Arc<Monitor>,
+    source: String, 
+    event_type: EventType, 
+    trip_id: &str, 
+    trip_start_date: NaiveDate, 
+    trip_start_time: Duration,
+    start_sequence: u16,
+) -> FnResult<Vec<DbPrediction>> {
+    let mut conn = monitor.pool.get_conn()?;
+    let stmt = conn.prep(
+        r"SELECT 
+            `route_id`,
+            `trip_id`,
+            `trip_start_date`,
+            `trip_start_time`,
+            `prediction_min`, 
+            `prediction_max`,
+            `precision_type`,
+            `origin_type`,
+            `sample_size`,
+            `prediction_curve`,
+            `stop_id`,
+            `stop_sequence`
+        FROM
+            `predictions` 
+        WHERE 
+            `source`=:source AND 
+            `event_type`=:event_type AND
+            `trip_id`=:trip_id AND
+            `trip_start_date`=:trip_start_date AND 
+            `trip_start_time`=:trip_start_time AND
+            `stop_sequence`>=:start_sequence;",
+    )?;
+
+    let mut result = conn.exec_iter(
+        &stmt,
+        params! {
+            "source" => source,
+            "event_type" => event_type.to_int(),
+            "trip_id" => trip_id,
+            "trip_start_date" => trip_start_date,
+            "trip_start_time" => trip_start_time,
+            "start_sequence" => start_sequence,
         },
     )?;
 

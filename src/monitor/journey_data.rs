@@ -1,4 +1,4 @@
-use chrono::{NaiveTime, NaiveDateTime, Duration};
+use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Duration};
 //use dystonse_curves::Curve;
 use simple_error::bail;
 use crate::{FnResult, OrError, date_and_time};
@@ -51,6 +51,8 @@ pub struct TripData {
     pub route_id: String,
     pub start_id: Option<String>,
     pub start_index: Option<usize>,
+    pub trip_start_date: NaiveDate,
+    pub trip_start_time: Duration,
 }
 
 #[derive(Debug)]
@@ -222,6 +224,8 @@ impl JourneyData {
         let mut start_id = None;
         let mut start_index = None;
         let mut trip_id : String = String::from("");
+        let mut trip_start_date;
+        let mut trip_start_time;
 
         for (id, trip) in &self.schedule.trips {
             // look up the trips by headsign
@@ -267,27 +271,31 @@ impl JourneyData {
                                 route_id = trip.route_id.clone();
                                 start_id = Some(stop_time.stop.id.clone());
                                 start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
-                                break; // ignore any possible further dates
+                                trip_start_date = start_departure.date() + Duration::days(*d as i64 - 1);
+                                trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
+                                
+                                // now we can finally make our struct from all the gathered info :)
+                                return Ok(TripData{
+                                    route_type,
+                                    route_name,
+                                    trip_headsign,
+                                    start_departure,
+                                    trip_id,
+                                    route_id,
+                                    start_id,
+                                    start_index,
+                                    trip_start_date,
+                                    trip_start_time,
+                                    journey_prefix: String::from(prefix),
+                                });
                             }
-                           
                          }
                     }
                 }
             }
         }
 
-        // now we can finally make our struct from all the gathered info :)
-        Ok(TripData{
-            route_type,
-            route_name,
-            trip_headsign,
-            start_departure,
-            trip_id,
-            route_id,
-            start_id,
-            start_index,
-            journey_prefix: String::from(prefix),
-        })
+        bail!("Trip not found")
     }
 
     pub fn get_last_component(&self) -> JourneyComponent {
