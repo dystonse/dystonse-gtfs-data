@@ -251,7 +251,8 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
 fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
     let mut departures : Vec<DbPrediction> = Vec::new();
     let min_time = stop_data.min_time.unwrap() - Duration::minutes(stop_data.min_time.unwrap().time().minute() as i64 % 5); // round to previous nice time
-    let max_time = min_time + Duration::minutes(30);
+    let len_time: i64 = 30;
+    let max_time = min_time + Duration::minutes(len_time);
     
     for stop_id in &stop_data.extended_stop_ids {
         departures.extend(get_predictions(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
@@ -326,8 +327,7 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
             <div class="head route">Linie</div>
             <div class="head headsign">Ziel</div>
             <div class="head source">Daten</div>
-        </div>
-        <div class="timeline">"#,
+        </div>"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
         stop_name = stop_data.stop_name,
@@ -340,26 +340,32 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
     for dep in departures {
         write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone(), min_time, max_time)?;
     }
-    for m in (0..31).step_by(1) {
-        if m % 5 == 0 {
-            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-                time = (min_time + Duration::minutes(m)).format("%H:%M"),
-                percent = m as f32 / 30.0 * 100.0,
-            )?;
-        } else {
-            writeln!(&mut w, r#"    <div class="small_timebar" style="left: {percent:.1}%;"></div>"#,
-                percent = m as f32 / 30.0 * 100.0,
-            )?;
-        }
-    }
+    generate_timeline(&mut w, min_time, len_time)?;
     write!(&mut w, r#"
-    </div>
 </body>
 </html>"#,
     )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
+    Ok(())
+}
+
+fn generate_timeline(mut w: &mut Vec<u8>, min_time: NaiveDateTime, len_time: i64) -> FnResult<()> {
+    writeln!(&mut w, r#"<div class="timeline">"#)?;
+    for m in (0..(len_time + 1)).step_by(1) {
+        if m % 5 == 0 {
+            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+                percent = m as f32 / (len_time as f32) * 100.0,
+            )?;
+        } else {
+            writeln!(&mut w, r#"    <div class="small_timebar" style="left: {percent:.1}%;"></div>"#,
+                percent = m as f32 / (len_time as f32) * 100.0,
+            )?;
+        }
+    }
+    write!(&mut w, r#"</div>"#)?;
     Ok(())
 }
 
