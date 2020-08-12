@@ -345,7 +345,8 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
             <div class="head route">Linie</div>
             <div class="head headsign">Ziel</div>
             <div class="head source">Daten</div>
-        </div>"#,
+        </div>
+        <div class="timeline">"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
         stop_name = stop_data.stop_name,
@@ -370,7 +371,6 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
 }
 
 fn generate_timeline(mut w: &mut Vec<u8>, min_time: NaiveDateTime, len_time: i64) -> FnResult<()> {
-    writeln!(&mut w, r#"<div class="timeline">"#)?;
     for m in (0..(len_time + 1)).step_by(1) {
         if m % 5 == 0 {
             writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
