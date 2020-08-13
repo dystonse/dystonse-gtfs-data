@@ -569,7 +569,7 @@ fn write_departure_output(
         headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
         time = md.scheduled_time_absolute.format("%H:%M"));
 
-    let image_url = generate_png_data_url(&dep, min_time, max_time, 60, EventType::Departure)?;
+    let image_url = generate_png_data_url(&dep, min_time, max_time, 120, EventType::Departure)?;
 
     write!(&mut w, r#"
         <a href="{trip_link}" class="outer">    
@@ -687,7 +687,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
 
 
     let image_url = if let Some(prediction) = prediction {
-        generate_png_data_url(&prediction, min_time, max_time, 60, event_type)?
+        generate_png_data_url(&prediction, min_time, max_time, 120, event_type)?
     } else {
         String::new()
     };
@@ -749,15 +749,23 @@ fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: 
 
         let mut image_data = Vec::<u8>::with_capacity(width * 4);
         let f = (max_rel - min_rel) / (width as f32);
-        let probs_abs = (0..(width + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f));
-        let probs_rel : Vec<f32> = probs_abs.tuple_windows().map(|(a,b)| b-a).collect();
+        let probs_abs : Vec<f32> = (0..(width + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f)).collect();
+        let probs_rel : Vec<f32> = probs_abs.iter().tuple_windows().map(|(a,b)| b-a).collect();
         let mut max = *probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
         if max < 0.05 {
             max = 0.05;
         }
         for i in 0..width {
-            let prob = probs_rel[i] / max;
-            let color = gradient.eval_continuous(prob as f64);
+            let prob_rel = probs_rel[i] / max;
+            let prob_abs = probs_abs[i];
+            let crop = 0.2;
+            let color = if prob_abs > 0.01 && prob_abs < 0.99 { 
+                gradient.eval_continuous((crop + (prob_rel * (1.0 - crop))) as f64)
+            } else if prob_abs > 0.0 && prob_abs < 1.0 {
+                gradient.eval_continuous(0.0 as f64)
+            } else {
+                Color{r: 255, g: 255, b: 255}
+            };
             image_data.push(color.r);
             image_data.push(color.g);
             image_data.push(color.b);
