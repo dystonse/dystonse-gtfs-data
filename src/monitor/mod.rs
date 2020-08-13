@@ -392,7 +392,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
-    let arrivals = get_predictions_for_trip(
+    let mut arrivals = get_predictions_for_trip(
         monitor,
         monitor.source.clone(), 
         EventType::Arrival,
@@ -400,6 +400,34 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         trip_data.trip_start_date, 
         trip_data.trip_start_time, 
         start_sequence + 1)?;
+
+    if arrivals.is_empty() {
+        generate_error_page(response, StatusCode::INTERNAL_SERVER_ERROR, "No predictions for this trip").unwrap();
+        return Ok(());
+    }
+
+    for arr in &mut arrivals {
+        if let Err(e) = arr.compute_meta_data(monitor){
+            eprintln!("Could not compute metadata for arrival with trip_id {}: {}", arr.trip_id , e);
+        }
+    }
+
+    let exact_min_time = if let Some(time) = arrivals.iter().filter_map(|arr| arr.get_absolute_time_for_probability(0.01).ok()).min() {
+        time
+    } else {
+        arrivals.iter().map(|arr| arr.meta_data.as_ref().expect("No metadata").scheduled_time_absolute).min().or_error("No minimum")?
+    };
+
+    let exact_max_time = if let Some(time) = arrivals.iter().filter_map(|arr| arr.get_absolute_time_for_probability(0.99).ok()).max() {
+        time
+    } else {
+        arrivals.iter().map(|arr| arr.meta_data.as_ref().expect("No metadata").scheduled_time_absolute).max().or_error("No maximum")?
+    };
+
+    let min_time = exact_min_time - Duration::minutes(exact_min_time.time().minute() as i64 % 5); // round to previous nice time
+    let len_time: i64 = ((exact_max_time.signed_duration_since(exact_min_time).num_minutes() as i64 + 3) / 5) * 5;
+    let max_time = min_time + Duration::minutes(len_time);
+    
 
     let mut w = Vec::new();
     write!(&mut w, r#"
@@ -436,22 +464,16 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         // don't display stops that are before the stop where we change into this trip
         if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() {
             let arrival = arrivals.iter().filter(|a| a.stop_sequence == stop_time.stop_sequence as usize).next();
-            write_stop_time_output(&mut w, &stop_time, arrival)?;
+            write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time)?;
         }
         // TODO: the change stop needs to be displayed differently 
         // (departure time instead of arrival, not clickable, visibly marked as departure)
         
     }
 
-    for m in (0..31).step_by(1) {
-        writeln!(&mut w, r#"    <div class="{class}" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-            class = if m % 5 == 0 { "timebar" } else { "small_timebar" },
-            percent = m as f32 / 30.0 * 100.0,
-            time = (trip_data.start_departure + Duration::minutes(m)).format("%H:%M")
-        )?;
-    }
+    generate_timeline(&mut w, min_time, len_time)?;
+
     write!(&mut w, r#"
-    </div>
 </body>
 </html>"#,
     )?;
@@ -542,7 +564,7 @@ fn write_departure_output(
         headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
         time = md.scheduled_time_absolute.format("%H:%M"));
 
-    let image_url = generate_png_data_url(&dep, min_time, max_time)?;
+    let image_url = generate_png_data_url(&dep, min_time, max_time, 60)?;
 
     write!(&mut w, r#"
         <a href="{trip_link}" class="outer">    
@@ -629,7 +651,7 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
     }
 }
 
-fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Option<&DbPrediction>) -> FnResult<()> {
+fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Option<&DbPrediction>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
     let stop_link = format!("{}/", stop_time.stop.name);
     let scheduled_time = NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0);
     let (r_01, r_50,r_99) = if let Some(arrival) = arrival {
@@ -645,6 +667,13 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
     let a_50 = scheduled_time + Duration::seconds(r_50 as i64);
     let a_99 = scheduled_time + Duration::seconds(r_99 as i64);
 
+
+    let image_url = if let Some(arrival) = arrival {
+        generate_png_data_url(&arrival, min_time, max_time, 60)?
+    } else {
+        String::new()
+    };
+
     write!(&mut w, r#"
         <a href="{stop_link}" class="outer">
             <div class="line">
@@ -657,7 +686,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
                 <div class="area stopname">{stopname}</div>
                 {source_area}
             </div>
-            <div class="visu"></div>
+            <div class="visu" style="background-image:url('{image_url}')"></div>
         </a>"#,
         stop_link = stop_link,
         time = scheduled_time.format("%H:%M"),
@@ -669,6 +698,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
         max_tooltip = a_99.format("%H:%M:%S"),
         stopname = stop_time.stop.name,
         source_area = get_source_area(arrival),
+        image_url = image_url
     )?;
     Ok(())
 }
@@ -681,36 +711,35 @@ fn format_delay(delay: i32) -> String {
     }
 }
 
-fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<String> {
-    const WIDTH: usize = 60;
-
+fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime, width: usize) -> FnResult<String> {
     let min_rel = dep.get_relative_time(min_time)?;
     let max_rel = dep.get_relative_time(max_time)?;
 
     let mut buf : Vec<u8> = Vec::new();
     // block for scoped borrow of buf
     {
-        let mut encoder = png::Encoder::new(&mut buf, WIDTH as u32, 1);
+        let mut encoder = png::Encoder::new(&mut buf, width as u32, 1);
         encoder.set_color(png::ColorType::RGBA);
         encoder.set_depth(png::BitDepth::Eight);
         let mut png = encoder.write_header()?;
 
-        let mut array: [u8; WIDTH * 4] = [255; WIDTH * 4];
-        let f = (max_rel - min_rel) / (WIDTH as f32);
-        let probs_abs = (0..(WIDTH + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f));
+        let mut image_data = Vec::<u8>::with_capacity(width * 4);
+        let f = (max_rel - min_rel) / (width as f32);
+        let probs_abs = (0..(width + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f));
         let probs_rel : Vec<f32> = probs_abs.tuple_windows().map(|(a,b)| b-a).collect();
         let mut max = *probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
         if max < 0.05 {
             max = 0.05;
         }
-        for i in 0..WIDTH {
+        for i in 0..width {
             let prob = probs_rel[i] / max;
             let color = YELLOW_GREEN_BLUE.eval_continuous(prob as f64);
-            array[i * 4 + 0] = color.r;
-            array[i * 4 + 1] = color.g;
-            array[i * 4 + 2] = color.b;
+            image_data.push(color.r);
+            image_data.push(color.g);
+            image_data.push(color.b);
+            image_data.push(255);
         }
-        png.write_image_data(&array)?; // Save
+        png.write_image_data(&image_data)?; // Save
     }
     let b64_data = base64::encode_config(buf, base64::STANDARD);
     Ok(format!("data:image/png;base64,{}", b64_data))
@@ -872,6 +901,10 @@ struct DbPredictionMetaData {
 
 impl DbPrediction {
     pub fn compute_meta_data(&mut self, monitor: &Arc<Monitor>) -> FnResult<()> {
+        if self.meta_data.is_some() {
+            return Ok(());
+        }
+
         let trip = monitor.schedule.get_trip(&self.trip_id)?;
         let route = monitor.schedule.get_route(&self.route_id)?;
         let route_name = route.short_name.clone();
