@@ -1,7 +1,7 @@
 mod journey_data;
 
 use crate::{FnResult, Main, date_and_time, OrError};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Utc, Duration, Timelike};
+use chrono::{NaiveDate, NaiveDateTime, Utc, Duration, Timelike};
 use clap::{App, ArgMatches};
 use crate::types::*;
 use crate::FileCache;
@@ -227,7 +227,7 @@ fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>,
     println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
     
     let res = match journey.get_last_component() {
-        JourneyComponent::Stop(stop_data) => generate_first_stop_page(response, monitor, &journey, stop_data),
+        JourneyComponent::Stop(stop_data) => generate_stop_page(response, monitor, &journey, stop_data),
         JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, trip_data),
         JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey."))
     };
@@ -248,11 +248,34 @@ fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message:
     Ok(())
 }
 
-fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
+fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
     let mut departures : Vec<DbPrediction> = Vec::new();
     let min_time = stop_data.min_time.unwrap() - Duration::minutes(stop_data.min_time.unwrap().time().minute() as i64 % 5); // round to previous nice time
     let len_time: i64 = 30;
     let max_time = min_time + Duration::minutes(len_time);
+
+    let mut arrival_option : Option<DbPrediction> = None;
+
+    // first line: arrival at this stop
+    if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
+
+        println!("Found arrival trip (id: {})", arrival_trip_id);
+
+        //TODO: maybe set max time to a later value if we might arrive later
+
+        //find the trip_data object we need
+        let arrival_trip : &TripData = journey_data.trips.iter().filter(|trip| {
+            trip.trip_id == *arrival_trip_id 
+            && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
+            && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
+        }).next().unwrap();
+
+        let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
+
+        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
+            arrival_option = Some(arrival);
+        }
+    }
     
     for stop_id in &stop_data.extended_stop_ids {
         departures.extend(get_predictions_for_stop(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
@@ -356,8 +379,14 @@ fn generate_first_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monito
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
     )?;
+
+    //optional first line for arrival
+    if let Some(arrival) = arrival_option {
+        write_departure_output(&mut w, &arrival, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Arrival)?;
+    }
+
     for dep in departures {
-        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone(), min_time, max_time)?;
+        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Departure)?;
     }
     generate_timeline(&mut w, min_time, len_time)?;
     write!(&mut w, r#"
@@ -497,6 +526,7 @@ fn write_departure_output(
     monitor: &Arc<Monitor>,
     min_time: NaiveDateTime,
     max_time: NaiveDateTime,
+    event_type: EventType,
 ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
@@ -551,7 +581,7 @@ fn write_departure_output(
 
     let mut stop_name = stop_data.stop_name.clone();
 
-    // prepare info for departured from extended stops list
+    // prepare info for departure from extended stops list
     let mut extended_stop_info : String = String::from("");
     if let Some(d) = stop_data.extended_stops_distances.get(&dep.stop_id) {
         stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
@@ -563,18 +593,31 @@ fn write_departure_output(
     }
     
     // trip link
-    let trip_link =  format!("{prefix}{stop}/{r_type} {route} nach {headsign} um {time}/", 
+    let trip_link = match event_type {
+        EventType::Arrival => String::from("<div"),
+        EventType::Departure => format!(r#"<a href="{prefix}{stop}/{r_type} {route} nach {headsign} um {time}/""#, 
         prefix = stop_data.journey_prefix,
         stop = utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
         r_type = route_type_to_str(md.route_type), 
         route = md.route_name, 
         headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
-        time = md.scheduled_time_absolute.format("%H:%M"));
+        time = md.scheduled_time_absolute.format("%H:%M"))
+    };
+    let trip_link_type = match event_type {
+        EventType::Arrival => "div",
+        EventType::Departure => "a"
+    };
 
-    let image_url = generate_png_data_url(&dep, min_time, max_time, 120, EventType::Departure)?;
+
+    let image_url = generate_png_data_url(&dep, min_time, max_time, 120, event_type)?;
+
+    let headsign = match event_type {
+        EventType::Arrival => format!("Ankunft an {}", stop_data.stop_name),
+        EventType::Departure => md.headsign.clone()
+    };
 
     write!(&mut w, r#"
-        <a href="{trip_link}" class="outer">    
+        {trip_link} class="outer">    
             <div class="line">
                 <div class="timing">
                     <div class="area time">{time}</div>
@@ -591,8 +634,9 @@ fn write_departure_output(
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
             <div class="schedulepoint" style="left:{scheduled_percent:.2}%;">▲</div>
-        </a>"#,
+        </{trip_link_type}>"#,
         trip_link = trip_link,
+        trip_link_type = trip_link_type,
         time = md.scheduled_time_absolute.format("%H:%M"),
         min = format_delay(r_01),
         min_tooltip = a_01.format("%H:%M:%S"),
@@ -603,7 +647,7 @@ fn write_departure_output(
         type_letter = type_letter,
         type_class = type_class,
         route_name = md.route_name,
-        headsign = md.headsign,
+        headsign = headsign,
         extended_stop_info = extended_stop_info,
         image_url = image_url,
         prob = prob,

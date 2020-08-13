@@ -27,7 +27,7 @@ pub struct JourneyData {
     pub schedule: Arc<Gtfs>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StopData {
     pub journey_prefix: String,
     pub stop_name: String,
@@ -40,9 +40,13 @@ pub struct StopData {
 
     pub arrival_curve: Option<IrregularDynamicCurve<f32, f32>>,
     pub arrival_prob: Option<f32>,
+    pub arrival_trip_id: Option<String>,
+    pub arrival_trip_stop_index: Option<usize>,
+    pub arrival_trip_start_date: Option<NaiveDate>,
+    pub arrival_trip_start_time: Option<Duration>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TripData {
     pub journey_prefix: String,
     
@@ -190,10 +194,19 @@ impl JourneyData {
         let mut arrival_curve : Option<IrregularDynamicCurve<f32, f32>> = None;
         let mut arrival_time_min : Option<NaiveDateTime> = None;
         let mut arrival_prob : Option<f32> = None;
+        let mut arrival_trip_id : Option<String> = None;
+        let mut arrival_trip_stop_index : Option<usize> = None;
+        let mut arrival_trip_start_date : Option<NaiveDate> = None;
+        let mut arrival_trip_start_time : Option<Duration> = None;
 
         if let Some(trip_data) = prev_trip {
             if let Ok(trip) = self.schedule.get_trip(&trip_data.trip_id) {
                 if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
+                    //set some of the arrival trip info:
+                    arrival_trip_id = Some(trip_data.trip_id.clone());
+                    arrival_trip_stop_index = Some(trip.get_stop_index_by_id(&stop_time.stop.id)?);
+                    arrival_trip_start_date = Some(trip_data.trip_start_date);
+                    arrival_trip_start_time = Some(trip_data.trip_start_time);
                     if let Ok(a_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Arrival){
                         //set min time and curve:
                         let arrival_time_min_relative = a_curve.x_at_y(0.01);
@@ -219,6 +232,10 @@ impl JourneyData {
             journey_prefix: String::from(prefix),
             arrival_curve, //TODO: maybe we need to modify this?
             arrival_prob,
+            arrival_trip_id,
+            arrival_trip_stop_index,
+            arrival_trip_start_date,
+            arrival_trip_start_time,
         })
     }
 
