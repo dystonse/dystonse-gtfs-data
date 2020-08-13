@@ -204,7 +204,7 @@ impl JourneyData {
                 if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
                     //set some of the arrival trip info:
                     arrival_trip_id = Some(trip_data.trip_id.clone());
-                    arrival_trip_stop_index = Some(trip.get_stop_index_by_id(&stop_time.stop.id)?);
+                    arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
                     arrival_trip_start_date = Some(trip_data.trip_start_date);
                     arrival_trip_start_time = Some(trip_data.trip_start_time);
                     if let Ok(a_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Arrival){

@@ -381,7 +381,8 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     )?;
 
     //optional first line for arrival
-    if let Some(arrival) = arrival_option {
+    if let Some(mut arrival) = arrival_option {
+        arrival.compute_meta_data(monitor)?;
         write_departure_output(&mut w, &arrival, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Arrival)?;
     }
 
@@ -993,7 +994,7 @@ impl DbPrediction {
         let route_name = route.short_name.clone();
         let route_type = route.route_type;
         let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
-        let stop_index = trip.get_stop_index_by_id(&self.stop_id).or_error("stop_index is None")?;
+        let stop_index = trip.get_stop_index_by_stop_sequence(self.stop_sequence as u16).or_error("stop_index is None")?;
         let scheduled_time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
         let scheduled_time_absolute = date_and_time(&self.trip_start_date, scheduled_time_seconds as i32);
 
