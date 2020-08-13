@@ -18,7 +18,8 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiS
 
 const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
 
-const EXTENDED_STOPS_MAX_DISTANCE: f32 = 500.0;
+// radius in which we look for other stops close by to include their departures in a stop's page
+const EXTENDED_STOPS_MAX_DISTANCE: f32 = 400.0; 
 
 pub struct JourneyData {
     pub start_date_time: NaiveDateTime,
