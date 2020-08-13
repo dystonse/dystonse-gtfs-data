@@ -103,10 +103,10 @@ body {
 .outer {
     display: block;
     border-radius: 5px;
-    border: 1px solid #aaa;
-    margin-bottom: 15px;
+    padding-bottom: 15px;
     overflow: hidden;
     text-decoration: none;
+    position: relative;
 }
 
 a.outer:hover {
@@ -119,7 +119,6 @@ a.outer:hover .line {
 
 .line {
     display: flex;
-    min-width: 100%;
     background-color: #eee;
     color: #000;
     font-size: 38px;
@@ -127,6 +126,12 @@ a.outer:hover .line {
     align-items: center;
     padding-top: 10px;
     padding-bottom: 5px;
+    border: 1px #aaa;
+    border-radius: 5px 5px 0 0;
+    border-top-style: solid;
+    border-left-style: solid;
+    border-right-style: solid;
+    border-bottom-style: none;
 }
 
 .timing {
@@ -326,13 +331,25 @@ a.outer:hover .line {
 }
 
 .visu {
-    min-width: 100%;
     background-color: #90B9CA;
     color: #000;
     height: 12px;
-    /* background-image: url(/grad.png); */
     background-size: 100% 100%;
-   /* image-rendering: crisp-edges; */
+    border: 1px #aaa;
+    border-radius: 0 0 5px 5px;
+    border-top-style: none;
+    border-left-style: solid;
+    border-right-style: solid;
+    border-bottom-style: solid;
+}
+
+.schedulepoint {
+    left: 33.333336%;
+    position: absolute;
+    color: black;
+    bottom: 0px;
+    height: 20px;
+    margin-left: -6px;
 }
 
 .timeline {

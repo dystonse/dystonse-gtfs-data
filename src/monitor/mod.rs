@@ -499,6 +499,8 @@ fn write_departure_output(
     max_time: NaiveDateTime,
 ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
+    let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
+    let scheduled_percent = a_scheduled.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
     let a_99 = dep.get_absolute_time_for_probability(0.99).unwrap();
@@ -588,6 +590,7 @@ fn write_departure_output(
                 {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
+            <div class="schedulepoint" style="left:{scheduled_percent:.2}%;">▲</div>
         </a>"#,
         trip_link = trip_link,
         time = md.scheduled_time_absolute.format("%H:%M"),
@@ -605,7 +608,8 @@ fn write_departure_output(
         image_url = image_url,
         prob = prob,
         source_area = get_source_area(Some(dep)),
-        probclass = if prob == 100 { "hundred" } else { "" }
+        probclass = if prob == 100 { "hundred" } else { "" },
+        scheduled_percent = scheduled_percent
     )?;
     Ok(())
 }
@@ -668,8 +672,8 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
     };
 
     let scheduled_time = match event_type {
-        EventType::Arrival => NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0),
-        EventType::Departure => NaiveTime::from_num_seconds_from_midnight(stop_time.departure_time.unwrap(),0)
+        EventType::Arrival   => date_and_time(&prediction.unwrap().trip_start_date, stop_time.arrival_time  .unwrap() as i32),
+        EventType::Departure => date_and_time(&prediction.unwrap().trip_start_date, stop_time.departure_time.unwrap() as i32)
     };
 
     let (r_01, r_50,r_99) = if let Some(prediction) = prediction {
@@ -685,6 +689,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
     let a_50 = scheduled_time + Duration::seconds(r_50 as i64);
     let a_99 = scheduled_time + Duration::seconds(r_99 as i64);
 
+    let scheduled_percent = scheduled_time.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
 
     let image_url = if let Some(prediction) = prediction {
         generate_png_data_url(&prediction, min_time, max_time, 120, event_type)?
@@ -705,6 +710,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
                 {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
+            <div class="schedulepoint" style="left:{scheduled_percent:.2}%;">▲</div>
         </{stop_link_type}>"#,
         stop_link = stop_link,
         stop_link_type = stop_link_type,
@@ -717,7 +723,8 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
         max_tooltip = a_99.format("%H:%M:%S"),
         stopname = stop_time.stop.name,
         source_area = get_source_area(prediction),
-        image_url = image_url
+        image_url = image_url,
+        scheduled_percent = scheduled_percent,
     )?;
     Ok(())
 }
