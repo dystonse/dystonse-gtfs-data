@@ -5,12 +5,14 @@ use crate::{FnResult, OrError, date_and_time, types::EventType};
 use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
-use super::{Monitor, route_type_to_str};
+use super::{Monitor, route_type_to_str, DbPrediction};
 use geo::prelude::*;
 use geo::point;
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use dystonse_curves::{Curve, IrregularDynamicCurve};
+use mysql::*;
+use mysql::prelude::*;
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
@@ -43,13 +45,15 @@ pub struct StopData {
 #[derive(Debug)]
 pub struct TripData {
     pub journey_prefix: String,
-    // can be parsed from URL:
+    
     pub route_type: RouteType,
     pub route_name: String,
     pub trip_headsign: String,
     pub start_departure: NaiveDateTime,
 
-    // needs schedule, stopdata and maybe database for finding:
+    pub start_departure_curve: Option<IrregularDynamicCurve<f32, f32>>,
+    pub start_departure_prob: Option<f32>,
+
     pub trip_id: String,
     pub route_id: String,
     pub start_id: Option<String>,
@@ -96,7 +100,7 @@ impl JourneyData {
                 let mut stop_data = self.parse_stop_data(&prefix, &utf8_percent_encode(&stop_string, PATH_ELEMENT_ESCAPE).to_string(), self.trips.last(), monitor.clone())?;
                 // set min time (for first stop only):
                 if stop_data.min_time.is_none() {
-                stop_data.min_time = Some(self.start_date_time);
+                    stop_data.min_time = Some(self.start_date_time);
                 }
 
                 self.stops.push(stop_data);
@@ -107,7 +111,7 @@ impl JourneyData {
             }
             // assume that the second, fourth, etc.. part is a trip string:
             if let Some(trip_string) = journey_iter.next() {
-                let trip_data = self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_string, PATH_ELEMENT_ESCAPE).to_string(), self.stops.last().unwrap())?;                
+                let trip_data = self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_string, PATH_ELEMENT_ESCAPE).to_string(), self.stops.last().unwrap(), monitor.clone())?;                
                 self.trips.push(trip_data);
 
                 prefix = format!("{}{}/", prefix, trip_string);
@@ -198,7 +202,6 @@ impl JourneyData {
                         arrival_time_min = Some(a_time_min);
                         arrival_curve = Some(a_curve);
                     }
-
                 }
             }
         } else { //first stop has no trip_data for arrival
@@ -220,7 +223,7 @@ impl JourneyData {
     }
 
 
-    pub fn parse_trip_data(&self, prefix: &str, trip_string: &str, stop_data: &StopData) -> FnResult<TripData> {
+    pub fn parse_trip_data(&self, prefix: &str, trip_string: &str, stop_data: &StopData, monitor: Arc<Monitor>) -> FnResult<TripData> {
         
         // Regex to parse stuff like: "Bus 420 nach Wolfenbüttel Bahnhof um 21:39", 
         // or more generally: route_type route_name nach trip_headsign um start_departure.time
@@ -302,7 +305,7 @@ impl JourneyData {
                                 let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
                                 
                                 // now we can finally make our struct from all the gathered info :)
-                                return Ok(TripData{
+                                let mut trip_data = TripData{
                                     route_type,
                                     route_name,
                                     trip_headsign,
@@ -314,7 +317,16 @@ impl JourneyData {
                                     trip_start_date,
                                     trip_start_time,
                                     journey_prefix: String::from(prefix),
-                                });
+                                    start_departure_curve: None, //will be set below
+                                    start_departure_prob: None, //Has to be set from outside
+                                };
+
+                                // set curve for departure at first stop:
+                                if let Ok(s_d_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Departure) {
+                                    trip_data.start_departure_curve = Some(s_d_curve);
+                                }
+
+                                return Ok(trip_data);
                             }
                          }
                     }
@@ -339,9 +351,57 @@ impl JourneyData {
 
 pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
         
-    // TODO:
-    // look up the required curve from the database
-    // and return it
+    let mut conn = monitor.pool.get_conn()?;
+
+    let stmt = conn.prep(
+        r"SELECT 
+            `route_id`,
+            `trip_id`,
+            `trip_start_date`,
+            `trip_start_time`,
+            `prediction_min`, 
+            `prediction_max`,
+            `precision_type`,
+            `origin_type`,
+            `sample_size`,
+            `prediction_curve`,
+            `stop_id`,
+            `stop_sequence`
+        FROM
+            `predictions` 
+        WHERE 
+            `source`=:source AND 
+            `event_type`=:event_type AND
+            `stop_id`=:stop_id AND
+            `trip_id`=:trip_id AND
+            `trip_start_date`=: trip_start_date AND
+            `trip_start_time`=: trip_start_time",
+    )?;
+
+    let mut result = conn.exec_iter(
+        &stmt,
+        params! {
+            "source" => &monitor.source,
+            "event_type" => et.to_int(),
+            "stop_id" => stop_id,
+            "trip_id" => &trip_data.trip_id,
+            "trip_start_date" => trip_data.trip_start_date,
+            "trip_start_time" => trip_data.trip_start_time,
+        },
+    )?;
+
+    let result_set = result.next_set().unwrap()?;
+
+    let db_predictions: Vec<_> = result_set
+        .map(|row| {
+            let item: DbPrediction = from_row(row.unwrap());
+            item
+        })
+        .collect();
+
+    if let Some(pred) = db_predictions.first() {
+        return Ok(pred.prediction_curve.clone());
+    };
     
-    bail!("not yet implemented");
+    bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
 }
