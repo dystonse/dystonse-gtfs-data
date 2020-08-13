@@ -377,7 +377,7 @@ fn generate_timeline(mut w: &mut Vec<u8>, min_time: NaiveDateTime, len_time: i64
                 time = (min_time + Duration::minutes(m)).format("%H:%M"),
                 percent = m as f32 / (len_time as f32) * 100.0,
             )?;
-        } else {
+        } else if len_time < 90 {
             writeln!(&mut w, r#"    <div class="small_timebar" style="left: {percent:.1}%;"></div>"#,
                 percent = m as f32 / (len_time as f32) * 100.0,
             )?;
@@ -392,6 +392,12 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
+    let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
+
+    // departure from first stop: this is where the user changes into this trip
+    let mut departure = get_prediction_for_first_line(monitor.clone(), start_id, trip_data, EventType::Departure)?;
+            
+
     let mut arrivals = get_predictions_for_trip(
         monitor,
         monitor.source.clone(), 
@@ -412,11 +418,8 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
         }
     }
 
-    let exact_min_time = if let Some(time) = arrivals.iter().filter_map(|arr| arr.get_absolute_time_for_probability(0.01).ok()).min() {
-        time
-    } else {
-        arrivals.iter().map(|arr| arr.meta_data.as_ref().expect("No metadata").scheduled_time_absolute).min().or_error("No minimum")?
-    };
+    departure.compute_meta_data(monitor)?;
+    let exact_min_time = departure.get_absolute_time_for_probability(0.01).unwrap();
 
     let exact_max_time = if let Some(time) = arrivals.iter().filter_map(|arr| arr.get_absolute_time_for_probability(0.99).ok()).max() {
         time
@@ -463,8 +466,6 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
         if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? == trip_data.start_index.unwrap() {
-            // departure from first stop: this is where the user changes into this trip
-            let departure = get_prediction_for_first_line(monitor.clone(), &stop_time.stop.id, trip_data, EventType::Departure)?;
             write_stop_time_output(&mut w, &stop_time, Some(&departure), min_time, max_time, EventType::Departure)?;
 
         } else if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? > trip_data.start_index.unwrap() {
@@ -658,7 +659,7 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
 fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction: Option<&DbPrediction>, min_time: NaiveDateTime, max_time: NaiveDateTime, event_type: EventType) -> FnResult<()> {
     
     let stop_link = match event_type {
-        EventType::Arrival => format!(r#"<a href="{}/"#, stop_time.stop.name),
+        EventType::Arrival => format!(r#"<a href="{}/""#, stop_time.stop.name),
         EventType::Departure => String::from("<div") //no link for first line
     };
     let stop_link_type = match event_type {

@@ -109,11 +109,11 @@ body {
     text-decoration: none;
 }
 
-.outer:hover {
+a.outer:hover {
     border-color: #000;
 }
 
-.outer:hover .line {
+a.outer:hover .line {
     background-color: #ccc;
 }
 
@@ -286,7 +286,6 @@ body {
 .area.prob {
     font-size: 28px;
     font-weight: lighter;
-    flex-basis: 50px;
 }
 
 .area.prob.hundred {

@@ -382,8 +382,8 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, tr
             `event_type`=:event_type AND
             `stop_id`=:stop_id AND
             `trip_id`=:trip_id AND
-            `trip_start_date`=: trip_start_date AND
-            `trip_start_time`=: trip_start_time",
+            `trip_start_date`=:trip_start_date AND
+            `trip_start_time`=:trip_start_time",
     )?;
 
     let mut result = conn.exec_iter(
