@@ -428,7 +428,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     };
 
     let min_time = exact_min_time - Duration::minutes(exact_min_time.time().minute() as i64 % 5); // round to previous nice time
-    let len_time: i64 = ((exact_max_time.signed_duration_since(exact_min_time).num_minutes() as i64 + 3) / 5) * 5;
+    let len_time: i64 = ((exact_max_time.signed_duration_since(min_time).num_minutes() as i64 + 6) / 5) * 5;
     let max_time = min_time + Duration::minutes(len_time);
     
 
