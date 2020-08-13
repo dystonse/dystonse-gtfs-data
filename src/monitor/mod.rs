@@ -28,7 +28,7 @@ use dystonse_curves::{IrregularDynamicCurve, Curve};
 use std::io::Write;
 use colorous::*;
 
-use journey_data::{JourneyData, JourneyComponent, StopData, TripData};
+use journey_data::{JourneyData, JourneyComponent, StopData, TripData, get_prediction_for_first_line};
 
 const CSS:&'static str = include_str!("style.css");
 const FAVICON_HEADERS: &'static str = r##"
@@ -462,12 +462,16 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
     )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
-        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? >= trip_data.start_index.unwrap() {
+        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? == trip_data.start_index.unwrap() {
+            // departure from first stop: this is where the user changes into this trip
+            let departure = get_prediction_for_first_line(monitor.clone(), &stop_time.stop.id, trip_data, EventType::Departure)?;
+            write_stop_time_output(&mut w, &stop_time, Some(&departure), min_time, max_time, EventType::Departure)?;
+
+        } else if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? > trip_data.start_index.unwrap() {
+            //arrivals at later stops:
             let arrival = arrivals.iter().filter(|a| a.stop_sequence == stop_time.stop_sequence as usize).next();
-            write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time)?;
+            write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time, EventType::Arrival)?;
         }
-        // TODO: the change stop needs to be displayed differently 
-        // (departure time instead of arrival, not clickable, visibly marked as departure)
         
     }
 
@@ -564,7 +568,7 @@ fn write_departure_output(
         headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
         time = md.scheduled_time_absolute.format("%H:%M"));
 
-    let image_url = generate_png_data_url(&dep, min_time, max_time, 60)?;
+    let image_url = generate_png_data_url(&dep, min_time, max_time, 60, EventType::Departure)?;
 
     write!(&mut w, r#"
         <a href="{trip_link}" class="outer">    
@@ -651,14 +655,27 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
     }
 }
 
-fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Option<&DbPrediction>, min_time: NaiveDateTime, max_time: NaiveDateTime) -> FnResult<()> {
-    let stop_link = format!("{}/", stop_time.stop.name);
-    let scheduled_time = NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0);
-    let (r_01, r_50,r_99) = if let Some(arrival) = arrival {
+fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction: Option<&DbPrediction>, min_time: NaiveDateTime, max_time: NaiveDateTime, event_type: EventType) -> FnResult<()> {
+    
+    let stop_link = match event_type {
+        EventType::Arrival => format!(r#"<a href="{}/"#, stop_time.stop.name),
+        EventType::Departure => String::from("<div") //no link for first line
+    };
+    let stop_link_type = match event_type {
+        EventType::Arrival => "a",
+        EventType::Departure => "div"
+    };
+
+    let scheduled_time = match event_type {
+        EventType::Arrival => NaiveTime::from_num_seconds_from_midnight(stop_time.arrival_time.unwrap(),0),
+        EventType::Departure => NaiveTime::from_num_seconds_from_midnight(stop_time.departure_time.unwrap(),0)
+    };
+
+    let (r_01, r_50,r_99) = if let Some(prediction) = prediction {
         (
-            arrival.get_relative_time_for_probability(0.01),
-            arrival.get_relative_time_for_probability(0.50),
-            arrival.get_relative_time_for_probability(0.99),
+            prediction.get_relative_time_for_probability(0.01),
+            prediction.get_relative_time_for_probability(0.50),
+            prediction.get_relative_time_for_probability(0.99),
         )
     } else {
         (0,0,0)
@@ -668,14 +685,14 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
     let a_99 = scheduled_time + Duration::seconds(r_99 as i64);
 
 
-    let image_url = if let Some(arrival) = arrival {
-        generate_png_data_url(&arrival, min_time, max_time, 60)?
+    let image_url = if let Some(prediction) = prediction {
+        generate_png_data_url(&prediction, min_time, max_time, 60, event_type)?
     } else {
         String::new()
     };
 
     write!(&mut w, r#"
-        <a href="{stop_link}" class="outer">
+        {stop_link} class="outer">
             <div class="line">
                 <div class="timing">
                     <div class="area time">{time}</div>
@@ -687,8 +704,9 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
                 {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
-        </a>"#,
+        </{stop_link_type}>"#,
         stop_link = stop_link,
+        stop_link_type = stop_link_type,
         time = scheduled_time.format("%H:%M"),
         min = format_delay(r_01 as i32 / 60),
         min_tooltip = a_01.format("%H:%M:%S"),
@@ -697,7 +715,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, arrival: Op
         max = format_delay(r_99 as i32 / 60),
         max_tooltip = a_99.format("%H:%M:%S"),
         stopname = stop_time.stop.name,
-        source_area = get_source_area(arrival),
+        source_area = get_source_area(prediction),
         image_url = image_url
     )?;
     Ok(())
@@ -711,9 +729,14 @@ fn format_delay(delay: i32) -> String {
     }
 }
 
-fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime, width: usize) -> FnResult<String> {
+fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime, width: usize, event_type: EventType) -> FnResult<String> {
     let min_rel = dep.get_relative_time(min_time)?;
     let max_rel = dep.get_relative_time(max_time)?;
+
+    let gradient = match event_type {
+        EventType::Arrival => YELLOW_ORANGE_BROWN,
+        EventType::Departure => YELLOW_GREEN_BLUE
+    };
 
     let mut buf : Vec<u8> = Vec::new();
     // block for scoped borrow of buf
@@ -733,7 +756,7 @@ fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: 
         }
         for i in 0..width {
             let prob = probs_rel[i] / max;
-            let color = YELLOW_GREEN_BLUE.eval_continuous(prob as f64);
+            let color = gradient.eval_continuous(prob as f64);
             image_data.push(color.r);
             image_data.push(color.g);
             image_data.push(color.b);
@@ -872,7 +895,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 }
 
 #[derive(Debug, Clone)]
-struct DbPrediction {
+pub struct DbPrediction {
     pub route_id: String,
     pub trip_id: String,
     pub trip_start_date: NaiveDate,
@@ -890,7 +913,7 @@ struct DbPrediction {
 }
 
 #[derive(Debug, Clone)]
-struct DbPredictionMetaData {
+pub struct DbPredictionMetaData {
     pub route_name : String,
     pub headsign : String,
     pub stop_index : usize,

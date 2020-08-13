@@ -348,9 +348,17 @@ impl JourneyData {
     }
 }
 
-
 pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
-        
+
+    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, trip_data, et) {
+        return Ok(pred.prediction_curve.clone());
+    };
+    
+    bail!("no curve found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
+}
+
+pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<DbPrediction> {
+    
     let mut conn = monitor.pool.get_conn()?;
 
     let stmt = conn.prep(
@@ -400,7 +408,7 @@ pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripDa
         .collect();
 
     if let Some(pred) = db_predictions.first() {
-        return Ok(pred.prediction_curve.clone());
+        return Ok(pred.clone());
     };
     
     bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
