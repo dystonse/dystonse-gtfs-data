@@ -287,11 +287,11 @@ impl JourneyData {
                 continue;
             } else {
                 // only use trips that include the stop we want to start from:
-                if let Some(stop_time) = trip.stop_times.iter().filter(|st| stop_data.extended_stop_names.contains(&st.stop.name)).next() {
+                for stop_time in trip.stop_times.iter().filter(|st| stop_data.extended_stop_names.contains(&st.stop.name)) {
                     if let Some(scheduled_departure) = stop_time.departure_time {
-                        for d in filtered_trip_days {
+                        for d in &filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
-                            let scheduled_datetime = date_and_time(&start_departure.date(), scheduled_departure as i32) + Duration::days(*d as i64 - 1);
+                            let scheduled_datetime = date_and_time(&start_departure.date(), scheduled_departure as i32) + Duration::days(**d as i64 - 1);
                             // compare if this is the one we're looking for:
                             if scheduled_datetime != start_departure {
                                 continue;
@@ -301,7 +301,7 @@ impl JourneyData {
                                 let route_id = trip.route_id.clone();
                                 let start_id = Some(stop_time.stop.id.clone());
                                 let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
-                                let trip_start_date = start_departure.date() + Duration::days(*d as i64 - 1);
+                                let trip_start_date = start_departure.date() + Duration::days(**d as i64 - 1);
                                 let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
                                 
                                 // now we can finally make our struct from all the gathered info :)
