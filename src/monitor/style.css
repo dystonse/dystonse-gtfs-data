@@ -353,8 +353,6 @@ a.outer:hover .line {
 }
 
 .timeline {
-    padding-bottom: 20px;
-    margin-bottom: 40px;
     position: relative;
 }
 
@@ -377,6 +375,7 @@ a.outer:hover .line {
     margin-bottom: 20px;
 }
 
+/*
 .timebar span {
     position: absolute;
     display: block;
@@ -388,6 +387,39 @@ a.outer:hover .line {
     font-weight: normal;
     font-size: 14px;
 }
+*/
+
+.timelabels_footer {
+    position: -webkit-sticky;
+    position: sticky;
+    bottom: 0;
+}
+
+.timelabels {
+    position: relative;
+    bottom: 0;
+    height: 40px;
+    background-color: white;
+    background: linear-gradient(to bottom, rgba(255,255,255,0) 0%,rgba(255,255,255,1) 27%,rgba(255,255,255,1) 100%);
+}
+
+.timelabel {
+    position: absolute;
+    top: 15px;
+}
+
+.timelabel span {
+    position: absolute;
+    display: block;
+    top: 100%;
+    left: -20px;
+    right: -20px;
+    text-align: center;
+    color: #90B9CA;
+    font-weight: normal;
+    font-size: 14px;
+    background-color: white;
+} 
 
 @media (max-width: 1000px) {
 
@@ -524,9 +556,18 @@ a.outer:hover .line {
         font-weight: normal;
         font-size: 9px;
     }
+    .timelabels {
+        height: 60px;
+    }
 
-    .timebar span {
-        margin-top: 20px;
+    .timelabel {
+        top: 50%;
+    }
+
+    .timelabel span {
+        margin-top: 0px;
+        padding-top: 0px;
+        padding-right: 5px;
         transform: rotate(-90deg);
     }
 

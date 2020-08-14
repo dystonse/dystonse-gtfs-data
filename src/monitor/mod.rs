@@ -404,8 +404,8 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
     for m in (0..(len_time + 1)).step_by(1) {
         if m % 5 == 0 {
-            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"></div>"#,
+                //time = (min_time + Duration::minutes(m)).format("%H:%M"),
                 percent = m as f32 / (len_time as f32) * 100.0,
             )?;
         } else if len_time < 90 {
@@ -414,7 +414,22 @@ fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i
             )?;
         }
     }
+    generate_timeline_labels(w, min_time, len_time)?;
     write!(&mut w, r#"</div>"#)?;
+    Ok(())
+}
+
+fn generate_timeline_labels(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
+    writeln!(&mut w, r#"<div class="timelabels_footer"><div class="timelabels">"#)?;
+    for m in (0..(len_time + 1)).step_by(1) {
+        if m % 5 == 0 {
+            writeln!(&mut w, r#"    <div class="timelabel" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+                percent = m as f32 / (len_time as f32) * 100.0,
+            )?;
+        }
+    }
+    write!(&mut w, r#"</div></div>"#)?;
     Ok(())
 }
 
