@@ -228,7 +228,7 @@ fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>,
     
     let res = match journey.get_last_component() {
         JourneyComponent::Stop(stop_data) => generate_stop_page(response, monitor, &journey, stop_data),
-        JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, trip_data),
+        JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, &journey, trip_data),
         JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey."))
     };
 
@@ -355,7 +355,13 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
-    <body>
+    <body>"#,         
+    css = CSS,
+    favicon_headers = FAVICON_HEADERS,)?;
+
+    generate_breadcrumbs(&mut w, journey_data)?;
+
+    write!(&mut w, r#"
         <h1>Abfahrten für {stop_name} <span class="extended_stops" title="{stop_names}">(und {stops_number} weitere)</span>, {date} von {min_time} bis {max_time}</h1>
             <div class="header">
             <div class="timing">
@@ -367,11 +373,10 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
             <div class="head type">Typ</div>
             <div class="head route">Linie</div>
             <div class="head headsign">Ziel</div>
+            <div class="head prob">Chance</div>
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
-        css = CSS,
-        favicon_headers = FAVICON_HEADERS,
         stop_name = stop_data.stop_name,
         stop_names = stop_data.extended_stop_names.join(",\n"),
         stops_number = stop_data.extended_stop_names.len() - 1,
@@ -403,8 +408,8 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
     for m in (0..(len_time + 1)).step_by(1) {
         if m % 5 == 0 {
-            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
-                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"></div>"#,
+                //time = (min_time + Duration::minutes(m)).format("%H:%M"),
                 percent = m as f32 / (len_time as f32) * 100.0,
             )?;
         } else if len_time < 90 {
@@ -413,11 +418,67 @@ fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i
             )?;
         }
     }
+    generate_timeline_labels(w, min_time, len_time)?;
     write!(&mut w, r#"</div>"#)?;
     Ok(())
 }
 
-fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, trip_data: &TripData) -> FnResult<()> {
+fn generate_timeline_labels(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
+    writeln!(&mut w, r#"<div class="timelabels_footer"><div class="timelabels">"#)?;
+    for m in (0..(len_time + 1)).step_by(1) {
+        if m % 5 == 0 {
+            writeln!(&mut w, r#"    <div class="timelabel" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
+                time = (min_time + Duration::minutes(m)).format("%H:%M"),
+                percent = m as f32 / (len_time as f32) * 100.0,
+            )?;
+        }
+    }
+    write!(&mut w, r#"</div></div>"#)?;
+    Ok(())
+}
+
+fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnResult<()> {
+
+    //write link to search page:
+    write!(&mut w, r#"<div class="breadcrumbs"><a href="/" title="Startseite">&#128269;</a>"#)?;
+
+    let mut stops_iter = journey_data.stops.iter();
+    let mut trips_iter = journey_data.trips.iter();
+
+    //first stop has to be set in any case:
+    let stop_data = stops_iter.next().unwrap();
+    let mut stop_text = stop_data.stop_name.clone();
+
+    let mut trip_text : String;
+
+    loop{
+        if let Some(trip_data) = trips_iter.next() {
+            trip_text = trip_data.route_name.clone();
+            //write link for previous stop:
+            write!(&mut w, r#" > <a href="{}">{}</a>"#, trip_data.journey_prefix, stop_text)?;
+        } else {
+            //write non-link for last stop:
+            write!(&mut w, r#" > <span>{}<span>"#, stop_text)?;
+            break;
+        }
+
+        if let Some(stop_data) = stops_iter.next() {
+            stop_text = stop_data.stop_name.clone();
+            //write link for previous trip:
+            write!(&mut w, r#" > <a href="{}">{}</a>"#, stop_data.journey_prefix, trip_text)?;
+        } else {
+            //write non-link for last trip:
+            write!(&mut w, r#" > <span>{}<span>"#, trip_text)?;
+            break;
+        }
+    }
+
+    // close the wrapping div:
+    write!(&mut w, r#"</div>"#)?;
+    Ok(())
+}
+
+fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_data: &TripData) -> FnResult<()> {
     let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
@@ -473,7 +534,14 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
 
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
-    <body>
+    <body>"#,
+    css = CSS,
+    favicon_headers = FAVICON_HEADERS
+    )?;
+
+    generate_breadcrumbs(&mut w, journey_data)?;
+    
+    write!(&mut w, r#"
         <h1>Halte für {route_type} Linie {route_name} nach {headsign}</h1>
             <div class="header">
             <div class="timing">
@@ -483,12 +551,10 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
                 <div class="head max">+</div>
             </div>
             <div class="head stopname">Haltestelle</div>
-            <div class="head source">Chance</div>
+            <!-- div class="head prob">Chance</div-->
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
-        css = CSS,
-        favicon_headers = FAVICON_HEADERS,
         route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
