@@ -1,7 +1,8 @@
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Duration};
+use chrono::{Date, DateTime, Local, Duration, NaiveTime};
+use chrono::offset::TimeZone;
 //use dystonse_curves::Curve;
 use simple_error::bail;
-use crate::{FnResult, OrError, date_and_time, types::EventType};
+use crate::{FnResult, OrError, date_and_time_local, types::EventType};
 use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
@@ -22,7 +23,7 @@ const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').a
 const EXTENDED_STOPS_MAX_DISTANCE: f32 = 400.0; 
 
 pub struct JourneyData {
-    pub start_date_time: NaiveDateTime,
+    pub start_date_time: DateTime<Local>,
     pub stops: Vec<StopData>,
     pub trips: Vec<TripData>,
     pub schedule: Arc<Gtfs>,
@@ -36,14 +37,14 @@ pub struct StopData {
     pub extended_stop_ids: Vec<String>,
     pub extended_stop_names: Vec<String>,
     pub extended_stops_distances: HashMap<String, f32>,
-    pub min_time: Option<NaiveDateTime>,
-    pub max_time: Option<NaiveDateTime>,
+    pub min_time: Option<DateTime<Local>>,
+    pub max_time: Option<DateTime<Local>>,
 
     pub arrival_curve: Option<IrregularDynamicCurve<f32, f32>>,
     pub arrival_prob: Option<f32>,
     pub arrival_trip_id: Option<String>,
     pub arrival_trip_stop_index: Option<usize>,
-    pub arrival_trip_start_date: Option<NaiveDate>,
+    pub arrival_trip_start_date: Option<Date<Local>>,
     pub arrival_trip_start_time: Option<Duration>,
 }
 
@@ -54,7 +55,7 @@ pub struct TripData {
     pub route_type: RouteType,
     pub route_name: String,
     pub trip_headsign: String,
-    pub start_departure: NaiveDateTime,
+    pub start_departure: DateTime<Local>,
 
     pub start_departure_curve: Option<IrregularDynamicCurve<f32, f32>>,
     pub start_departure_prob: Option<f32>,
@@ -63,7 +64,7 @@ pub struct TripData {
     pub route_id: String,
     pub start_id: Option<String>,
     pub start_index: Option<usize>,
-    pub trip_start_date: NaiveDate,
+    pub trip_start_date: Date<Local>,
     pub trip_start_time: Duration,
 }
 
@@ -78,7 +79,7 @@ impl JourneyData {
     // parse string vector (from URL) to get all necessary data
     pub fn new(schedule: Arc<Gtfs>, journey: &[String], monitor: Arc<Monitor>) -> FnResult<Self> {
         println!("JourneyData::new with {:?}", journey);
-        let start_date_time = NaiveDateTime::parse_from_str(&journey[0], "%d.%m.%y %H:%M")?;
+        let start_date_time = Local.datetime_from_str(&journey[0], "%d.%m.%y %H:%M")?;
         let stops : Vec<StopData> = Vec::new();
         let trips : Vec<TripData> = Vec::new();
         
@@ -193,11 +194,11 @@ impl JourneyData {
 
         // create info for previous trip/arrival:
         let mut arrival_curve : Option<IrregularDynamicCurve<f32, f32>> = None;
-        let mut arrival_time_min : Option<NaiveDateTime> = None;
+        let mut arrival_time_min : Option<DateTime<Local>> = None;
         let mut arrival_prob : Option<f32> = None;
         let mut arrival_trip_id : Option<String> = None;
         let mut arrival_trip_stop_index : Option<usize> = None;
-        let mut arrival_trip_start_date : Option<NaiveDate> = None;
+        let mut arrival_trip_start_date : Option<Date<Local>> = None;
         let mut arrival_trip_start_time : Option<Duration> = None;
 
         if let Some(trip_data) = prev_trip {
@@ -211,7 +212,7 @@ impl JourneyData {
                     if let Ok(a_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Arrival){
                         //set min time and curve:
                         let arrival_time_min_relative = a_curve.x_at_y(0.01);
-                        let a_time_min = date_and_time(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32) 
+                        let a_time_min = date_and_time_local(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32) 
                             + Duration::seconds(arrival_time_min_relative as i64);
                         arrival_time_min = Some(a_time_min);
                         arrival_curve = Some(a_curve);
@@ -263,14 +264,14 @@ impl JourneyData {
         let some_trip_headsign = Some(trip_headsign.clone());
         let time: NaiveTime = NaiveTime::parse_from_str(&trip_element_captures[4], "%H:%M")?;
         
-        let start_departure_date = self.start_date_time.date();
+        let start_departure_date: Date<Local> = self.start_date_time.date();
         // here we assume that we don't have journeys that span more than 24 hours:
         // TODO Duration::hours(-5) is just a wild guess at how long ago a trip might have been scheduled
         // and still be a trip in the near future.
         let start_departure = if time - self.start_date_time.time() >= Duration::hours(-5) {
-            start_departure_date.and_time(time)
+            start_departure_date.and_time(time).unwrap()
         } else {
-            start_departure_date.and_time(time) + Duration::days(1)
+            start_departure_date.and_time(time).unwrap() + Duration::days(1)
         };
 
         // now we will need the schedule, and info about the stop from where we want to start...
@@ -299,7 +300,7 @@ impl JourneyData {
             }
 
             // then, filter trips by date (we only want trips that are scheduled to the start_departure_date or the previous or next day)
-            let trip_days : Vec<u16> = self.schedule.trip_days(&trip.service_id, start_departure.date() - Duration::days(1));
+            let trip_days : Vec<u16> = self.schedule.trip_days(&trip.service_id, (start_departure_date - Duration::days(1)).naive_local());
             let filtered_trip_days : Vec<_> = trip_days.iter().filter(|d| **d <= 2).collect();
             if  filtered_trip_days.is_empty() {
                 continue;
@@ -309,7 +310,7 @@ impl JourneyData {
                     if let Some(scheduled_departure) = stop_time.departure_time {
                         for d in &filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
-                            let scheduled_datetime = date_and_time(&start_departure.date(), scheduled_departure as i32) + Duration::days(**d as i64 - 1);
+                            let scheduled_datetime = date_and_time_local(&start_departure.date(), scheduled_departure as i32) + Duration::days(**d as i64 - 1);
                             // compare if this is the one we're looking for:
                             if scheduled_datetime != start_departure {
                                 continue;
@@ -411,7 +412,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, tr
             "event_type" => et.to_int(),
             "stop_id" => stop_id,
             "trip_id" => &trip_data.trip_id,
-            "trip_start_date" => trip_data.trip_start_date,
+            "trip_start_date" => trip_data.trip_start_date.naive_local(),
             "trip_start_time" => trip_data.trip_start_time,
         },
     )?;

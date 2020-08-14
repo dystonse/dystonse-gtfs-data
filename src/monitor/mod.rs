@@ -1,7 +1,7 @@
 mod journey_data;
 
-use crate::{FnResult, Main, date_and_time, OrError};
-use chrono::{NaiveDate, NaiveDateTime, Utc, Duration, Timelike};
+use crate::{FnResult, Main, date_and_time_local, OrError};
+use chrono::{Date, DateTime, Local, Duration, Timelike};
 use clap::{App, ArgMatches};
 use crate::types::*;
 use crate::FileCache;
@@ -120,7 +120,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
             let stop_name = query_params.filter_map(|(key, value)| if key == "start" { Some(value)} else { None } ).next().unwrap();
-            let start_time = Utc::now().naive_local().format("%d.%m.%y %H:%M");
+            let start_time = Local::now().format("%d.%m.%y %H:%M");
             let new_path = format!("/{}/{}/", 
                 start_time, 
                 utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
@@ -400,7 +400,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     Ok(())
 }
 
-fn generate_timeline(mut w: &mut Vec<u8>, min_time: NaiveDateTime, len_time: i64) -> FnResult<()> {
+fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
     for m in (0..(len_time + 1)).step_by(1) {
         if m % 5 == 0 {
             writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"><span>{time}</span></div>"#,
@@ -525,8 +525,8 @@ fn write_departure_output(
     _journey_data: &JourneyData,
     stop_data: &StopData,
     monitor: &Arc<Monitor>,
-    min_time: NaiveDateTime,
-    max_time: NaiveDateTime,
+    min_time: DateTime<Local>,
+    max_time: DateTime<Local>,
     event_type: EventType,
 ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
@@ -705,7 +705,7 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
     }
 }
 
-fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction: Option<&DbPrediction>, min_time: NaiveDateTime, max_time: NaiveDateTime, event_type: EventType) -> FnResult<()> {
+fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction: Option<&DbPrediction>, min_time: DateTime<Local>, max_time: DateTime<Local>, event_type: EventType) -> FnResult<()> {
     
     let stop_link = match event_type {
         EventType::Arrival => format!(r#"<a href="{}/""#, stop_time.stop.name),
@@ -717,8 +717,8 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
     };
 
     let scheduled_time = match event_type {
-        EventType::Arrival   => date_and_time(&prediction.unwrap().trip_start_date, stop_time.arrival_time  .unwrap() as i32),
-        EventType::Departure => date_and_time(&prediction.unwrap().trip_start_date, stop_time.departure_time.unwrap() as i32)
+        EventType::Arrival   => date_and_time_local(&prediction.unwrap().trip_start_date, stop_time.arrival_time  .unwrap() as i32),
+        EventType::Departure => date_and_time_local(&prediction.unwrap().trip_start_date, stop_time.departure_time.unwrap() as i32)
     };
 
     let (r_01, r_50,r_99) = if let Some(prediction) = prediction {
@@ -782,7 +782,7 @@ fn format_delay(delay: i32) -> String {
     }
 }
 
-fn generate_png_data_url(dep: &DbPrediction, min_time: NaiveDateTime, max_time: NaiveDateTime, width: usize, event_type: EventType) -> FnResult<String> {
+fn generate_png_data_url(dep: &DbPrediction, min_time: DateTime<Local>, max_time: DateTime<Local>, width: usize, event_type: EventType) -> FnResult<String> {
     let min_rel = dep.get_relative_time(min_time)?;
     let max_rel = dep.get_relative_time(max_time)?;
 
@@ -959,10 +959,10 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 pub struct DbPrediction {
     pub route_id: String,
     pub trip_id: String,
-    pub trip_start_date: NaiveDate,
+    pub trip_start_date: Date<Local>,
     pub trip_start_time: Duration, // time from midnight, may be outside 0:00 .. 24:00
-    pub prediction_min: NaiveDateTime, 
-    pub prediction_max: NaiveDateTime,
+    pub prediction_min: DateTime<Local>, 
+    pub prediction_max: DateTime<Local>,
     pub precision_type: PrecisionType,
     pub origin_type: OriginType,
     pub sample_size: i32,
@@ -979,7 +979,7 @@ pub struct DbPredictionMetaData {
     pub headsign : String,
     pub stop_index : usize,
     pub scheduled_time_seconds : u32,
-    pub scheduled_time_absolute : NaiveDateTime,
+    pub scheduled_time_absolute : DateTime<Local>,
     pub route_type: RouteType,
 }
 
@@ -996,7 +996,7 @@ impl DbPrediction {
         let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
         let stop_index = trip.get_stop_index_by_stop_sequence(self.stop_sequence as u16).or_error("stop_index is None")?;
         let scheduled_time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
-        let scheduled_time_absolute = date_and_time(&self.trip_start_date, scheduled_time_seconds as i32);
+        let scheduled_time_absolute = date_and_time_local(&self.trip_start_date, scheduled_time_seconds as i32);
 
         self.meta_data = Some(DbPredictionMetaData{ 
             route_name,
@@ -1010,16 +1010,16 @@ impl DbPrediction {
         Ok(())
     }
 
-    pub fn get_absolute_time_for_probability(&self, prob: f32) -> FnResult<NaiveDateTime> {
+    pub fn get_absolute_time_for_probability(&self, prob: f32) -> FnResult<DateTime<Local>> {
         let x = self.prediction_curve.x_at_y(prob);
-        Ok(date_and_time(&self.trip_start_date, self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_seconds as i32 + x as i32))
+        Ok(date_and_time_local(&self.trip_start_date, self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_seconds as i32 + x as i32))
     }
 
     pub fn get_relative_time_for_probability(&self, prob: f32) -> i32 {
         self.prediction_curve.x_at_y(prob) as i32
     }
 
-    pub fn get_relative_time(&self, time: NaiveDateTime) -> FnResult<f32> {
+    pub fn get_relative_time(&self, time: DateTime<Local>) -> FnResult<f32> {
         Ok(-self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_absolute.signed_duration_since(time).num_seconds() as f32)
     }
 
@@ -1030,13 +1030,20 @@ impl DbPrediction {
 
 impl FromRow for DbPrediction {
     fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
+        use chrono::{NaiveDate, NaiveDateTime};
+        use chrono::offset::TimeZone;
+
+        let naive_trip_start_date:NaiveDate    = row.get_opt(2).unwrap().unwrap();
+        let naive_prediction_min:NaiveDateTime = row.get_opt(4).unwrap().unwrap();
+        let naive_prediction_max:NaiveDateTime = row.get_opt(5).unwrap().unwrap();
+         // TODO the .single().unwrap() below will fail when daylight saving changes.
         Ok(DbPrediction{
             route_id:           row.get_opt(0).unwrap().unwrap(),
             trip_id:            row.get_opt(1).unwrap().unwrap(),
-            trip_start_date:    row.get_opt(2).unwrap().unwrap(),
+            trip_start_date:    Local.from_local_date(&naive_trip_start_date).single().unwrap(),
             trip_start_time:    row.get_opt(3).unwrap().unwrap(),
-            prediction_min:     row.get_opt(4).unwrap().unwrap(),
-            prediction_max:     row.get_opt(5).unwrap().unwrap(),
+            prediction_min:     Local.from_local_datetime(&naive_prediction_min).single().unwrap(),
+            prediction_max:     Local.from_local_datetime(&naive_prediction_max).single().unwrap(),
             precision_type:     PrecisionType::from_int(row.get_opt(6).unwrap().unwrap()),
             origin_type:        OriginType::from_int(row.get_opt(7).unwrap().unwrap()),
             sample_size:        row.get_opt(8).unwrap().unwrap(),
@@ -1101,8 +1108,8 @@ fn get_predictions_for_stop(
     source: String, 
     event_type: EventType, 
     stop_id: &str, 
-    min_time: NaiveDateTime, 
-    max_time: NaiveDateTime
+    min_time: DateTime<Local>, 
+    max_time: DateTime<Local>
 ) -> FnResult<Vec<DbPrediction>> {
     let mut conn = monitor.pool.get_conn()?;
     let stmt = conn.prep(
@@ -1135,8 +1142,8 @@ fn get_predictions_for_stop(
             "source" => source,
             "event_type" => event_type.to_int(),
             "stop_id" => stop_id,
-            "min_time" => min_time,
-            "max_time" => max_time,
+            "min_time" => min_time.naive_local(),
+            "max_time" => max_time.naive_local(),
         },
     )?;
 
@@ -1157,7 +1164,7 @@ fn get_predictions_for_trip(
     source: String, 
     event_type: EventType, 
     trip_id: &str, 
-    trip_start_date: NaiveDate, 
+    trip_start_date: Date<Local>,
     trip_start_time: Duration,
     start_sequence: u16,
 ) -> FnResult<Vec<DbPrediction>> {
@@ -1193,7 +1200,7 @@ fn get_predictions_for_trip(
             "source" => source,
             "event_type" => event_type.to_int(),
             "trip_id" => trip_id,
-            "trip_start_date" => trip_start_date,
+            "trip_start_date" => trip_start_date.naive_local(),
             "trip_start_time" => trip_start_time,
             "start_sequence" => start_sequence,
         },
