@@ -29,12 +29,12 @@ lazy_static!{
 
     // How many minutes of scheduled predictions we want to compute in one iteration,
     // before we try to process the next batch of realtime updates:
-    static ref PREDICTION_MIN_BATCH_DURATION : Duration = Duration::minutes(3);
+    static ref PREDICTION_MIN_BATCH_DURATION : Duration = Duration::minutes(6);
 
     // Minimum number of trips for which predictions will be made during one batch.
     // The time range will be extended until this number of trips is found.
     // Don't set this const below 1 or predictions may stall forever.
-    static ref PREDICTION_MIN_BATCH_COUNT : usize = 250;
+    static ref PREDICTION_MIN_BATCH_COUNT : usize = 1000;
 
     // How long we pause scheduled scheduled predictions when we reached
     // the end of the PREDICTION_BUFFER_SIZE
