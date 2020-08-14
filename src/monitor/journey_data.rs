@@ -11,7 +11,7 @@ use geo::prelude::*;
 use geo::point;
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use dystonse_curves::{Curve, IrregularDynamicCurve};
+use dystonse_curves::{Curve, IrregularDynamicCurve, Tup};
 use mysql::*;
 use mysql::prelude::*;
 
@@ -20,7 +20,7 @@ use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiS
 const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
 
 // radius in which we look for other stops close by to include their departures in a stop's page
-const EXTENDED_STOPS_MAX_DISTANCE: f32 = 400.0; 
+const EXTENDED_STOPS_MAX_DISTANCE: f32 = 600.0; 
 
 pub struct JourneyData {
     pub start_date_time: DateTime<Local>,
@@ -431,4 +431,28 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, tr
     };
     
     bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
+}
+
+pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {
+    // assing a factor to the distance, which is measured as air-line distance, to account for detours.AccessMode
+    let min_distance_factor = 1.0;
+    // for short distances (near 0m), assume a factor of 1.8, for long distances (near 500m) assume a factor of 1.4.
+    let max_distance_factor = 1.4 + f32::max(0.0, f32::min(0.4, (500.0 - distance_meters) / 500.0 * 0.4));
+
+    // people have different walking speeds. Numbers taken from https://de.wikipedia.org/wiki/Schrittgeschwindigkeit
+    let min_walk_speed = 0.8; // m/s
+    let max_walk_speed = 1.65; // m/s
+    let max_sprint_speed = 3.5; // m/s
+
+    // additional time needed to orient, regardless of actual distance
+    let min_delay = 10.0; // s
+    let max_delay = 45.0; // s
+
+    let min_duration = distance_meters * min_distance_factor / max_sprint_speed + min_delay; // s
+    let max_duration = distance_meters * max_distance_factor / min_walk_speed + max_delay; // s
+    
+    let points = vec![ Tup{x: min_duration, y: 0.0}, Tup{x: max_duration, y: 1.0} ];
+
+    let curve = IrregularDynamicCurve::new(points);
+    return curve;
 }

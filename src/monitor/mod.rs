@@ -28,7 +28,7 @@ use dystonse_curves::{IrregularDynamicCurve, Curve};
 use std::io::Write;
 use colorous::*;
 
-use journey_data::{JourneyData, JourneyComponent, StopData, TripData, get_prediction_for_first_line};
+use journey_data::{JourneyData, JourneyComponent, StopData, TripData, get_prediction_for_first_line, get_walk_time};
 
 const CSS:&'static str = include_str!("style.css");
 const FAVICON_HEADERS: &'static str = r##"
@@ -538,7 +538,13 @@ fn write_departure_output(
     let r_01 = dep.get_relative_time_for_probability(0.01) / 60;
     let r_50 = dep.get_relative_time_for_probability(0.50) / 60;
     let r_99 = dep.get_relative_time_for_probability(0.99) / 60;
-    let prob = 100 - (dep.get_probability_for_relative_time(dep.get_relative_time(min_time)?) * 100.0) as i32;
+
+    // prepare walk time. Even for a distance of 0 there is some walk time involved.
+    let walk_distance = *stop_data.extended_stops_distances.get(&dep.stop_id).unwrap_or(&0.0);
+    let walk_time = get_walk_time(walk_distance);
+
+    let prob = (get_transfer_probability(min_time, &walk_time, dep.meta_data.as_ref().unwrap().scheduled_time_absolute, &dep.prediction_curve) * 100.0) as i32;
+    //let prob = 100 - (dep.get_probability_for_relative_time(dep.get_relative_time(min_time)?) * 100.0) as i32;
     
     // let mut fg = Figure::new();
     // let axes = fg.axes2d();
@@ -587,10 +593,12 @@ fn write_departure_output(
     if let Some(d) = stop_data.extended_stops_distances.get(&dep.stop_id) {
         stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
         extended_stop_info = format!(
-            r#"<div class="area walk" title="Abfahrt von {}, Entfernung ca. {:.0} m (Luftlinie)"><span>{:.0} m</span></div>"#,
-            stop_name,
-             d, 
-             d);
+            r#"<div class="area walk" title="Abfahrt von {stop_name}, Entfernung ca. {d:.0} m (Luftlinie), {min_walk_time} bis {max_walk_time} Wegzeit"><span>{d:.0} m</span></div>"#,
+            stop_name = stop_name,
+            d = d, 
+            min_walk_time = format_duration(Duration::seconds(walk_time.min_x() as i64)),
+            max_walk_time = format_duration(Duration::seconds(walk_time.max_x() as i64))
+        );
     }
     
     // trip link
@@ -780,6 +788,36 @@ fn format_delay(delay: i32) -> String {
     } else  {
         format!("{}", delay)
     }
+}
+
+
+fn format_duration(duration: Duration) -> String {
+    if duration < Duration::seconds(120) {
+        format!("{:.0} Sek.", duration.num_seconds())
+    } else  {
+        let seconds = duration.num_seconds() as i32;
+        format!("{:.0}:{:02.0}", seconds / 60, seconds % 60)
+    }
+}
+
+fn get_transfer_probability(
+    arrival_time: DateTime<Local>, 
+    arrival_dist: &IrregularDynamicCurve<f32, f32>, 
+    departure_time: DateTime<Local>, 
+    departure_dist: &IrregularDynamicCurve<f32, f32>
+) -> f32 {
+    let mut total_miss_prob = 0.0;
+    let step_size = 1;
+    for percentile in (0..100).step_by(step_size) {
+        // compute the absolute time at which the arrival occurs for this percentile
+        let arrival_time_abs = arrival_time + Duration::seconds(arrival_dist.x_at_y(percentile as f32 / 100.0) as i64);
+        // convert the arrival time into the reference system of the departure
+        let arrival_time_rel = arrival_time_abs.signed_duration_since(departure_time);
+        // compute the pobability of missing the transfer for this arrival percentile
+        let transfer_missed_prob = departure_dist.y_at_x(arrival_time_rel.num_seconds() as f32);
+        total_miss_prob += transfer_missed_prob / (100.0 / step_size as f32);
+    }
+    1.0 - total_miss_prob 
 }
 
 fn generate_png_data_url(dep: &DbPrediction, min_time: DateTime<Local>, max_time: DateTime<Local>, width: usize, event_type: EventType) -> FnResult<String> {
