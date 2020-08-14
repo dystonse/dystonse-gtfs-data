@@ -75,6 +75,21 @@ body {
     font-family: "SourceSansPro";
 }
 
+.breadcrumbs a, .breadcrumbs span {
+    font-size: 22px;
+    font-weight: lighter;
+}
+
+.breadcrumbs a:link, .breadcrumbs a:visited {
+    text-decoration: none;
+    color:  #608b9e;
+}
+
+.breadcrumbs a:hover {
+    text-decoration: underline;
+    color:  #608b9e;
+}
+
 /*
 .extended_stops {
     color: #555;
