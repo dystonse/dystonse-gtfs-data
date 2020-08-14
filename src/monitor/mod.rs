@@ -367,6 +367,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
             <div class="head type">Typ</div>
             <div class="head route">Linie</div>
             <div class="head headsign">Ziel</div>
+            <div class="head prob">Chance</div>
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
@@ -483,7 +484,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, tr
                 <div class="head max">+</div>
             </div>
             <div class="head stopname">Haltestelle</div>
-            <div class="head source">Chance</div>
+            <!-- div class="head prob">Chance</div-->
             <div class="head source">Daten</div>
         </div>
         <div class="timeline">"#,
