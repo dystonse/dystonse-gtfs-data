@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
-use crate::types::PredictionBasis;
+use crate::types::{PredictionBasis, VehicleIdentifier};
 
 use per_schedule_importer::PerScheduleImporter;
 use scheduled_predictions_importer::ScheduledPredictionsImporter;
@@ -26,13 +26,6 @@ lazy_static! {
 }
 
 const TIME_BETWEEN_DIR_SCANS: time::Duration = time::Duration::from_secs(5);
-
-#[derive(Hash, PartialEq, Eq, Clone)]
-struct VehicleIdentifier {
-    trip_id: String,
-    start_time: NaiveTime,
-    start_date: NaiveDate
-}
 
 pub struct Importer<'a>  {
     main: &'a Main,

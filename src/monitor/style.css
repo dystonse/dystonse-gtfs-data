@@ -295,6 +295,12 @@ a.outer:hover .line {
     font-style: oblique;
 }
 
+.area.type .bubble.w {
+    background-color: #fff;
+    color: #000;
+    border-radius: 0;
+}
+
 .area.source .bubble {
     background-color: #0a0;
 }

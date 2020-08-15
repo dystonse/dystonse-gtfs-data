@@ -1,19 +1,19 @@
 use chrono::{Date, DateTime, Local, Duration, NaiveTime};
 use chrono::offset::TimeZone;
-//use dystonse_curves::Curve;
 use simple_error::bail;
 use crate::{FnResult, OrError, date_and_time_local, types::EventType};
 use gtfs_structures::{Gtfs, RouteType, Stop};
 use std::sync::Arc;
 use regex::Regex;
-use super::{Monitor, route_type_to_str, DbPrediction, get_transfer_probability};
+use super::{Monitor, route_type_to_str, DbPrediction, time_curve::TimeCurve};
 use geo::prelude::*;
 use geo::point;
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
-use dystonse_curves::{Curve, IrregularDynamicCurve, Tup};
+use dystonse_curves::{IrregularDynamicCurve, Tup};
 use mysql::*;
 use mysql::prelude::*;
+use crate::types::VehicleIdentifier;
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
@@ -25,22 +25,22 @@ const EXTENDED_STOPS_MAX_DISTANCE: f32 = 300.0;
 pub struct JourneyData {
     pub start_date_time: DateTime<Local>,
     pub components: Vec<JourneyComponent>,
-    pub schedule: Arc<Gtfs>,
+    pub monitor: Arc<Monitor>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StopData {
-    pub journey_prefix: String,
+    pub url: String,
+    pub prev_component: Option<JourneyComponent>,
+
     pub stop_name: String,
     pub stop_ids: Vec<String>,
     pub extended_stop_ids: Vec<String>,
     pub extended_stop_names: Vec<String>,
     pub extended_stops_distances: HashMap<String, f32>,
-    pub min_time: Option<DateTime<Local>>,
-    pub max_time: Option<DateTime<Local>>,
 
-    pub arrival_curve: Option<IrregularDynamicCurve<f32, f32>>,
-    pub arrival_prob: Option<f32>,
+    pub start_curve: TimeCurve,
+    pub start_prob: f32,
     pub arrival_trip_id: Option<String>,
     pub arrival_trip_stop_index: Option<usize>,
     pub arrival_trip_start_date: Option<Date<Local>>,
@@ -49,15 +49,16 @@ pub struct StopData {
 
 #[derive(Debug, Clone)]
 pub struct TripData {
-    pub journey_prefix: String,
+    pub url: String,
+    pub prev_component: JourneyComponent,
     
     pub route_type: RouteType,
     pub route_name: String,
     pub trip_headsign: String,
     pub start_departure: DateTime<Local>,
 
-    pub start_departure_curve: Option<IrregularDynamicCurve<f32, f32>>,
-    pub start_departure_prob: Option<f32>,
+    pub start_curve: TimeCurve,
+    pub start_prob: f32,
 
     pub trip_id: String,
     pub route_id: String,
@@ -69,107 +70,116 @@ pub struct TripData {
 
 #[derive(Debug, Clone)]
 pub struct WalkData {
-    pub walk_time_curve: Option<IrregularDynamicCurve<f32, f32>>,
-    pub journey_prefix: String,
+    pub url: String,
+    pub prev_component: JourneyComponent,
+
+    pub start_curve: TimeCurve,
+    pub start_prob: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum JourneyComponent {
-    None,
-    Stop(StopData),
-    Trip(TripData),
-    Walk(WalkData),
+    Stop(Arc<StopData>),
+    Trip(Arc<TripData>),
+    Walk(Arc<WalkData>),
+}
+
+impl JourneyComponent {
+    pub fn get_curve(&self) -> &TimeCurve {
+        match self {
+            JourneyComponent::Stop(stop_data) => &stop_data.start_curve,
+            JourneyComponent::Trip(trip_data) => &trip_data.start_curve,
+            JourneyComponent::Walk(walk_data) => &walk_data.start_curve,
+        }
+    }
+
+    pub fn get_prob(&self) -> f32 {
+        match self {
+            JourneyComponent::Stop(stop_data) => stop_data.start_prob,
+            JourneyComponent::Trip(trip_data) => trip_data.start_prob,
+            JourneyComponent::Walk(walk_data) => walk_data.start_prob,
+        }
+    }
+
+    pub fn get_prev(&self) -> Option<JourneyComponent> {
+        match self {
+            JourneyComponent::Stop(stop_data) => stop_data.prev_component.clone(),
+            JourneyComponent::Trip(trip_data) => Some(trip_data.prev_component.clone()),
+            JourneyComponent::Walk(walk_data) => Some(walk_data.prev_component.clone()),
+        }
+    }
+
+    pub fn get_url(&self) -> &String {
+        match self {
+            JourneyComponent::Stop(stop_data) => &stop_data.url,
+            JourneyComponent::Trip(trip_data) => &trip_data.url,
+            JourneyComponent::Walk(walk_data) => &walk_data.url,
+        }
+    }
 }
 
 impl JourneyData {
     // parse string vector (from URL) to get all necessary data
-    pub fn new(schedule: Arc<Gtfs>, journey: &[String], monitor: Arc<Monitor>) -> FnResult<Self> {
+    pub fn new(journey: &[String], monitor: Arc<Monitor>) -> FnResult<Self> {
         println!("JourneyData::new with {:?}", journey);
-        let start_date_time = Local.datetime_from_str(&journey[0], "%d.%m.%y %H:%M")?;
-        let components : Vec<JourneyComponent> = Vec::new();
         
         let mut journey_data = JourneyData{
-            start_date_time,
-            components,
-            schedule: schedule.clone()
+            components: Vec::new(),
+            monitor: monitor.clone(),
+            start_date_time: Local::now(), // will be overwritten during parse 
         };
 
-        journey_data.parse_journey(journey, monitor)?;
+        journey_data.parse_journey(journey)?;
 
         Ok(journey_data)
     }
 
-    pub fn parse_journey(&mut self, journey: &[String], monitor: Arc<Monitor>) -> FnResult<()> {
-
+    pub fn parse_journey(&mut self, journey: &[String]) -> FnResult<()> {
         let mut journey_iter = journey.iter();
         let timestring = journey_iter.next().unwrap(); 
-        let mut prefix = format!("/{}/", timestring);
-        loop {
-            // assume that the first, third, etc.. part is a stop string:
-            if let Some(stop_string) = journey_iter.next() {
-                let mut stop_data = self.parse_stop_data(&prefix, &utf8_percent_encode(&stop_string, PATH_ELEMENT_ESCAPE).to_string(), self.get_last_component(), monitor.clone())?;
-                // set min time (for first stop only):
-                if stop_data.min_time.is_none() {
-                    stop_data.min_time = Some(self.start_date_time);
-                }
+        self.start_date_time = Local.datetime_from_str(timestring, "%d.%m.%y %H:%M")?;
 
-                self.components.push(JourneyComponent::Stop(stop_data));
+        let mut prev_component: Option<JourneyComponent> = None;
+        let mut expect_stop = true;
 
-                prefix = format!("{}{}/", prefix, stop_string);
-            } else { 
-                break;
-            }
-            // assume that the second, fourth, etc.. part is a trip/walk string:
-            if let Some(trip_walk_string) = journey_iter.next() {
-                if trip_walk_string == "Fußweg" {
-                    let walk_data = WalkData{ 
-                        journey_prefix: prefix.clone(),
-                        walk_time_curve: None,
-                    };
-                    self.components.push(JourneyComponent::Walk(walk_data));
+        for string in journey_iter {
+            let decoced_string = &utf8_percent_encode(&string, PATH_ELEMENT_ESCAPE).to_string();
+            let component = if expect_stop {
+                expect_stop = false;
+                self.parse_stop_data(decoced_string, prev_component)?
+            } else {
+                expect_stop = true;
+                if string == "Fußweg" {
+                    self.parse_walk_data(decoced_string, prev_component.unwrap())?
                 } else {
-                    let trip_data = self.parse_trip_data(&prefix, &utf8_percent_encode(&trip_walk_string, PATH_ELEMENT_ESCAPE).to_string(), self.components.last().unwrap(), monitor.clone())?;                
-                    self.components.push(JourneyComponent::Trip(trip_data));
+                    self.parse_trip_data(decoced_string, prev_component.unwrap())?
                 }
-
-                prefix = format!("{}{}/", prefix, trip_walk_string);
-            } else { 
-                break; 
-            }
+            };
+            self.components.push(component.clone());
+            prev_component = Some(component);
         }
         Ok(())
     }
 
-    pub fn parse_stop_data(&self, prefix: &str, stop_string: &str, prev_comp: &JourneyComponent, monitor: Arc<Monitor>) -> FnResult<StopData> {
+    pub fn parse_walk_data(&self, walk_string: &str, prev_component: JourneyComponent) -> FnResult<JourneyComponent> {
+        Ok(JourneyComponent::Walk(Arc::new(WalkData{
+            prev_component: prev_component.clone(),
+            url: format!("{}{}/", prev_component.get_url(), "Fußweg"),
+            start_curve: prev_component.get_curve().clone(),
+            start_prob: prev_component.get_prob(),
+        })))
+    }
+
+    pub fn parse_stop_data(&self, stop_string: &str, prev_component: Option<JourneyComponent>) -> FnResult<JourneyComponent> {
         let stop_name = percent_decode_str(stop_string).decode_utf8_lossy().to_string();
 
-        
-        // let mut stop_names : Vec<String> = vec![stop_name.clone()];
-        // // make sure that different spellings of "Bahnhof" are considered as the same stop name:
-        // let bahnhofs = ["Hauptbahnhof", "Hbf", "Bahnhof", "Bf", "Hauptbahnhof (U)", "Hbf (U)", "Bahnhof (U)", "Bf (U)", "(U)"];
-        // let mut contains_bahnhof = false;
-        // for bahnhof in &bahnhofs {
-        //     if stop_name.contains(bahnhof) {
-        //         contains_bahnhof = true;
-        //         for other_bahnhof in &bahnhofs {
-        //             if bahnhof != other_bahnhof {
-        //                 stop_names.push(stop_name.replace(bahnhof, other_bahnhof));
-        //             }
-        //         }
-        //         stop_names.push(stop_name.replace(bahnhof, "").trim().to_string());
-        //     }
-        // }
-        // if !contains_bahnhof {
-        //     for bahnhof in &bahnhofs {
-        //         stop_names.push(format!("{} {}", stop_name, bahnhof));
-        //     }
-        // }
+        let url = if let Some(prev) = &prev_component {
+            format!("{}{}/", prev.get_url(), stop_string)
+        } else {
+            format!("/{}/{}/", self.start_date_time.format("%d.%m.%y %H:%M"), stop_string)
+        };
 
-        // if stop_names.len() > 1 {
-        //     println!("Extended stop_names to by using name matching {:?}", stop_names);
-        // }
-
-        let stops : Vec<Arc<Stop>> = self.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
+        let stops : Vec<Arc<Stop>> = self.monitor.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
 
         if stops.is_empty() {
             bail!("No stops found for stop_name {}", stop_name);
@@ -181,7 +191,7 @@ impl JourneyData {
         let mut extended_stop_ids : HashSet<String> = HashSet::new();
         let mut extended_stop_names : HashSet<String> = HashSet::new();
         let mut extended_stops_distances : HashMap<String, f32> = HashMap::new();
-        for (other_stop_id, other_stop) in &self.schedule.stops {
+        for (other_stop_id, other_stop) in &self.monitor.schedule.stops {
             let other_stop_geo = point!(x: other_stop.latitude.unwrap(), y: other_stop.longitude.unwrap());
             for stop_geo in &stop_geos {
                 let distance = stop_geo.haversine_distance(&other_stop_geo) as f32;
@@ -205,61 +215,88 @@ impl JourneyData {
         }
 
         // create info for previous trip/arrival:
-        let mut arrival_curve : Option<IrregularDynamicCurve<f32, f32>> = None;
-        let mut arrival_time_min : Option<DateTime<Local>> = None;
-        let mut arrival_prob : Option<f32> = None;
+        let mut start_curve: TimeCurve;
+        //let mut arrival_time_min : Option<DateTime<Local>> = None;
+        let mut start_prob: f32;
         let mut arrival_trip_id : Option<String> = None;
         let mut arrival_trip_stop_index : Option<usize> = None;
         let mut arrival_trip_start_date : Option<Date<Local>> = None;
         let mut arrival_trip_start_time : Option<Duration> = None;
 
-        if let JourneyComponent::Trip(trip_data) = prev_comp {
-            if let Ok(trip) = self.schedule.get_trip(&trip_data.trip_id) {
-                if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
-                    //set some of the arrival trip info:
-                    arrival_trip_id = Some(trip_data.trip_id.clone());
-                    arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
-                    arrival_trip_start_date = Some(trip_data.trip_start_date);
-                    arrival_trip_start_time = Some(trip_data.trip_start_time);
-                    if let Ok(a_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Arrival){
-                        //set min time and curve:
-                        let arrival_time_min_relative = a_curve.x_at_y(0.01);
-                        let a_time_min = date_and_time_local(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32) 
-                            + Duration::seconds(arrival_time_min_relative as i64);
-                        arrival_time_min = Some(a_time_min);
-                        arrival_curve = Some(a_curve);
+        if let Some(prev) = &prev_component {
+            if let JourneyComponent::Trip(trip_data) = prev {
+                if let Ok(trip) = self.monitor.schedule.get_trip(&trip_data.trip_id) {
+                    if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
+                        //set some of the arrival trip info:
+                        arrival_trip_id = Some(trip_data.trip_id.clone());
+                        arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
+                        arrival_trip_start_date = Some(trip_data.trip_start_date);
+                        arrival_trip_start_time = Some(trip_data.trip_start_time);
+
+                        let vehicle_id = VehicleIdentifier {
+                            start_date: trip_data.trip_start_date.naive_local(),
+                            start_time: NaiveTime::from_num_seconds_from_midnight(trip_data.trip_start_time.num_seconds() as u32, 0),
+                            trip_id: trip_data.trip_id.clone()
+                        };
+
+                        if let Ok(a_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, vehicle_id, EventType::Arrival){
+                            let scheduled_arrival = date_and_time_local(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32);
+                            start_curve = TimeCurve::new(a_curve, scheduled_arrival);
+                            start_prob = prev.get_prob();
+                        } else {
+                            bail!("Could not get curve.");
+                        }
+                    } else {
+                        bail!("Could not get matching stop_time.");
                     }
+                } else {
+                    bail!("Could not get trip.");
                 }
+            } else if let JourneyComponent::Walk(walk_data) = prev {
+                let distance_meters = 0.0; // TODO here we need the actual distance
+                let prev_curve = prev_component.as_ref().unwrap().get_curve();
+                let ref_time = prev_curve.ref_time;
+                let walk_curve = get_walk_time(distance_meters);
+                // TODO here we need to combine the prev_curve and the walk_curve
+                start_curve = TimeCurve::new(walk_curve, ref_time);
+                start_prob = prev_component.as_ref().unwrap().get_prob();
+            } else {
+                bail!("Stop has no plausible prev component.");
             }
         } else { //first stop has no trip_data for arrival
-            arrival_prob = Some(1.0);
+            start_prob = 1.0;
+            start_curve = TimeCurve::new(
+                IrregularDynamicCurve::new(vec![ Tup{x:-30.0, y:0.0}, Tup{x:30.0, y:1.0}, ]),
+                self.start_date_time
+            );
         }
 
-        Ok(StopData{
+        Ok(JourneyComponent::Stop(Arc::new(StopData{
+            prev_component: prev_component.clone(),
             stop_name,
             stop_ids: stops.iter().map(|stop| stop.id.clone()).collect(),
             extended_stop_ids: Vec::from_iter(extended_stop_ids),
             extended_stop_names: Vec::from_iter(extended_stop_names),
             extended_stops_distances,
-            min_time: arrival_time_min,
-            max_time: None,
-            journey_prefix: String::from(prefix),
-            arrival_curve, //TODO: maybe we need to modify this?
-            arrival_prob,
+            url,
+            start_curve,
+            start_prob,
             arrival_trip_id,
             arrival_trip_stop_index,
             arrival_trip_start_date,
             arrival_trip_start_time,
-        })
+        })))
     }
 
 
-    pub fn parse_trip_data(&self, prefix: &str, trip_walk_string: &str, prev_comp: &JourneyComponent, monitor: Arc<Monitor>) -> FnResult<TripData> {
-        let stop_data = if let JourneyComponent::Stop(stop) = prev_comp {
+    pub fn parse_trip_data(&self, trip_string: &str, prev_component: JourneyComponent) -> FnResult<JourneyComponent> {
+        let stop_data = if let JourneyComponent::Stop(stop) = &prev_component {
             stop
         } else {
             bail!("Need stop before trip.");
         };
+
+        let url = format!("{}{}/", prev_component.get_url(), trip_string);
 
         // Regex to parse stuff like: "Bus 420 nach Wolfenbüttel Bahnhof um 21:39", 
         // or more generally: route_type route_name nach trip_headsign um start_departure.time
@@ -268,10 +305,10 @@ impl JourneyData {
         }
 
         let trip_element_captures = TRIP_REGEX
-            .captures(&trip_walk_string)
+            .captures(&trip_string)
             .or_error(&format!(
             "Trip string does not contain a valid trip descriptor: '{}'",
-            trip_walk_string
+            trip_string
         ))?;
 
         let route_type_string: String = trip_element_captures[1].to_string();
@@ -293,14 +330,14 @@ impl JourneyData {
 
         // now we will need the schedule, and info about the stop from where we want to start...
 
-        for (id, trip) in &self.schedule.trips {
+        for (id, trip) in &self.monitor.schedule.trips {
             // look up the trips by headsign
             if trip.trip_headsign != some_trip_headsign {
                 continue;
             }
 
             // look up trips with route (by route name and route type)
-            if let Ok(route) = self.schedule.get_route(&trip.route_id) {
+            if let Ok(route) = self.monitor.schedule.get_route(&trip.route_id) {
                 if route.short_name != route_name {
                     continue;
                 }
@@ -317,7 +354,7 @@ impl JourneyData {
             }
 
             // then, filter trips by date (we only want trips that are scheduled to the start_departure_date or the previous or next day)
-            let trip_days : Vec<u16> = self.schedule.trip_days(&trip.service_id, (start_departure_date - Duration::days(1)).naive_local());
+            let trip_days : Vec<u16> = self.monitor.schedule.trip_days(&trip.service_id, (start_departure_date - Duration::days(1)).naive_local());
             let filtered_trip_days : Vec<_> = trip_days.iter().filter(|d| **d <= 2).collect();
             if  filtered_trip_days.is_empty() {
                 continue;
@@ -333,46 +370,45 @@ impl JourneyData {
                                 continue;
                             } else {
                                 // now we can finally gather the remaining info:
-                                let trip_id = id.clone();
                                 let route_id = trip.route_id.clone();
                                 let start_id = Some(stop_time.stop.id.clone());
                                 let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
-                                let trip_start_date = start_departure.date() + Duration::days(**d as i64 - 1);
                                 let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
+                                let trip_start_date = start_departure.date() + Duration::days(**d as i64 - 1);
+                                let vehicle_id = VehicleIdentifier {
+                                    start_date: trip_start_date.naive_local(),
+                                    start_time: NaiveTime::from_num_seconds_from_midnight(trip_start_time.num_seconds() as u32, 0),
+                                    trip_id: id.clone()
+                                };
+
+                                // set curve and prob for departure at first stop:
+                                let (start_curve, start_prob) = if let Ok(s_d_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, vehicle_id, EventType::Departure) {
+                                    let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime);
+                                    let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve);
+                                    (departure_curve, start_departure_prob)
+                                } else {
+                                    bail!("Could not get curves for trip.");
+                                };
 
                                 // now we can finally make our struct from all the gathered info :)
                                 let mut trip_data = TripData{
+                                    prev_component: prev_component.clone(),
+                                    url,
                                     route_type,
                                     route_name,
                                     trip_headsign,
                                     start_departure,
-                                    trip_id,
+                                    trip_id: id.clone(),
                                     route_id,
                                     start_id,
                                     start_index,
                                     trip_start_date,
                                     trip_start_time,
-                                    journey_prefix: String::from(prefix),
-                                    start_departure_curve: None, //will be set below
-                                    start_departure_prob: None, //will be set below
+                                    start_curve,
+                                    start_prob,
                                 };
 
-                                // set curve and prob for departure at first stop:
-                                if let Ok(s_d_curve) = get_curve_for(monitor.clone(), &stop_time.stop.id, &trip_data, EventType::Departure) {
-                                    let walk_time = get_walk_time(0.0); // currently we can't get a walk distance here
-
-                                    let start_departure_prob = get_transfer_probability(
-                                        stop_data.min_time.unwrap(),
-                                        &walk_time, 
-                                        scheduled_datetime, 
-                                        &s_d_curve
-                                    );
-
-                                    trip_data.start_departure_curve = Some(s_d_curve);
-                                    trip_data.start_departure_prob = Some(start_departure_prob);
-                                }
-
-                                return Ok(trip_data);
+                                return Ok(JourneyComponent::Trip(Arc::new(trip_data)));
                             }
                          }
                     }
@@ -383,25 +419,25 @@ impl JourneyData {
         bail!("Trip not found")
     }
 
-    pub fn get_last_component(&self) -> &JourneyComponent {
+    pub fn get_last_component(&self) -> Option<JourneyComponent> {
         if self.components.is_empty() {
-            &JourneyComponent::None
+            None
         } else {
-            self.components.last().unwrap()
+            Some(self.components.last().unwrap().clone())
         }
     }
 }
 
-pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
+pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: VehicleIdentifier, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
 
-    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, trip_data, et) {
+    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, vehicle_id.clone(), et) {
         return Ok(pred.prediction_curve.clone());
     };
     
-    bail!("no curve found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
+    bail!("no curve found for {:?} at stop {:?} in trip {:?}", et, stop_id, vehicle_id.trip_id);
 }
 
-pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, trip_data: &TripData, et: EventType) -> FnResult<DbPrediction> {
+pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: VehicleIdentifier, et: EventType) -> FnResult<DbPrediction> {
     
     let mut conn = monitor.pool.get_conn()?;
 
@@ -436,9 +472,9 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, tr
             "source" => &monitor.source,
             "event_type" => et.to_int(),
             "stop_id" => stop_id,
-            "trip_id" => &trip_data.trip_id,
-            "trip_start_date" => trip_data.trip_start_date.naive_local(),
-            "trip_start_time" => trip_data.trip_start_time,
+            "trip_id" => &vehicle_id.trip_id,
+            "trip_start_date" => vehicle_id.start_date,
+            "trip_start_time" => vehicle_id.start_time,
         },
     )?;
 
@@ -455,7 +491,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, tr
         return Ok(pred.clone());
     };
     
-    bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, trip_data.trip_id);
+    bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, vehicle_id.trip_id);
 }
 
 pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {

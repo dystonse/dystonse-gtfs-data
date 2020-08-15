@@ -21,6 +21,8 @@ pub use route_variant_data::{RouteVariantData, CurveSetKey};
 pub use time_slots::TimeSlot;
 pub use curve_data::{CurveData, CurveSetData};
 
+use chrono::{NaiveDate, NaiveTime};
+
 use serde::{Serialize, Deserialize};
 
 #[derive(PartialEq, Eq, Clone)]
@@ -93,6 +95,13 @@ impl PrecisionType {
             _ => Self::Unknown 
         }
     }
+}
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+pub struct VehicleIdentifier {
+    pub trip_id: String,
+    pub start_time: NaiveTime,
+    pub start_date: NaiveDate
 }
 
 
