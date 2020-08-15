@@ -484,7 +484,7 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
             stop_text = stop_data.stop_name.clone();
             if walked {
                 //write non-link for previous walk:
-                write!(&mut w, r#" > <span>&#128694;<span>"#)?;
+                write!(&mut w, r#" > <span>Fußweg<span>"#)?;
             } else {
                 //write link for previous trip:
                 write!(&mut w, r#" > <a href="{}">{}</a>"#, stop_data.journey_prefix, trip_text)?;
