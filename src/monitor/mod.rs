@@ -224,12 +224,13 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
 fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<()> {
     let journey = JourneyData::new(monitor.schedule.clone(), &journey, monitor.clone())?;
 
-    println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
+    // println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
     
     let res = match journey.get_last_component() {
         JourneyComponent::Stop(stop_data) => generate_stop_page(response, monitor, &journey, stop_data),
         JourneyComponent::Trip(trip_data) => generate_trip_page(response, monitor, &journey, trip_data),
-        JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey."))
+        JourneyComponent::Walk(_) => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Journey may not end with a walk.")),
+        JourneyComponent::None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey.")),
     };
 
     if let Err(e) = res {
@@ -256,26 +257,28 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 
     let mut arrival_option : Option<DbPrediction> = None;
 
+    // TODO use the TripComponent before this Stop, which might be a Trip or a Walk
+
     // first line: arrival at this stop
-    if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
+    // if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
 
-        println!("Found arrival trip (id: {})", arrival_trip_id);
+    //     println!("Found arrival trip (id: {})", arrival_trip_id);
 
-        //TODO: maybe set max time to a later value if we might arrive later
+    //     //TODO: maybe set max time to a later value if we might arrive later
 
-        //find the trip_data object we need
-        let arrival_trip : &TripData = journey_data.trips.iter().filter(|trip| {
-            trip.trip_id == *arrival_trip_id 
-            && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
-            && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
-        }).next().unwrap();
+    //     //find the trip_data object we need
+    //     let arrival_trip : &TripData = journey_data.trips.iter().filter(|trip| {
+    //         trip.trip_id == *arrival_trip_id 
+    //         && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
+    //         && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
+    //     }).next().unwrap();
 
-        let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
+    //     let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
 
-        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
-            arrival_option = Some(arrival);
-        }
-    }
+    //     if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
+    //         arrival_option = Some(arrival);
+    //     }
+    // }
     
     for stop_id in &stop_data.extended_stop_ids {
         departures.extend(get_predictions_for_stop(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
@@ -442,31 +445,51 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
     //write link to search page:
     write!(&mut w, r#"<div class="breadcrumbs"><a href="/" title="Startseite">&#128269;</a>"#)?;
 
-    let mut stops_iter = journey_data.stops.iter();
-    let mut trips_iter = journey_data.trips.iter();
+    let mut journey_iter = journey_data.components.iter();
+    let mut stop_text: String; 
 
     //first stop has to be set in any case:
-    let stop_data = stops_iter.next().unwrap();
-    let mut stop_text = stop_data.stop_name.clone();
-
+    if let JourneyComponent::Stop(stop_data) = journey_iter.next().unwrap() {
+        stop_text = stop_data.stop_name.clone();
+    } else {
+        bail!("No stop found, but a journey always has to begin at a stop.");
+    }
     let mut trip_text : String;
+    let mut walked : bool = false;
 
     loop{
-        if let Some(trip_data) = trips_iter.next() {
-            trip_text = trip_data.route_name.clone();
-            //write link for previous stop:
-            write!(&mut w, r#" > <a href="{}">{}</a>"#, trip_data.journey_prefix, stop_text)?;
-        } else {
-            //write non-link for last stop:
-            write!(&mut w, r#" > <span>{}<span>"#, stop_text)?;
-            break;
+        match journey_iter.next() {
+            Some(JourneyComponent::Trip(trip_data)) => {
+                trip_text = trip_data.route_name.clone();
+                walked = false;
+                //write link for previous stop:
+                write!(&mut w, r#" > <a href="{}">{}</a>"#, trip_data.journey_prefix, stop_text)?;
+            },
+            Some(JourneyComponent::Walk(walk_data)) => {
+                trip_text = String::from(""); // dummy, never used
+                walked = true;
+                //write link for previous stop:
+                write!(&mut w, r#" > <a href="{}">{}</a>"#, walk_data.journey_prefix, stop_text)?;
+            },
+            Some(JourneyComponent::None) | None => { // previus stop was the last stop
+                //write non-link for last stop:
+                write!(&mut w, r#" > <span>{}<span>"#, stop_text)?;
+                break;
+            },
+            Some(JourneyComponent::Stop(stop_data)) => { // there should not be a stop here!
+                bail!("Expected trip or walk, found stop: {}", stop_data.stop_name);
+            }
         }
-
-        if let Some(stop_data) = stops_iter.next() {
+        if let Some(JourneyComponent::Stop(stop_data)) = journey_iter.next() {
             stop_text = stop_data.stop_name.clone();
-            //write link for previous trip:
-            write!(&mut w, r#" > <a href="{}">{}</a>"#, stop_data.journey_prefix, trip_text)?;
-        } else {
+            if walked {
+                //write non-link for previous walk:
+                write!(&mut w, r#" > <span>&#128694;<span>"#)?;
+            } else {
+                //write link for previous trip:
+                write!(&mut w, r#" > <a href="{}">{}</a>"#, stop_data.journey_prefix, trip_text)?;
+            }
+        } else if !walked {
             //write non-link for last trip:
             write!(&mut w, r#" > <span>{}<span>"#, trip_text)?;
             break;
@@ -562,12 +585,12 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
         if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? == trip_data.start_index.unwrap() {
-            write_stop_time_output(&mut w, &stop_time, Some(&departure), min_time, max_time, EventType::Departure)?;
+            write_stop_time_output(&mut w, &stop_time, Some(&departure), min_time, max_time, EventType::Departure, trip_data.start_departure_prob)?;
 
         } else if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? > trip_data.start_index.unwrap() {
             //arrivals at later stops:
             let arrival = arrivals.iter().filter(|a| a.stop_sequence == stop_time.stop_sequence as usize).next();
-            write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time, EventType::Arrival)?;
+            write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time, EventType::Arrival, None)?;
         }
         
     }
@@ -588,7 +611,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 fn write_departure_output(
     mut w: &mut Vec<u8>, 
     dep: &DbPrediction, 
-    _journey_data: &JourneyData,
+    journey_data: &JourneyData,
     stop_data: &StopData,
     monitor: &Arc<Monitor>,
     min_time: DateTime<Local>,
@@ -609,7 +632,7 @@ fn write_departure_output(
     let walk_distance = *stop_data.extended_stops_distances.get(&dep.stop_id).unwrap_or(&0.0);
     let walk_time = get_walk_time(walk_distance);
 
-    let prob = (get_transfer_probability(min_time, &walk_time, dep.meta_data.as_ref().unwrap().scheduled_time_absolute, &dep.prediction_curve) * 100.0) as i32;
+    let prob = (get_transfer_probability(journey_data.start_date_time, &walk_time, dep.meta_data.as_ref().unwrap().scheduled_time_absolute, &dep.prediction_curve) * 100.0) as i32;
     //let prob = 100 - (dep.get_probability_for_relative_time(dep.get_relative_time(min_time)?) * 100.0) as i32;
     
     // let mut fg = Figure::new();
@@ -652,31 +675,42 @@ fn write_departure_output(
         _                  => ("?"  , "d"),
     };
 
-    let mut stop_name = stop_data.stop_name.clone();
+    let original_stop_name = stop_data.stop_name.clone();
+    let mut stop_url = format!(
+        "{prefix}{stop}", 
+        prefix = stop_data.journey_prefix, 
+        stop = utf8_percent_encode(&original_stop_name, PATH_ELEMENT_ESCAPE).to_string(),
+    );
 
     // prepare info for departure from extended stops list
     let mut extended_stop_info : String = String::from("");
     if let Some(d) = stop_data.extended_stops_distances.get(&dep.stop_id) {
-        stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
+        let alternative_stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
         extended_stop_info = format!(
-            r#"<div class="area walk" title="Abfahrt von {stop_name}, Entfernung ca. {d:.0} m (Luftlinie), {min_walk_time} bis {max_walk_time} Wegzeit"><span>{d:.0} m</span></div>"#,
-            stop_name = stop_name,
+            r#"<div class="area walk" title="{min_walk_time} bis {max_walk_time} Fußweg bis {alternative_stop_name}"><span>{d:.0} m</span></div>"#,
+            alternative_stop_name = alternative_stop_name,
             d = d, 
             min_walk_time = format_duration(Duration::seconds(walk_time.min_x() as i64)),
             max_walk_time = format_duration(Duration::seconds(walk_time.max_x() as i64))
+        );
+        stop_url = format!(
+            "{prefix}{original_stop_name}/Fußweg/{alternative_stop_name}", 
+            prefix = stop_data.journey_prefix, 
+            original_stop_name    = utf8_percent_encode(&original_stop_name   , PATH_ELEMENT_ESCAPE).to_string(),
+            alternative_stop_name = utf8_percent_encode(&alternative_stop_name, PATH_ELEMENT_ESCAPE).to_string(),
         );
     }
     
     // trip link
     let trip_link = match event_type {
         EventType::Arrival => String::from("<div"),
-        EventType::Departure => format!(r#"<a href="{prefix}{stop}/{r_type} {route} nach {headsign} um {time}/""#, 
-        prefix = stop_data.journey_prefix,
-        stop = utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
-        r_type = route_type_to_str(md.route_type), 
-        route = md.route_name, 
-        headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
-        time = md.scheduled_time_absolute.format("%H:%M"))
+        EventType::Departure => format!(r#"<a href="{stop_url}/{r_type} {route} nach {headsign} um {time}/""#, 
+            stop_url = stop_url,
+            r_type = route_type_to_str(md.route_type), 
+            route = md.route_name, 
+            headsign = utf8_percent_encode(&md.headsign, PATH_ELEMENT_ESCAPE).to_string(),
+            time = md.scheduled_time_absolute.format("%H:%M")
+        )
     };
     let trip_link_type = match event_type {
         EventType::Arrival => "div",
@@ -779,7 +813,15 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
     }
 }
 
-fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction: Option<&DbPrediction>, min_time: DateTime<Local>, max_time: DateTime<Local>, event_type: EventType) -> FnResult<()> {
+fn write_stop_time_output(
+    mut w: &mut Vec<u8>, 
+    stop_time: &StopTime, 
+    prediction: Option<&DbPrediction>, 
+    min_time: DateTime<Local>, 
+    max_time: DateTime<Local>, 
+    event_type: EventType,
+    prob: Option<f32>
+) -> FnResult<()> {
     
     let stop_link = match event_type {
         EventType::Arrival => format!(r#"<a href="{}/""#, stop_time.stop.name),
@@ -816,6 +858,15 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
         String::new()
     };
 
+    let prob_area = if let Some(actual_prob) = prob {
+        format!(
+            r#"<div class="area prob {probclass}">{prob:.0} %</div>"#, 
+            probclass = if actual_prob == 1.0 { "hundred" } else { "" },
+            prob = actual_prob * 100.0)
+    } else {
+        String::new()
+    };
+
     write!(&mut w, r#"
         {stop_link} class="outer">
             <div class="line">
@@ -826,6 +877,7 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
                     <div class="area max" title="Spätstens {max_tooltip}">{max}</div>
                 </div>
                 <div class="area stopname">{stopname}</div>
+                {prob_area}
                 {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
@@ -842,8 +894,10 @@ fn write_stop_time_output(mut w: &mut Vec<u8>, stop_time: &StopTime, prediction:
         max_tooltip = a_99.format("%H:%M:%S"),
         stopname = stop_time.stop.name,
         source_area = get_source_area(prediction),
+        prob_area = prob_area,
         image_url = image_url,
         scheduled_percent = scheduled_percent,
+
     )?;
     Ok(())
 }
@@ -858,15 +912,15 @@ fn format_delay(delay: i32) -> String {
 
 
 fn format_duration(duration: Duration) -> String {
-    if duration < Duration::seconds(120) {
+    if duration < Duration::seconds(60) {
         format!("{:.0} Sek.", duration.num_seconds())
     } else  {
         let seconds = duration.num_seconds() as i32;
-        format!("{:.0}:{:02.0}", seconds / 60, seconds % 60)
+        format!("{:.0}:{:02.0} Min.", seconds / 60, seconds % 60)
     }
 }
 
-fn get_transfer_probability(
+pub fn get_transfer_probability(
     arrival_time: DateTime<Local>, 
     arrival_dist: &IrregularDynamicCurve<f32, f32>, 
     departure_time: DateTime<Local>, 
@@ -883,6 +937,7 @@ fn get_transfer_probability(
         let transfer_missed_prob = departure_dist.y_at_x(arrival_time_rel.num_seconds() as f32);
         total_miss_prob += transfer_missed_prob / (100.0 / step_size as f32);
     }
+    println!("Computed prob from {} to {} as {} %", arrival_time, departure_time, 1.0 - total_miss_prob);
     1.0 - total_miss_prob 
 }
 
