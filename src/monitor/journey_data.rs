@@ -502,7 +502,7 @@ pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {
 
     // people have different walking speeds. Walk speed numbers taken from https://de.wikipedia.org/wiki/Schrittgeschwindigkeit
     let min_walk_speed = 0.8; // m/s
-    let max_walk_speed = 1.65; // m/s
+    let _max_walk_speed = 1.65; // m/s
     let max_sprint_speed = 3.5; // m/s taken from personal training
 
     // additional time needed to orient, regardless of actual distance
