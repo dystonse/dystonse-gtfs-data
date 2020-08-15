@@ -257,28 +257,35 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 
     let mut arrival_option : Option<DbPrediction> = None;
 
-    // TODO use the TripComponent before this Stop, which might be a Trip or a Walk
+    // TODO use the JourneyComponent before this Stop, which might be a Trip or a Walk
 
-    // first line: arrival at this stop
-    // if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
+    //first line: arrival at this stop
+    if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
 
-    //     println!("Found arrival trip (id: {})", arrival_trip_id);
+        println!("Found arrival trip (id: {})", arrival_trip_id);
 
-    //     //TODO: maybe set max time to a later value if we might arrive later
+        //TODO: maybe set max time to a later value if we might arrive later
 
-    //     //find the trip_data object we need
-    //     let arrival_trip : &TripData = journey_data.trips.iter().filter(|trip| {
-    //         trip.trip_id == *arrival_trip_id 
-    //         && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
-    //         && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
-    //     }).next().unwrap();
+        let trips : Vec<&TripData> = journey_data.components.iter().filter_map(|comp| {
+            match comp {
+                    JourneyComponent::Trip(trip_data) => Some(trip_data),
+                _ => None,
+            }
+        }).collect();
 
-    //     let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
+        //find the trip_data object we need
+        let arrival_trip : &TripData = trips.iter().filter(|trip| {
+            trip.trip_id == *arrival_trip_id 
+            && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
+            && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
+        }).next().unwrap();
 
-    //     if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
-    //         arrival_option = Some(arrival);
-    //     }
-    // }
+        let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
+
+        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
+            arrival_option = Some(arrival);
+        }
+    }
     
     for stop_id in &stop_data.extended_stop_ids {
         departures.extend(get_predictions_for_stop(monitor, monitor.source.clone(), EventType::Departure, stop_id, min_time, max_time)?);
@@ -455,7 +462,7 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
         bail!("No stop found, but a journey always has to begin at a stop.");
     }
     let mut trip_text : String;
-    let mut walked : bool = false;
+    let mut walked : bool;
 
     loop{
         match journey_iter.next() {
