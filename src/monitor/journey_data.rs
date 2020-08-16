@@ -2,18 +2,17 @@ use chrono::{Date, DateTime, Local, Duration, NaiveTime};
 use chrono::offset::TimeZone;
 use simple_error::bail;
 use crate::{FnResult, OrError, date_and_time_local, types::EventType};
-use gtfs_structures::{Gtfs, RouteType, Stop};
+use gtfs_structures::{Gtfs, RouteType, Stop, Trip};
 use std::sync::Arc;
 use regex::Regex;
 use super::{Monitor, route_type_to_str, DbPrediction, time_curve::TimeCurve};
 use geo::prelude::*;
-use geo::point;
+use geo::{point, Point};
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use dystonse_curves::{IrregularDynamicCurve, Tup};
 use mysql::*;
 use mysql::prelude::*;
-use crate::types::VehicleIdentifier;
 
 use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
@@ -34,17 +33,46 @@ pub struct StopData {
     pub prev_component: Option<JourneyComponent>,
 
     pub stop_name: String,
+    pub stops: Vec<Arc<Stop>>,
     pub stop_ids: Vec<String>,
+    pub extended_stops: Vec<Arc<Stop>>,
     pub extended_stop_ids: Vec<String>,
     pub extended_stop_names: Vec<String>,
     pub extended_stops_distances: HashMap<String, f32>,
 
     pub start_curve: TimeCurve,
     pub start_prob: f32,
-    pub arrival_trip_id: Option<String>,
     pub arrival_trip_stop_index: Option<usize>,
-    pub arrival_trip_start_date: Option<Date<Local>>,
-    pub arrival_trip_start_time: Option<Duration>,
+}
+
+impl StopData {
+    // returns the previous TripData, if the previous component is a trip (and not a walk)
+    pub fn get_previous_trip_data(&self) -> Option<Arc<TripData>> {
+        if let Some(JourneyComponent::Trip(trip_data)) = &self.prev_component {
+            Some(trip_data.clone())
+        } else {
+            None
+        }
+    }
+
+    // calculates the maximum airline distance between the main stops of two StopData objects
+    pub fn get_max_distance(&self, other_stop_data: &StopData) -> f32 {
+        let other_stop_geos : Vec<Point<f64>> = other_stop_data.stops.iter().map(|stop| point!(x: stop.latitude.unwrap(), y: stop.longitude.unwrap())).collect();
+        return self.get_max_distance_from_geos(&other_stop_geos);
+    }
+
+    // calculates the maximum airline distance between the main stops of a StopData object and a vector of (geo) points
+    pub fn get_max_distance_from_geos(&self, other_stop_geos: & Vec<Point<f64>>) -> f32 {
+        let this_stop_geos  : Vec<Point<f64>> = self.stops.iter().map(|stop| point!(x: stop.latitude.unwrap(), y: stop.longitude.unwrap())).collect();
+        
+        let mut max_distance = 0.0;
+        for this_stop_geo in this_stop_geos {
+            for other_stop_geo in other_stop_geos {
+                max_distance = f32::max(max_distance, this_stop_geo.haversine_distance(&other_stop_geo) as f32);
+            }
+        }
+        return max_distance;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -60,19 +88,32 @@ pub struct TripData {
     pub start_curve: TimeCurve,
     pub start_prob: f32,
 
-    pub trip_id: String,
     pub route_id: String,
     pub start_id: Option<String>,
     pub start_index: Option<usize>,
-    pub trip_start_date: Date<Local>,
-    pub trip_start_time: Duration,
+    pub vehicle_id: VehicleIdentifier,
+}
+
+impl TripData {
+    pub fn get_previous_stop_data(&self) -> Option<Arc<StopData>> {
+        if let JourneyComponent::Stop(stop_data) = &self.prev_component {
+            Some(stop_data.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_trip<'a>(&self, schedule: &'a Gtfs) -> FnResult<&'a Trip> {
+        let trip : &Trip = schedule.get_trip(&self.vehicle_id.trip_id)?;
+        Ok(trip)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct WalkData {
     pub url: String,
     pub prev_component: JourneyComponent,
-
+    
     pub start_curve: TimeCurve,
     pub start_prob: f32,
 }
@@ -188,6 +229,7 @@ impl JourneyData {
         let stop_geos : Vec<_> = stops.iter().map(|stop| point!(x: stop.latitude.unwrap(), y: stop.longitude.unwrap())).collect();
 
         // search nearby stops
+        let mut extended_stops : Vec<Arc<Stop>> = Vec::new();
         let mut extended_stop_ids : HashSet<String> = HashSet::new();
         let mut extended_stop_names : HashSet<String> = HashSet::new();
         let mut extended_stops_distances : HashMap<String, f32> = HashMap::new();
@@ -197,6 +239,7 @@ impl JourneyData {
                 let distance = stop_geo.haversine_distance(&other_stop_geo) as f32;
                 if distance < EXTENDED_STOPS_MAX_DISTANCE {
                     //println!("Added in {:>3.0} distance: {}.", distance, other_stop.name);
+                    extended_stops.push(other_stop.clone());
                     extended_stop_ids.insert(other_stop_id.clone());
                     if let Some(d) =  extended_stops_distances.get(other_stop_id) {
                         if *d < distance {
@@ -218,29 +261,22 @@ impl JourneyData {
         let mut start_curve: TimeCurve;
         //let mut arrival_time_min : Option<DateTime<Local>> = None;
         let mut start_prob: f32;
-        let mut arrival_trip_id : Option<String> = None;
         let mut arrival_trip_stop_index : Option<usize> = None;
-        let mut arrival_trip_start_date : Option<Date<Local>> = None;
-        let mut arrival_trip_start_time : Option<Duration> = None;
-
+        let mut vehicle_id : Option<VehicleIdentifier> = None;
+        
         if let Some(prev) = &prev_component {
             if let JourneyComponent::Trip(trip_data) = prev {
-                if let Ok(trip) = self.monitor.schedule.get_trip(&trip_data.trip_id) {
+                if let Ok(trip) = self.monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id) {
+                    // TODO in the next line we find the stop_time at which we get off the vehicle,
+                    // and we must check that it's stop_sequence is higher than the stop_sequence on
+                    // which we get onto the vehicle earlyer.
                     if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
                         //set some of the arrival trip info:
-                        arrival_trip_id = Some(trip_data.trip_id.clone());
                         arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
-                        arrival_trip_start_date = Some(trip_data.trip_start_date);
-                        arrival_trip_start_time = Some(trip_data.trip_start_time);
-
-                        let vehicle_id = VehicleIdentifier {
-                            start_date: trip_data.trip_start_date.naive_local(),
-                            start_time: NaiveTime::from_num_seconds_from_midnight(trip_data.trip_start_time.num_seconds() as u32, 0),
-                            trip_id: trip_data.trip_id.clone()
-                        };
-
-                        if let Ok(a_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, vehicle_id, EventType::Arrival){
-                            let scheduled_arrival = date_and_time_local(&trip_data.trip_start_date, stop_time.arrival_time.unwrap() as i32);
+                        vehicle_id = Some(trip_data.vehicle_id.clone());
+                        
+                        if let Ok(a_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, &trip_data.vehicle_id, EventType::Arrival){
+                            let scheduled_arrival = date_and_time_local(&trip_data.vehicle_id.start_date, stop_time.arrival_time.unwrap() as i32);
                             start_curve = TimeCurve::new(a_curve, scheduled_arrival);
                             start_prob = prev.get_prob();
                         } else {
@@ -253,13 +289,20 @@ impl JourneyData {
                     bail!("Could not get trip.");
                 }
             } else if let JourneyComponent::Walk(walk_data) = prev {
-                let distance_meters = 0.0; // TODO here we need the actual distance
-                let prev_curve = prev_component.as_ref().unwrap().get_curve();
-                let ref_time = prev_curve.ref_time;
-                let walk_curve = get_walk_time(distance_meters);
-                // TODO here we need to combine the prev_curve and the walk_curve
-                start_curve = TimeCurve::new(walk_curve, ref_time);
-                start_prob = prev_component.as_ref().unwrap().get_prob();
+                if let JourneyComponent::Stop(prev_stop) = &walk_data.prev_component {
+                    let distance_meters = prev_stop.get_max_distance_from_geos(&stop_geos);
+                    let walk_duration_curve: IrregularDynamicCurve<f32, f32> = get_walk_time(distance_meters);
+                    let walk_start_curve: TimeCurve = walk_data.start_curve.clone();
+                    let walk_end_curve = walk_start_curve.add_duration_curve(&walk_duration_curve);
+                    // can't touch this!
+                    //walk_data.distance = Some(distance_meters);
+                    
+                    start_curve = walk_end_curve;
+                    // the chance to miss the transfer into a walk is zero, so we can carry over the probability from before:
+                    start_prob = walk_data.start_prob; 
+                } else {
+                    bail!("Walk has no prev stop component.");
+                }
             } else {
                 bail!("Stop has no plausible prev component.");
             }
@@ -275,16 +318,15 @@ impl JourneyData {
             prev_component: prev_component.clone(),
             stop_name,
             stop_ids: stops.iter().map(|stop| stop.id.clone()).collect(),
+            stops,
+            extended_stops,
             extended_stop_ids: Vec::from_iter(extended_stop_ids),
             extended_stop_names: Vec::from_iter(extended_stop_names),
             extended_stops_distances,
             url,
             start_curve,
             start_prob,
-            arrival_trip_id,
             arrival_trip_stop_index,
-            arrival_trip_start_date,
-            arrival_trip_start_time,
         })))
     }
 
@@ -376,13 +418,18 @@ impl JourneyData {
                                 let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
                                 let trip_start_date = start_departure.date() + Duration::days(**d as i64 - 1);
                                 let vehicle_id = VehicleIdentifier {
-                                    start_date: trip_start_date.naive_local(),
-                                    start_time: NaiveTime::from_num_seconds_from_midnight(trip_start_time.num_seconds() as u32, 0),
+                                    start_date: trip_start_date,
+                                    start_time: trip_start_time,
                                     trip_id: id.clone()
                                 };
 
                                 // set curve and prob for departure at first stop:
-                                let (start_curve, start_prob) = if let Ok(s_d_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, vehicle_id, EventType::Departure) {
+                                let (start_curve, start_prob) = if let Ok(s_d_curve) = get_curve_for(
+                                    self.monitor.clone(), 
+                                    &stop_time.stop.id, 
+                                    &vehicle_id,
+                                    EventType::Departure
+                                ) {
                                     let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime);
                                     let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve);
                                     (departure_curve, start_departure_prob)
@@ -391,19 +438,17 @@ impl JourneyData {
                                 };
 
                                 // now we can finally make our struct from all the gathered info :)
-                                let mut trip_data = TripData{
+                                let trip_data = TripData{
                                     prev_component: prev_component.clone(),
                                     url,
                                     route_type,
                                     route_name,
                                     trip_headsign,
                                     start_departure,
-                                    trip_id: id.clone(),
+                                    vehicle_id,
                                     route_id,
                                     start_id,
                                     start_index,
-                                    trip_start_date,
-                                    trip_start_time,
                                     start_curve,
                                     start_prob,
                                 };
@@ -428,16 +473,16 @@ impl JourneyData {
     }
 }
 
-pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: VehicleIdentifier, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
+pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
 
-    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, vehicle_id.clone(), et) {
+    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, vehicle_id, et) {
         return Ok(pred.prediction_curve.clone());
     };
     
     bail!("no curve found for {:?} at stop {:?} in trip {:?}", et, stop_id, vehicle_id.trip_id);
 }
 
-pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: VehicleIdentifier, et: EventType) -> FnResult<DbPrediction> {
+pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<DbPrediction> {
     
     let mut conn = monitor.pool.get_conn()?;
 
@@ -473,7 +518,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
             "event_type" => et.to_int(),
             "stop_id" => stop_id,
             "trip_id" => &vehicle_id.trip_id,
-            "trip_start_date" => vehicle_id.start_date,
+            "trip_start_date" => vehicle_id.start_date.naive_local(),
             "trip_start_time" => vehicle_id.start_time,
         },
     )?;
@@ -495,7 +540,11 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
 }
 
 pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {
-    // assing a factor to the distance, which is measured as air-line distance, to account for detours.AccessMode
+    if distance_meters < 20.0 {
+        return IrregularDynamicCurve::new(vec![Tup{x: -12.0, y: 0.0},Tup{x: 12.0, y: 1.0}]);
+    }
+
+    // assing a factor to the distance, which is measured as air-line distance, to account for detours.
     let min_distance_factor = 1.0;
     // for short distances (near 0m), assume a factor of 1.8, for long distances (near 500m) assume a factor of 1.4.
     let max_distance_factor = 1.4 + f32::max(0.0, f32::min(0.4, (500.0 - distance_meters) / 500.0 * 0.4));
@@ -512,9 +561,25 @@ pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {
     let min_duration = distance_meters * min_distance_factor / max_sprint_speed + min_delay; // s
     let max_duration = distance_meters * max_distance_factor / min_walk_speed + max_delay; // s
     
-    // TODO this is a linear distribution between best and worst case, we should use something more sophisticated
-    let points = vec![ Tup{x: min_duration, y: 0.0}, Tup{x: max_duration, y: 1.0} ];
+    let mut points = Vec::with_capacity(22);
 
-    let curve = IrregularDynamicCurve::new(points);
+    // Fake a normal distribution by taking a nice slice out of a cosine's square root.
+    let pi = std::f32::consts::PI;
+    for p in (0..101).step_by(5) {
+        let duration = min_duration + (max_duration - min_duration) * p as f32 / 100.0;
+        let scaled_x = pi + pi * p as f32 / 100.0;
+        let y = (f32::cos(scaled_x).abs().sqrt() * f32::cos(scaled_x).signum() + 1.0) / 2.0;
+        points.push(Tup{x: duration, y});
+    }
+
+    let mut curve = IrregularDynamicCurve::new(points);
+    curve.simplify(0.01);
     return curve;
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
+pub struct VehicleIdentifier {
+    pub trip_id: String,
+    pub start_time: Duration,
+    pub start_date: Date<Local>
 }

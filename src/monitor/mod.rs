@@ -2,12 +2,12 @@ mod journey_data;
 mod time_curve;
 
 use crate::{FnResult, Main, date_and_time_local, OrError};
-use chrono::{Date, DateTime, Local, Duration, Timelike, NaiveTime};
+use chrono::{Date, DateTime, Local, Duration, Timelike};
 use clap::{App, ArgMatches};
-use crate::types::*;
+use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics};
 use crate::FileCache;
 use std::sync::Arc;
-use gtfs_structures::{Gtfs, RouteType, StopTime};
+use gtfs_structures::{Gtfs, RouteType, Trip, StopTime};
 use mysql::*;
 use mysql::prelude::*;
 
@@ -25,11 +25,11 @@ const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').a
 
 
 use dystonse_curves::{IrregularDynamicCurve, Curve, TypedCurve};
-//use std::str::FromStr;
 use std::io::Write;
 use colorous::*;
 
-use journey_data::{JourneyData, JourneyComponent, StopData, TripData, get_prediction_for_first_line, get_walk_time};
+use journey_data::*;
+use time_curve::TimeCurve;
 
 const CSS:&'static str = include_str!("style.css");
 const FAVICON_HEADERS: &'static str = r##"
@@ -259,35 +259,14 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     let len_time: i64 = exact_len_time - (exact_len_time % 5);
     let max_time = min_time + Duration::minutes(len_time);
 
-    let mut arrival_option : Option<DbPrediction> = None;
-
-    // TODO use the JourneyComponent before this Stop, which might be a Trip or a Walk
+    let mut trip_arrival_option : Option<DbPrediction> = None;
 
     //first line: arrival at this stop
-    if let Some(arrival_trip_id) = &stop_data.arrival_trip_id {
+    if let Some(arrival_trip) = stop_data.get_previous_trip_data() {
+        let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
 
-        println!("Found arrival trip (id: {})", arrival_trip_id);
-
-        //TODO: maybe set max time to a later value if we might arrive later
-
-        let trips : Vec<&TripData> = journey_data.components.iter().filter_map(|comp| {
-            match comp {
-                    JourneyComponent::Trip(trip_data) => Some(trip_data),
-                _ => None,
-            }
-        }).collect();
-
-        //find the trip_data object we need
-        let arrival_trip : &TripData = trips.iter().filter(|trip| {
-            trip.trip_id == *arrival_trip_id 
-            && trip.trip_start_date == stop_data.arrival_trip_start_date.unwrap() 
-            && trip.trip_start_time == stop_data.arrival_trip_start_time.unwrap()
-        }).next().unwrap();
-
-        let arrival_stop_id = &monitor.schedule.get_trip(arrival_trip_id)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id;
-
-        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.clone(), EventType::Arrival) {
-            arrival_option = Some(arrival);
+        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.vehicle_id, EventType::Arrival) {
+            trip_arrival_option = Some(arrival);
         }
     }
     
@@ -399,8 +378,13 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         max_time = max_time.format("%H:%M")
     )?;
 
-    //optional first line for arrival
-    if let Some(mut arrival) = arrival_option {
+    //optional first line for arrival by walk:
+    if let Some(JourneyComponent::Walk(walk_data)) = &stop_data.prev_component {
+        write_walk_arrival_output(&mut w, walk_data, stop_data, monitor, min_time, max_time)?;
+    }
+
+    //optional first line for arrival by trip:
+    if let Some(mut arrival) = trip_arrival_option {
         arrival.compute_meta_data(monitor)?;
         write_departure_output(&mut w, &arrival, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Arrival)?;
     }
@@ -514,28 +498,20 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
 }
 
 fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_data: &TripData) -> FnResult<()> {
-    let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
+    let trip = monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
     let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
 
-    let vehicle_id = VehicleIdentifier {
-        start_date: trip_data.trip_start_date.naive_local(),
-        start_time: NaiveTime::from_num_seconds_from_midnight(trip_data.trip_start_time.num_seconds() as u32, 0),
-        trip_id: trip_data.trip_id.clone()
-    };
-
     // departure from first stop: this is where the user changes into this trip
-    let mut departure = get_prediction_for_first_line(monitor.clone(), start_id, vehicle_id, EventType::Departure)?;
+    let mut departure = get_prediction_for_first_line(monitor.clone(), start_id, &trip_data.vehicle_id, EventType::Departure)?;
 
     let mut arrivals = get_predictions_for_trip(
         monitor,
         monitor.source.clone(), 
         EventType::Arrival,
-        &trip_data.trip_id,
-        trip_data.trip_start_date, 
-        trip_data.trip_start_time, 
+        &trip_data.vehicle_id,
         start_sequence + 1)?;
 
     if arrivals.is_empty() {
@@ -586,7 +562,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
             <div class="header">
             <div class="timing">
                 <div class="head time">Plan</div>
-                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">-</div>
+                <div class="head min" title="Früheste Ankunft, die in 99% der Fälle nicht unterschritten wird">-</div>
                 <div class="head med">○</div>
                 <div class="head max">+</div>
             </div>
@@ -624,37 +600,68 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     Ok(())
 }
 
+fn write_walk_arrival_output(
+    mut w: &mut Vec<u8>, 
+    walk_data: &WalkData,
+    stop_data: &StopData,
+    monitor: &Arc<Monitor>,
+    min_time: DateTime<Local>,
+    max_time: DateTime<Local>,
+) -> FnResult<()> {
+
+    let a_01 = stop_data.start_curve.typed_x_at_y(0.01);
+    let a_50 = stop_data.start_curve.typed_x_at_y(0.50);
+    let a_99 = stop_data.start_curve.typed_x_at_y(0.99);
+    let stop_name = &stop_data.stop_name;
+    let distance = if let JourneyComponent::Stop(prev_stop) = &walk_data.prev_component {
+        prev_stop.get_max_distance(&stop_data)
+    } else {
+        bail!("Walk has no prev_stop");
+    };
+    
+    let image_url = generate_png_data_url(&stop_data.start_curve, min_time, max_time, 120, EventType::Arrival)?;
+    let prob = stop_data.start_prob * 100.0;
+
+    write!(&mut w, r#"
+        <div class="outer">    
+            <div class="line">
+                <div class="timing">
+                    <div class="area time" title="Mittlere Ankunftszeit: {time}">{time}</div>
+                    <div class="area min" title="Frühestmögliche Ankunft">{min}</div>
+                    <div class="area med" title="Mittlere Ankunft">{med}</div>
+                    <div class="area max" title="Spätestmögliche Ankunft">{max}</div>
+                </div>
+                <!--div class="area type"><span class="bubble w">Fuß</span></div-->
+                <div class="area distance">{distance:.0} m Fußweg</div>
+                <div class="area headsign">Ankunft an {stop_name}</div>
+                <div class="area prob {probclass}">{prob:.0} %</div>
+                <div class="area source"></div>
+            </div>
+            <div class="visu" style="background-image:url('{image_url}')"></div>
+        </div>"#,
+        time = a_50.format("%H:%M"),
+        min = format_delay((a_01 - a_50).num_minutes() as i32),
+        med = format_delay((a_50 - a_50).num_minutes() as i32),
+        max = format_delay((a_99 - a_50).num_minutes() as i32),
+        distance = distance,
+        stop_name = stop_name,
+        image_url = image_url,
+        probclass = if prob == 100.0 { "hundred" } else { "" },
+        prob = prob,
+    )?;
+    Ok(())
+}
 
 fn write_departure_output(
     mut w: &mut Vec<u8>, 
     dep: &DbPrediction, 
-    journey_data: &JourneyData,
+    _journey_data: &JourneyData,
     stop_data: &StopData,
     monitor: &Arc<Monitor>,
     min_time: DateTime<Local>,
     max_time: DateTime<Local>,
     event_type: EventType,
 ) -> FnResult<()> {
-
-    // TODO: the next block does not work 
-    // because the whole fn depends too much on dbprediction and metadata 
-    // to be useful for displaying an arrival by walk which has neither of those!!!
-
-    //special case for arrival by walk:
-    if event_type == EventType::Arrival && stop_data.arrival_trip_id.is_none() {
-        let walk_distance = 0; // TODO use actual value
-
-         // create pseudo-route for walk:
-        let type_letter = "Fuß";
-        let type_class = "w";
-        let route_name = format!("{:.0} m", walk_distance);
-        
-    } else { // any other case (not arrival by walk):
-
-    }
-
-    // Old code starts here:
-
     let md = dep.meta_data.as_ref().unwrap();
     let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
     let scheduled_percent = a_scheduled.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
@@ -669,8 +676,18 @@ fn write_departure_output(
     let walk_distance = *stop_data.extended_stops_distances.get(&dep.stop_id).unwrap_or(&0.0);
     let walk_time = get_walk_time(walk_distance);
 
-    let prob = (get_transfer_probability(journey_data.start_date_time, &walk_time, dep.meta_data.as_ref().unwrap().scheduled_time_absolute, &dep.prediction_curve) * 100.0) as i32;
-    //let prob = 100 - (dep.get_probability_for_relative_time(dep.get_relative_time(min_time)?) * 100.0) as i32;
+    // compute probability of getting the transfer (for departures only).
+    let prob = match event_type {
+        EventType::Arrival => stop_data.start_prob * 100.0,
+        EventType::Departure => stop_data.start_curve
+            .add_duration_curve(&walk_time)
+            .get_transfer_probability(&dep.get_time_curve()) * stop_data.start_prob * 100.0
+    };
+
+    // don't display anything below 5% chance:
+    if prob < 5.0 {
+        return Ok(());
+    }
 
     //let trip_link =  format!("{}/", dep.trip_id);
     let _trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
@@ -738,7 +755,7 @@ fn write_departure_output(
     };
 
 
-    let image_url = generate_png_data_url(&dep, min_time, max_time, 120, event_type)?;
+    let image_url = generate_png_data_url(&dep.get_time_curve(), min_time, max_time, 120, event_type)?;
 
     let headsign = match event_type {
         EventType::Arrival => format!("Ankunft an {}", stop_data.stop_name),
@@ -758,7 +775,7 @@ fn write_departure_output(
                 <div class="area route">{route_name}</div>
                 <div class="area headsign">{headsign}</div>
                 {extended_stop_info}
-                <div class="area prob {probclass}">{prob} %</div>
+                <div class="area prob {probclass}">{prob:.0} %</div>
                 {source_area}
             </div>
             <div class="visu" style="background-image:url('{image_url}')"></div>
@@ -781,7 +798,7 @@ fn write_departure_output(
         image_url = image_url,
         prob = prob,
         source_area = get_source_area(Some(dep)),
-        probclass = if prob == 100 { "hundred" } else { "" },
+        probclass = if prob == 100.0 { "hundred" } else { "" },
         scheduled_percent = scheduled_percent
     )?;
     Ok(())
@@ -873,7 +890,7 @@ fn write_stop_time_output(
     let scheduled_percent = scheduled_time.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
 
     let image_url = if let Some(prediction) = prediction {
-        generate_png_data_url(&prediction, min_time, max_time, 120, event_type)?
+        generate_png_data_url(&prediction.get_time_curve(), min_time, max_time, 120, event_type)?
     } else {
         String::new()
     };
@@ -961,9 +978,7 @@ pub fn get_transfer_probability(
     1.0 - total_miss_prob 
 }
 
-fn generate_png_data_url(dep: &DbPrediction, min_time: DateTime<Local>, max_time: DateTime<Local>, width: usize, event_type: EventType) -> FnResult<String> {
-    let min_rel = dep.get_relative_time(min_time)?;
-    let max_rel = dep.get_relative_time(max_time)?;
+fn generate_png_data_url(time_curve: &TimeCurve, min_time: DateTime<Local>, max_time: DateTime<Local>, width: usize, event_type: EventType) -> FnResult<String> {
 
     let gradient = match event_type {
         EventType::Arrival => YELLOW_ORANGE_BROWN,
@@ -979,20 +994,24 @@ fn generate_png_data_url(dep: &DbPrediction, min_time: DateTime<Local>, max_time
         let mut png = encoder.write_header()?;
 
         let mut image_data = Vec::<u8>::with_capacity(width * 4);
-        let f = (max_rel - min_rel) / (width as f32);
-        let probs_abs : Vec<f32> = (0..(width + 1)).map(|x| dep.get_probability_for_relative_time(min_rel + (x as f32) * f)).collect();
-        let probs_rel : Vec<f32> = probs_abs.iter().tuple_windows().map(|(a,b)| b-a).collect();
-        let mut max = *probs_rel.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
+        let f = (max_time - min_time) / width as i32;
+        
+        // cumulated probabilities, in image's reference system:
+        let probs_cum : Vec<f32> = (0..(width + 1)).map(|x| time_curve.typed_y_at_x(min_time + f * x as i32)).collect();
+        // uncumulated ... 
+        let probs_uncum : Vec<f32> = probs_cum.iter().tuple_windows().map(|(a,b)| b-a).collect();
+        
+        let mut max = *probs_uncum.iter().max_by(|a,b| a.partial_cmp(b).unwrap()).unwrap();
         if max < 0.05 {
             max = 0.05;
         }
         for i in 0..width {
-            let prob_rel = probs_rel[i] / max;
-            let prob_abs = probs_abs[i];
+            let prob_uncum = probs_uncum[i] / max;
+            let prob_cum = probs_cum[i];
             let crop = 0.2;
-            let color = if prob_abs > 0.01 && prob_abs < 0.99 { 
-                gradient.eval_continuous((crop + (prob_rel * (1.0 - crop))) as f64)
-            } else if prob_abs > 0.0 && prob_abs < 1.0 {
+            let color = if prob_cum > 0.01 && prob_cum < 0.99 { 
+                gradient.eval_continuous((crop + (prob_uncum * (1.0 - crop))) as f64)
+            } else if prob_cum > 0.0 && prob_cum < 1.0 {
                 gradient.eval_continuous(0.0 as f64)
             } else {
                 Color{r: 255, g: 255, b: 255}
@@ -1015,7 +1034,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         _ => bail!("No trip at journey end"),
     };
     let route = monitor.schedule.get_route(&trip_data.route_id)?;
-    let trip = monitor.schedule.get_trip(&trip_data.trip_id)?;
+    let trip: &Trip = trip_data.get_trip(&monitor.schedule)?;
     let route_variant = trip.route_variant.as_ref().unwrap();
 
     let mut w = Vec::new();
@@ -1189,6 +1208,10 @@ impl DbPrediction {
         Ok(())
     }
 
+    pub fn get_time_curve(&self) -> TimeCurve {
+        TimeCurve::new(self.prediction_curve.clone(), self.meta_data.as_ref().unwrap().scheduled_time_absolute)
+    }
+
     pub fn get_absolute_time_for_probability(&self, prob: f32) -> FnResult<DateTime<Local>> {
         let x = self.prediction_curve.x_at_y(prob);
         Ok(date_and_time_local(&self.trip_start_date, self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_seconds as i32 + x as i32))
@@ -1342,9 +1365,7 @@ fn get_predictions_for_trip(
     monitor: &Arc<Monitor>,
     source: String, 
     event_type: EventType, 
-    trip_id: &str, 
-    trip_start_date: Date<Local>,
-    trip_start_time: Duration,
+    vehicle_id: &VehicleIdentifier,
     start_sequence: u16,
 ) -> FnResult<Vec<DbPrediction>> {
     let mut conn = monitor.pool.get_conn()?;
@@ -1378,9 +1399,9 @@ fn get_predictions_for_trip(
         params! {
             "source" => source,
             "event_type" => event_type.to_int(),
-            "trip_id" => trip_id,
-            "trip_start_date" => trip_start_date.naive_local(),
-            "trip_start_time" => trip_start_time,
+            "trip_id" => vehicle_id.trip_id.clone(),
+            "trip_start_date" => vehicle_id.start_date.naive_local(),
+            "trip_start_time" => vehicle_id.start_time,
             "start_sequence" => start_sequence,
         },
     )?;

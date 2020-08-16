@@ -188,6 +188,12 @@ a.outer:hover .line {
     text-align: center;
 }
 
+.distance {
+    flex-basis: 190px;
+    text-align: center;
+    font-size: 28px;
+}
+
 .headsign {
     flex-basis: 160px;
     flex-grow: 1;
@@ -475,6 +481,11 @@ a.outer:hover .line {
         flex-basis: 70px;
     }
 
+    .distance {
+        flex-basis: 130px;
+        font-size: 24px;
+    }
+
     .headsign {
         flex-basis: 120px;
     }
@@ -556,6 +567,11 @@ a.outer:hover .line {
 
     .route {
         flex-basis: 50px;
+    }
+
+    .distance {
+        flex-basis: 80px;
+        font-size: 18px;
     }
 
     .area.headsign {
