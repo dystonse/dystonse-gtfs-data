@@ -676,18 +676,22 @@ fn write_departure_output(
     let walk_distance = *stop_data.extended_stops_distances.get(&dep.stop_id).unwrap_or(&0.0);
     let walk_time = get_walk_time(walk_distance);
 
-    // compute probability of getting the transfer (for departures only).
-    let prob = match event_type {
-        EventType::Arrival => stop_data.start_prob * 100.0,
+    // compute local probability of getting the transfer (not accumulated for the whole journey, just for here)
+    let local_prob = match event_type {
+        EventType::Arrival => 100.0, // arrival is always 100%
         EventType::Departure => stop_data.start_curve
             .add_duration_curve(&walk_time)
-            .get_transfer_probability(&dep.get_time_curve()) * stop_data.start_prob * 100.0
+            .get_transfer_probability(&dep.get_time_curve()) * 100.0
     };
 
-    // don't display anything below 5% chance:
-    if prob < 5.0 {
+    // don't display anything below 5% local chance:
+    if local_prob < 5.0 {
+        println!("write departure output for stop page: Skipping departure with less than 5% chance.");
         return Ok(());
     }
+
+    // compute actual probability of getting the transfer (for later use in the output)
+    let prob = stop_data.start_prob * local_prob;
 
     //let trip_link =  format!("{}/", dep.trip_id);
     let _trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
