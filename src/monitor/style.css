@@ -15,12 +15,20 @@
     font-weight: lighter;
   }
 
+
+
 body {
     color: #000;
     background-color: #fff;
+
+    --pfpink: #f7258e;
+    --pfblue: #0095c6;
+    --pfpurple:  #001776;
+    --pfdarkblue: #161730;
 }
+
 body.embed {
-    background-color: rgb(195, 243, 255);
+    background-color: var(--pfblue);
 }
 
 table, th, td {
