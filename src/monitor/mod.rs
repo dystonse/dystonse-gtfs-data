@@ -263,9 +263,10 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 
     //first line: arrival at this stop
     if let Some(arrival_trip) = stop_data.get_previous_trip_data() {
-        let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
+        //let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
+        let arrival_stop_sequence = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop_sequence;
 
-        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.vehicle_id, EventType::Arrival) {
+        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), arrival_stop_sequence, &arrival_trip.vehicle_id, EventType::Arrival) {
             trip_arrival_option = Some(arrival);
         }
     }
@@ -502,10 +503,10 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
-    let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
+    //let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
 
     // departure from first stop: this is where the user changes into this trip
-    let mut departure = get_prediction_for_first_line(monitor.clone(), start_id, &trip_data.vehicle_id, EventType::Departure)?;
+    let mut departure = get_prediction_for_first_line(monitor.clone(), start_sequence, &trip_data.vehicle_id, EventType::Departure)?;
 
     let mut arrivals = get_predictions_for_trip(
         monitor,
@@ -676,18 +677,22 @@ fn write_departure_output(
     let walk_distance = *stop_data.extended_stops_distances.get(&dep.stop_id).unwrap_or(&0.0);
     let walk_time = get_walk_time(walk_distance);
 
-    // compute probability of getting the transfer (for departures only).
-    let prob = match event_type {
-        EventType::Arrival => stop_data.start_prob * 100.0,
+    // compute local probability of getting the transfer (not accumulated for the whole journey, just for here)
+    let local_prob = match event_type {
+        EventType::Arrival => 100.0, // arrival is always 100%
         EventType::Departure => stop_data.start_curve
             .add_duration_curve(&walk_time)
-            .get_transfer_probability(&dep.get_time_curve()) * stop_data.start_prob * 100.0
+            .get_transfer_probability(&dep.get_time_curve()) * 100.0
     };
 
-    // don't display anything below 5% chance:
-    if prob < 5.0 {
+    // don't display anything below 5% local chance:
+    if local_prob < 5.0 {
+        println!("write departure output for stop page: Skipping departure with less than 5% chance.");
         return Ok(());
     }
+
+    // compute actual probability of getting the transfer (for later use in the output)
+    let prob = stop_data.start_prob * local_prob;
 
     //let trip_link =  format!("{}/", dep.trip_id);
     let _trip_start_date_time = dep.trip_start_date.and_hms(0, 0, 0) + dep.trip_start_time;
