@@ -75,11 +75,11 @@ impl PrecisionType {
         match self {
             Self::Unknown => 0,
             Self::Specific => 1,
-            Self::FallbackSpecific => 6,
-            Self::SemiSpecific => 2,
-            Self::General => 3,
-            Self::FallbackGeneral => 4,
-            Self::SuperGeneral => 5,
+            Self::FallbackSpecific => 2,
+            Self::SemiSpecific => 3,
+            Self::General => 4,
+            Self::FallbackGeneral => 5,
+            Self::SuperGeneral => 6,
         }
     }
 
