@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-struct DbItem {
+struct VsDbItem {
     delay_arrival: Option<i32>,
     delay_departure: Option<i32>,
     date: Option<NaiveDate>,
@@ -27,9 +27,9 @@ struct DbItem {
     stop_id: String
 }
 
-impl FromRow for DbItem {
+impl FromRow for VsDbItem {
     fn from_row_opt(row: Row) -> std::result::Result<Self, FromRowError> {
-        Ok(DbItem{
+        Ok(VsDbItem{
             delay_arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
             delay_departure: row.get_opt::<i32,_>(1).unwrap().ok(),
             date: row.get_opt(2).unwrap().ok(),
@@ -160,7 +160,7 @@ impl<'a> VisualScheduleCreator<'a> {
 
         let db_items: Vec<_> = result_set
             .map(|row| {
-                let item: DbItem = from_row(row.unwrap());
+                let item: VsDbItem = from_row(row.unwrap());
                 item
             })
             .collect();
@@ -280,7 +280,7 @@ impl<'a> VisualScheduleCreator<'a> {
         &self,
         primary_route_variant_id: &String,
         route_variant_ids: Vec<&String>,
-        db_items: &Vec<DbItem>,
+        db_items: &Vec<VsDbItem>,
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
@@ -333,7 +333,7 @@ impl<'a> VisualScheduleCreator<'a> {
         &self,
         primary_shape_id: &String,
         shape_ids: Vec<&String>,
-        db_items: &Vec<DbItem>,
+        db_items: &Vec<VsDbItem>,
         agency_name: &str,
         route_name: &str,
     ) -> FnResult<()> {
@@ -372,7 +372,7 @@ impl<'a> VisualScheduleCreator<'a> {
         primary_trip: &Trip,
         trips: Vec<&Trip>,
         name: &str,
-        db_items: &Vec<DbItem>,
+        db_items: &Vec<VsDbItem>,
     ) -> FnResult<()> {
         let schedule = &self.analyser.schedule;
         let mut creator = GraphCreator::new(
@@ -398,7 +398,7 @@ struct GraphCreator<'a> {
     _main: &'a Main,
     relevant_stop_ids: Vec<String>,
     relevant_stop_names: Vec<String>,
-    db_items: &'a Vec<DbItem>,
+    db_items: &'a Vec<VsDbItem>,
 }
 
 impl<'a> GraphCreator<'a> {
@@ -408,7 +408,7 @@ impl<'a> GraphCreator<'a> {
         trips: Vec<&'a Trip>,
         schedule: &'a Gtfs,
         main: &'a Main,
-        db_items: &'a Vec<DbItem>,
+        db_items: &'a Vec<VsDbItem>,
     ) -> GraphCreator<'a> {
         GraphCreator {
             primary_trip,
@@ -443,7 +443,7 @@ impl<'a> GraphCreator<'a> {
             .collect();
         let stop_count = self.relevant_stop_ids.len();
 
-        let data_for_current_trips: Vec<&DbItem> = self
+        let data_for_current_trips: Vec<&VsDbItem> = self
             .db_items
             .iter()
             .filter(|it| self.trips.iter().any(|trip| trip.id == it.trip_id))
@@ -571,7 +571,7 @@ impl<'a> GraphCreator<'a> {
         None
     }
 
-    fn make_coordinate_from_item(&self, item: &DbItem) -> Option<(f64, f64)> {
+    fn make_coordinate_from_item(&self, item: &VsDbItem) -> Option<(f64, f64)> {
         if item.delay_arrival.is_none() || item.delay_departure.is_none() {
             return None;
         }

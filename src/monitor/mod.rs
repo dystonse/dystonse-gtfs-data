@@ -4,7 +4,7 @@ mod time_curve;
 use crate::{FnResult, Main, date_and_time_local, OrError};
 use chrono::{Date, DateTime, Local, Duration, Timelike};
 use clap::{App, ArgMatches};
-use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics};
+use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics, VehicleIdentifier};
 use crate::FileCache;
 use std::sync::Arc;
 use gtfs_structures::{Gtfs, RouteType, Trip, StopTime};
@@ -1400,8 +1400,8 @@ fn get_predictions_for_trip(
             "source" => source,
             "event_type" => event_type.to_int(),
             "trip_id" => vehicle_id.trip_id.clone(),
-            "trip_start_date" => vehicle_id.start_date.naive_local(),
-            "trip_start_time" => vehicle_id.start_time,
+            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_time" => vehicle_id.start.duration(),
             "start_sequence" => start_sequence,
         },
     )?;

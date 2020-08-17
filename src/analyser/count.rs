@@ -2,6 +2,8 @@ use mysql::*;
 use mysql::prelude::*;
 use parse_duration::parse;
 use simple_error::SimpleError;
+use chrono::Local;
+use chrono::offset::TimeZone;
 
 use super::Analyser;
 
@@ -19,9 +21,11 @@ pub fn run_count(analyser: &Analyser) -> FnResult<()> {
     }
 
     let mut con = analyser.main.pool.get_conn()?;
-    let (start, end): (mysql::chrono::NaiveDateTime, mysql::chrono::NaiveDateTime) = con
+    let (start_naive, end_naive): (mysql::chrono::NaiveDateTime, mysql::chrono::NaiveDateTime) = con
         .exec_first("SELECT MIN(time_of_recording), MAX(time_of_recording) FROM records WHERE `source` = ?", (&analyser.main.source,))?
         .unwrap();
+        let start = Local.from_local_datetime(&start_naive).unwrap();
+        let end = Local.from_local_datetime(&end_naive).unwrap();
 
     let std_date = parse(
         analyser.args
@@ -46,7 +50,7 @@ pub fn run_count(analyser: &Analyser) -> FnResult<()> {
                 WHERE (`time_of_recording` BETWEEN ? AND ?) 
                 AND (delay_arrival BETWEEN - 36000 AND 36000) 
                 AND source = ?",
-                (time_min, time_max, &analyser.main.source),
+                (time_min.naive_local(), time_max.naive_local(), &analyser.main.source),
             )?
             .unwrap();
         let count: i32 = row.get(0).unwrap();

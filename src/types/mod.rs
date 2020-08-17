@@ -8,6 +8,7 @@ mod route_sections;
 mod route_variant_data;
 mod time_slots;
 mod curve_data;
+mod gtfs_time;
 
 pub use db_item::DbItem;
 pub use default_curves::DefaultCurves;
@@ -20,8 +21,7 @@ pub use route_sections::RouteSection;
 pub use route_variant_data::{RouteVariantData, CurveSetKey};
 pub use time_slots::TimeSlot;
 pub use curve_data::{CurveData, CurveSetData};
-
-use chrono::{NaiveDate, NaiveTime};
+pub use gtfs_time::GtfsDateTime;
 
 use serde::{Serialize, Deserialize};
 
@@ -48,6 +48,7 @@ impl OriginType {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_int(num: u8) -> Self {
         match num {
             1 => Self::Realtime,
@@ -97,11 +98,10 @@ impl PrecisionType {
     }
 }
 
-#[derive(Hash, PartialEq, Eq, Clone)]
+#[derive(Hash, PartialEq, Eq, Clone, Debug)]
 pub struct VehicleIdentifier {
     pub trip_id: String,
-    pub start_time: NaiveTime,
-    pub start_date: NaiveDate
+    pub start: GtfsDateTime,
 }
 
 

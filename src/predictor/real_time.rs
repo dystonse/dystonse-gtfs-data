@@ -1,4 +1,5 @@
-use chrono::{NaiveDateTime, NaiveTime};
+use chrono::{NaiveDateTime, NaiveTime, DateTime, Local};
+use chrono::offset::TimeZone;
 use gtfs_structures::Trip;
 use mysql::*;
 use mysql::prelude::*;
@@ -12,7 +13,7 @@ use crate::Main;
 pub struct RealtimeItem {
     pub stop_sequence: u32,
     pub stop_id: String,
-    pub time_of_recording: NaiveDateTime,
+    pub time_of_recording: DateTime<Local>,
     pub delay_departure: Option<i32>,
     }
     
@@ -21,7 +22,7 @@ pub struct RealtimeItem {
         Ok(RealtimeItem{
             stop_sequence: row.get::<u32, _>(0).unwrap(),
             stop_id: row.get::<String, _>(1).unwrap(),
-            time_of_recording: row.get::<NaiveDateTime, _>(2).unwrap(),
+            time_of_recording: Local.from_local_datetime(&row.get::<NaiveDateTime, _>(2).unwrap()).unwrap(),
             delay_departure: row.get_opt::<i32,_>(3).unwrap().ok(),
         })
     }

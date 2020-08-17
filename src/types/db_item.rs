@@ -1,16 +1,19 @@
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime};
+use chrono::{Date, Duration, Local, DateTime};
+use chrono::offset::TimeZone;
 use mysql::*;
 use mysql::prelude::*;
 use gtfs_structures::{Trip, Gtfs};
 use super::{EventType, EventPair, GetByEventType};
+use crate::date_and_time_local;
 
 pub struct DbItem {
     pub delay: EventPair<Option<i32>>,
     //pub delay_arrival: Option<i32>,
     //pub delay_departure: Option<i32>,
-    pub trip_start_date: Option<NaiveDate>,
-    pub trip_start_time: Option<NaiveTime>,
+    pub trip_start_date: Option<Date<Local>>,
+    pub trip_start_time: Option<Duration>,
     pub trip_id: String,
+    pub stop_sequence: u16,
     pub stop_id: String,
     pub route_variant: u64
 }
@@ -22,43 +25,40 @@ impl FromRow for DbItem {
                 arrival: row.get_opt::<i32,_>(0).unwrap().ok(),
                 departure: row.get_opt::<i32,_>(1).unwrap().ok(),
             },
-            trip_start_date: row.get_opt(2).unwrap().ok(),
+            trip_start_date: if let Some(naive_date) = row.get_opt(2).unwrap().ok() {
+                Some(Local.from_local_date(&naive_date).unwrap())
+            } else {
+                None
+            },
             trip_start_time: row.get_opt(3).unwrap().ok(),
             trip_id: row.get::<String, _>(4).unwrap(),
             stop_id: row.get::<String, _>(5).unwrap(),
-            route_variant: row.get::<u64, _>(6).unwrap(),
+            stop_sequence: row.get::<u16, _>(6).unwrap(),
+            route_variant: row.get::<u64, _>(7).unwrap(),
         })
     }
 }
 
 impl DbItem {
     // generates a NaiveDateTime from a DbItem, given a flag for arrival or departure 
-    pub fn get_datetime_from_trip(&self, trip: &Trip, et: EventType) -> Option<NaiveDateTime> {
+    pub fn get_datetime_from_trip(&self, trip: &Trip, et: EventType) -> Option<DateTime<Local>> {
 
         // find corresponding StopTime for dbItem
-        let st = trip.stop_times.iter()
-            .filter(|s| s.stop.id == self.stop_id).next();
+        let st = trip.stop_times.iter().filter(|st| st.stop_sequence == self.stop_sequence).next();
 
         if st.is_none() { return None; } // prevents panic before trying to unwrap
 
         // get arrival or departure time from StopTime:
-        let t = st.unwrap().get_time(et);
-        if t.is_none() { return None; } // prevents panic before trying to unwrap
-        let time = NaiveTime::from_num_seconds_from_midnight_opt(t.unwrap(), 0);
-        if time.is_none() { return None; } // prevents panic before trying to unwrap
+        let seconds = st.unwrap().get_time(et);
+        if seconds.is_none() { return None; } // prevents panic before trying to unwrap
         
-
         // get date from DbItem
-        let d : NaiveDate = self.trip_start_date.unwrap(); //should never panic because date is always set
-
-        // add date and time together
-        let dt : NaiveDateTime = d.and_time(time.unwrap());
-
-        return Some(dt);
+        let date: Date<Local> = self.trip_start_date.unwrap(); //should never panic because date is always set
+        return Some(date_and_time_local(&date, seconds.unwrap() as i32));
     }
 
     // generates a NaiveDateTime from a DbItem, given a flag for arrival or departure
-    pub fn get_datetime_from_schedule(&self, schedule: &Gtfs, et: EventType) -> Option<NaiveDateTime> {
+    pub fn get_datetime_from_schedule(&self, schedule: &Gtfs, et: EventType) -> Option<DateTime<Local>> {
         // find corresponding StopTime for dbItem
         let maybe_trip = schedule.get_trip(&self.trip_id);
         if maybe_trip.is_err() {

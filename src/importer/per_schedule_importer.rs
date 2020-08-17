@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike, Duration, Utc};
+use chrono::{Duration, Local, DateTime};
 use gtfs_rt::FeedMessage as GtfsRealtimeMessage;
 use gtfs_structures::{Gtfs, StopTime};
 use gtfs_structures::Trip as ScheduleTrip;
@@ -15,8 +15,8 @@ use super::batched_statements::BatchedStatements;
 use super::{Importer, VehicleIdentifier};
 use crate::types::PredictionResult;
 
-use crate::{FnResult, OrError, date_and_time};
-use crate::types::{EventType, GetByEventType, PredictionBasis, CurveData, OriginType};
+use crate::{FnResult, OrError, date_and_time_local};
+use crate::types::{EventType, GetByEventType, PredictionBasis, CurveData, OriginType, GtfsDateTime};
 use crate::predictor::Predictor;
 use dystonse_curves::Curve;
 
@@ -156,31 +156,14 @@ impl<'a> PerScheduleImporter<'a> {
         let realtime_trip = &trip_update.trip;
         let route_id = &realtime_trip.route_id.as_ref().or_error("Trip needs route_id")?;
         let trip_id = &realtime_trip.trip_id.as_ref().or_error("Trip needs id")?;
-
-        let start_date = NaiveDate::parse_from_str(&realtime_trip.start_date.as_ref()
-            .or_error("Trip without start date. Skipping.")?, "%Y%m%d")?;
-
-            
+        let realtime_trip_start = GtfsDateTime::from_trip_descriptor(realtime_trip)?;
+     
         let schedule_trip = self.gtfs_schedule.get_trip(&trip_id)
             .or_error(&format!("Did not find trip {} in schedule. Skipping.", trip_id))?;
-            
-        // If realtime data constains a start_time, use it. If not, use the first departure time from the schedule.
-        let realtime_schedule_start_time = match &realtime_trip.start_time {
-            Some(time_str) => NaiveTime::parse_from_str(&time_str, "%H:%M:%S")?,
-            None => NaiveTime::from_num_seconds_from_midnight(schedule_trip.stop_times[0].departure_time.unwrap(), 0)
-        }; 
-       
-        // let stu_count = trip_update.stop_time_update.len();
-        // if let Ok(route) = self.gtfs_schedule.get_route(&schedule_trip.route_id) {
-        //     println!("Trip update with {} s.t.u. for route {} to {:?}:", stu_count, route.short_name, schedule_trip.trip_headsign);
-        // } else {
-        //     println!("Trip update with {} s.t.u. for unknown route to {:?}:", stu_count, schedule_trip.trip_headsign);
-        // }
 
-        let schedule_start_time = schedule_trip.stop_times[0].departure_time.unwrap();
-        let time_difference =
-            realtime_schedule_start_time.num_seconds_from_midnight() as i32 - schedule_start_time as i32;
-        if time_difference != 0 {
+        let schedule_start_time = Duration::seconds(schedule_trip.stop_times[0].departure_time.unwrap() as i64);
+        let time_difference = realtime_trip_start.duration() - schedule_start_time;
+        if !time_difference.is_zero() {
             eprintln!("Trip {} has a difference of {} seconds between scheduled start times in schedule data and realtime data.", trip_id, time_difference);
         }
 
@@ -189,8 +172,7 @@ impl<'a> PerScheduleImporter<'a> {
             
             let res = self.process_stop_time_update(
                 stop_time_update,
-                start_date,
-                realtime_schedule_start_time,
+                &realtime_trip_start,
                 schedule_trip,
                 &trip_id,
                 &route_id,
@@ -214,19 +196,18 @@ impl<'a> PerScheduleImporter<'a> {
     fn process_stop_time_update(
         &self,
         stop_time_update: &gtfs_rt::trip_update::StopTimeUpdate,
-        start_date: NaiveDate,
-        start_time: NaiveTime,
+        start_gtfs_time: &GtfsDateTime,
         schedule_trip: &gtfs_structures::Trip,
         trip_id: &String,
         route_id: &String,
         time_of_recording: u64,
         prediction_done: &mut bool
     ) -> FnResult<()> {
+        let start_date_time = start_gtfs_time.date_time();
 
         // params into local variables
         let stop_id : String = stop_time_update.stop_id.as_ref().or_error("no stop_id")?.clone();
         let stop_sequence = stop_time_update.stop_sequence.or_error("no stop_sequence")?;
-        let start_date_time = start_date.and_time(start_time);
         let arrival = PerScheduleImporter::get_event_times(
             stop_time_update.arrival.as_ref(),
             start_date_time,
@@ -253,8 +234,8 @@ impl<'a> PerScheduleImporter<'a> {
                 "route_id" => &route_id,
                 "route_variant" => &schedule_trip.route_variant.as_ref().or_error("no route variant")?,
                 "trip_id" => &trip_id,
-                "trip_start_date" => start_date,
-                "trip_start_time" => start_time,
+                "trip_start_date" => start_gtfs_time.service_day().naive_local(),
+                "trip_start_time" => start_gtfs_time.duration(),
                 stop_sequence,
                 "stop_id" => &stop_id,
                 time_of_recording,
@@ -269,7 +250,7 @@ impl<'a> PerScheduleImporter<'a> {
         if self.perform_predict && !*prediction_done {
 
             // skip trips from too long ago:
-            if start_date_time < (Utc::now().naive_utc() - Duration::hours(12)) {
+            if start_date_time < (Local::now() - Duration::hours(12)) {
 
                 println!("Skip trip {} for predictions, because it happened more than 12 hours in the past.", trip_id);
                 *prediction_done = true; //because we can ignore this trip from now on
@@ -291,8 +272,7 @@ impl<'a> PerScheduleImporter<'a> {
                 };
                 let vehicle_id = VehicleIdentifier {
                     trip_id: trip_id.clone(),
-                    start_date: start_date,
-                    start_time: start_time
+                    start: start_gtfs_time.clone(),
                 };
 
                 { //block for mutex
@@ -354,7 +334,9 @@ impl<'a> PerScheduleImporter<'a> {
             &Some(actual_begin),
             scheduled_end.stop_sequence,
             event_type, 
-            NaiveDateTime::from_timestamp(scheduled_end.departure_time.unwrap() as i64, 0))?;
+            vehicle_id.start.date_time())?;
+        // TODO in the previous line, we used to compute a broken date time from the schedued_end
+        // now we use the start, which has a valid date, but behaviour might change anyway.
             
         let curve_data : CurveData = match arrival_prediction {
             PredictionResult::CurveData(curve_data) => curve_data,
@@ -363,19 +345,19 @@ impl<'a> PerScheduleImporter<'a> {
 
         let scheduled_event_time = event_type.get_time_from_stop_time(scheduled_end).unwrap();
 
-        let prediction_min = date_and_time(&vehicle_id.start_date, scheduled_event_time + curve_data.curve.min_x() as i32);
-        let prediction_max = date_and_time(&vehicle_id.start_date, scheduled_event_time + curve_data.curve.max_x() as i32);
+        let prediction_min = date_and_time_local(&vehicle_id.start.date(), scheduled_event_time + curve_data.curve.min_x() as i32);
+        let prediction_max = date_and_time_local(&vehicle_id.start.date(), scheduled_event_time + curve_data.curve.max_x() as i32);
         
         self.predictions_statements.as_ref().unwrap().add_parameter_set(Params::from(params! {
             "source" => self.importer.main.source.clone(),
             "event_type" => event_type.to_int(),
             "stop_id" => scheduled_end.stop.id.clone(),
-            prediction_min,
-            prediction_max,
+            "prediction_min" => prediction_min.naive_local(),
+            "prediction_max" => prediction_max.naive_local(),
             route_id,
             "trip_id" => vehicle_id.trip_id.clone(),
-            "trip_start_date" => vehicle_id.start_date,
-            "trip_start_time" => vehicle_id.start_time,
+            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_time" => vehicle_id.start.duration(),
             "stop_sequence" => scheduled_end.stop_sequence,
             "precision_type" => curve_data.precision_type.to_int(),
             "origin_type" => OriginType::Realtime.to_int(),
@@ -387,7 +369,7 @@ impl<'a> PerScheduleImporter<'a> {
 
     fn get_event_times(
         event: Option<&gtfs_rt::trip_update::StopTimeEvent>,
-        start_date_time: NaiveDateTime,
+        start_date_time: DateTime<Local>,
         event_type: EventType,
         schedule_trip: &ScheduleTrip,
         stop_sequence: u32,

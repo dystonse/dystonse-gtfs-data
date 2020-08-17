@@ -8,7 +8,7 @@ pub mod curves;
 #[cfg(feature = "visual-schedule")]
 mod visual_schedule;
 
-use chrono::NaiveDateTime;
+use chrono::{Local, DateTime};
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::Gtfs;
 use regex::Regex;
@@ -188,11 +188,11 @@ impl<'a> Analyser<'a> {
         }
     }
 
-    pub fn date_time_from_filename(filename: &str) -> FnResult<NaiveDateTime> {
+    pub fn date_time_from_filename(filename: &str) -> FnResult<DateTime<Local>> {
         lazy_static! {
             static ref FIND_DATE: Regex = Regex::new(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})").unwrap(); // can't fail because our hard-coded regex is known to be ok
         }
         let date_element_captures = FIND_DATE.captures(&filename).or_error("File name does not contain a valid date (does not match format YYYY-MM-DD): {}")?;
-        Ok(NaiveDateTime::from_str(&date_element_captures[1])?)
+        Ok(DateTime::<Local>::from_str(&date_element_captures[1])?)
     }
 }

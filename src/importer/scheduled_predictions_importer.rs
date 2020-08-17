@@ -1,4 +1,5 @@
-use chrono::{NaiveDateTime, NaiveDate, NaiveTime, Duration, Utc};
+use chrono::{NaiveDate, Duration, Local, DateTime};
+use chrono::offset::TimeZone;
 use gtfs_structures::{Gtfs, Trip};
 use std::sync::Arc;
 use mysql::*;
@@ -7,8 +8,8 @@ use mysql::prelude::*;
 use super::{Importer, VehicleIdentifier};
 use super::MAX_ESTIMATED_TRIP_DURATION;
 use super::batched_statements::BatchedStatements;
-use crate::{FnResult, date_and_time};
-use crate::types::{OriginType, EventType, PredictionResult};
+use crate::{FnResult, date_and_time_local};
+use crate::types::{OriginType, EventType, PredictionResult, GtfsDateTime};
 use crate::types::CurveData;
 use crate::predictor::Predictor;
 use dystonse_curves::Curve;
@@ -62,7 +63,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         { //block for mutex
             let mut until_option = self.importer.timeout_until.lock().unwrap();
             if let Some(until) = *until_option {
-                if Utc::now().naive_utc() < until {
+                if Local::now() < until {
                     println!("Skipping scheduled prediction because of timeout until {}.", until);
                     return Ok(());
                 } else {
@@ -82,12 +83,12 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         // this is the absolute time limit. Predictions shall never be made for
         // trips which start after this time.
-        let time_limit = Utc::now().naive_utc() + *PREDICTION_BUFFER_SIZE;
+        let time_limit = Local::now() + *PREDICTION_BUFFER_SIZE;
 
         let mut end = if begin >= (time_limit - *PREDICTION_MIN_BATCH_DURATION) {
             { //block for mutex
                 let mut until_option = self.importer.timeout_until.lock().unwrap();
-                *until_option = Some(Utc::now().naive_utc() + *PREDICTION_FULL_TIMEOUT);
+                *until_option = Some(Local::now() + *PREDICTION_FULL_TIMEOUT);
             }
             println!("Prediction buffer will be full after this iteration, setting timeout.");
             time_limit
@@ -109,26 +110,28 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         let mut current_day = end.date();
         let mut previous_day = end.date() - Duration::days(1);
 
-        let mut current_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(current_day)?;
-        let mut previous_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(previous_day)?;
+        let mut current_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(current_day.naive_local())?;
+        let mut previous_day_trips : Vec<&Trip> = self.gtfs_schedule.trips_for_date(previous_day.naive_local())?;
 
         // collect trips for which we want to make predictions during this batach in this vec:
-        let mut trip_selection : Vec<(NaiveDateTime, &Trip)> = Vec::new();
+        let mut trip_selection : Vec<(GtfsDateTime, &Trip)> = Vec::new();
 
         loop {
             for trip in &current_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
-                    let absolute_start_time = date_and_time(&current_day, start_time as i32);
+                    let start_time = GtfsDateTime::new(current_day, start_time as i32);
+                    let absolute_start_time = start_time.date_time();
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push((absolute_start_time, trip));
+                        trip_selection.push((start_time, trip));
                     }
                 }
             };
             for trip in &previous_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
-                    let absolute_start_time = date_and_time(&previous_day, start_time as i32);
+                    let start_time = GtfsDateTime::new(previous_day, start_time as i32);
+                    let absolute_start_time = start_time.date_time();
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push((absolute_start_time, trip));
+                        trip_selection.push((start_time, trip));
                     }
                 }
             };
@@ -142,7 +145,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                     println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), initial_begin, end);
                 }
                 begin = end;
-                end += *PREDICTION_MIN_BATCH_DURATION;
+                end = end + *PREDICTION_MIN_BATCH_DURATION;
 
                 if begin > time_limit {
                     // in this case, stop extending the range, no matter how few trips will be added.
@@ -155,7 +158,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                     current_day = end.date();
                     previous_day = end.date() - Duration::days(1);
                     previous_day_trips = current_day_trips; // we can reuse the selected trips, as the old today is the new yesterday
-                    current_day_trips = self.gtfs_schedule.trips_for_date(current_day)?;
+                    current_day_trips = self.gtfs_schedule.trips_for_date(current_day.naive_local())?;
                 }
             } else {
                 break;
@@ -174,12 +177,12 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         }
 
         // make predictions for all stops of those trips
-        for (absolute_start_time, trip) in trip_selection {
+        for (start_time, trip) in trip_selection {
             let route_id = &trip.route_id;
             let vehicle_id = VehicleIdentifier {
                 trip_id: trip.id.clone(), 
-                start_date: absolute_start_time.date(), 
-                start_time: absolute_start_time.time() };
+                start: start_time,
+            };
             for st in &trip.stop_times {
                 for et in &EventType::TYPES {
                     if let Some(scheduled_time) = et.get_time_from_stop_time(&st) {
@@ -228,19 +231,19 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         route_id: String
     ) -> FnResult<()> {
 
-        let prediction_min = date_and_time(&vehicle_id.start_date, scheduled_time + curve_data.curve.min_x() as i32);
-        let prediction_max = date_and_time(&vehicle_id.start_date, scheduled_time + curve_data.curve.max_x() as i32);
+        let prediction_min = date_and_time_local(&vehicle_id.start.service_day(), scheduled_time + curve_data.curve.min_x() as i32);
+        let prediction_max = date_and_time_local(&vehicle_id.start.service_day(), scheduled_time + curve_data.curve.max_x() as i32);
         
         self.predictions_statements.as_ref().unwrap().add_parameter_set(Params::from(params! {
             "source" => self.importer.main.source.clone(),
             "event_type" => et.to_int(),
             "stop_id" => stop_id.clone(),
-            prediction_min,
-            prediction_max,
+            "prediction_min" => prediction_min.naive_local(),
+            "prediction_max" => prediction_max.naive_local(),
             route_id,
             "trip_id" => vehicle_id.trip_id.clone(),
-            "trip_start_date" => vehicle_id.start_date,
-            "trip_start_time" => vehicle_id.start_time,
+            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_time" => vehicle_id.start.duration(),
             stop_sequence,
             "precision_type" => curve_data.precision_type.to_int(),
             "origin_type" => OriginType::Schedule.to_int(),
@@ -252,7 +255,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
     }
 
     // this helps us find the point from where we want to start/continue making predictions
-    fn get_latest_prediction_time_from_database(&self) -> FnResult<NaiveDateTime> {
+    fn get_latest_prediction_time_from_database(&self) -> FnResult<DateTime<Local>> {
 
         let mut conn = self.importer.main.pool.get_conn()?;
         
@@ -261,16 +264,16 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             ORDER BY `trip_start_date` DESC, `trip_start_time` DESC 
             LIMIT 1,1;").expect("Could not prepare select statement");
  
-        let query_result : Option<(NaiveDate, NaiveTime)> = conn.exec_first(select_statement, 
+        let query_result : Option<(NaiveDate, Duration)> = conn.exec_first(select_statement, 
             params!{"source" => self.importer.main.source.clone(), "origin_type" => OriginType::Schedule.to_int()})?; 
             //actual errors will be thrown here if they occur
-        if let Some((date, time)) = query_result {
-            return Ok(date.and_time(time));
+        if let Some((date, duration)) = query_result {
+            return Ok(date_and_time_local(&Local.from_local_date(&date).unwrap(), duration.num_seconds() as i32));
         } else {
             // if there aren't any scheduled predictions in the database yet 
             // (this is not an error and can happen when we start),
             // we will probably want to start predicting for trips from the near past:
-            return Ok(Utc::now().naive_utc() - *MAX_ESTIMATED_TRIP_DURATION);
+            return Ok(Local::now() - *MAX_ESTIMATED_TRIP_DURATION);
         }
     }
 

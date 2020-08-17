@@ -11,7 +11,7 @@ use std::{thread, time};
 use ureq::get;
 use mysql::*;
 use mysql::prelude::*;
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Local, Duration, DateTime, Utc};
+use chrono::{Local, Duration, DateTime, Timelike};
 use std::sync::Mutex;
 use std::collections::HashMap;
 
@@ -38,7 +38,7 @@ pub struct Importer<'a>  {
     perform_cleanup: bool,
     last_ping_time_mutex: Mutex<Option<DateTime<Local>>>,
     current_prediction_basis: Mutex<HashMap<VehicleIdentifier, PredictionBasis>>, //used in per_schedule_importer, but declared here for persistence
-    timeout_until: Mutex<Option<NaiveDateTime>>, //used in scheduled_predictions_importer, but declared here for persistence
+    timeout_until: Mutex<Option<DateTime<Local>>>, //used in scheduled_predictions_importer, but declared here for persistence
 }
 
 
@@ -170,9 +170,9 @@ impl<'a> Importer<'a>  {
 
     /// Handle cleanup command
     fn run_cleanup(&self) -> FnResult<()> {
-        let min = Utc::now().naive_utc() - *MAX_ESTIMATED_TRIP_DURATION;
+        let min = Local::now() - *MAX_ESTIMATED_TRIP_DURATION;
         let min_start_date = min.date();
-        let min_start_time = min.time();
+        let min_start_time = Duration::seconds(min.time().num_seconds_from_midnight() as i64);
         if self.verbose {
             println!("Deleting all predictions with trip start before {}.", min);
         }
@@ -190,7 +190,7 @@ impl<'a> Importer<'a>  {
         )?;
         con.exec_drop(statement, params!{
             "source" => self.main.source.clone(),
-            "min_start_date" => min_start_date,
+            "min_start_date" => min_start_date.naive_local(),
             "min_start_time" => min_start_time,
         })?;
         // TODO handle deadlock error here, like we already do in BatchedStatements.
@@ -203,9 +203,7 @@ impl<'a> Importer<'a>  {
             let mut cpr = self.current_prediction_basis.lock().unwrap();
             let mut to_remove : Vec<VehicleIdentifier> = Vec::new();
             for key in cpr.keys() {
-                if(key.start_date < min_start_date) 
-                    ||  (key.start_date == min_start_date && key.start_time < min_start_time) 
-                {
+                if key.start.date_time() < min {
                     to_remove.push(key.clone());
                 }
             }

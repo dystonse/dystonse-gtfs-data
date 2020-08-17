@@ -1,6 +1,7 @@
 use crate::types::{EventType, TimeSlot, RouteSection, PredictionResult, DelayStatistics};
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Local, NaiveDateTime};
+use chrono::offset::TimeZone;
 use clap::{App, Arg, ArgMatches};
 use gtfs_structures::{Gtfs, Trip};
 use std::str::FromStr;
@@ -127,7 +128,7 @@ impl<'a> Predictor<'a> {
             "departure" => EventType::Departure,
             _ => {panic!("Invalid event type argument!");}
         };
-        let date_time = NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?;
+        let date_time = Local.from_local_datetime(&NaiveDateTime::parse_from_str(args.value_of("date-time").unwrap(), "%Y-%m-%dT%H:%M:%S")?).unwrap();
 
         let trip = self.schedule.get_trip(trip_id)?;
 
@@ -179,7 +180,7 @@ impl<'a> Predictor<'a> {
             start: &Option<PredictionBasis>, 
             stop_sequence: u16,
             et: EventType, 
-            date_time: NaiveDateTime) -> FnResult<PredictionResult> {
+            date_time: DateTime<Local>) -> FnResult<PredictionResult> {
 
         // parse lookup parameters from input
         let ts = TimeSlot::from_datetime(date_time);

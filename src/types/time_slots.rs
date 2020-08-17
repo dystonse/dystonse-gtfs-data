@@ -1,4 +1,4 @@
-use chrono::{Weekday, NaiveDateTime, Datelike, Timelike};
+use chrono::{Weekday, Datelike, Timelike, DateTime, Local};
 use serde::{Serialize, Deserialize};
 use gtfs_structures::Trip;
 use crate::types::{
@@ -153,7 +153,7 @@ impl TimeSlot {
 
 
     /// find the matching TimeSlot for a given DateTime
-    pub fn from_datetime(dt: NaiveDateTime) -> &'static TimeSlot {
+    pub fn from_datetime(dt: DateTime<Local>) -> &'static TimeSlot {
         
         for ts in &Self::TIME_SLOTS {
             if ts.matches(dt) {
@@ -165,7 +165,7 @@ impl TimeSlot {
     }
 
     /// check if a given DateTime fits inside the TimeSlot
-    pub fn matches(&self, dt: NaiveDateTime) -> bool {
+    pub fn matches(&self, dt: DateTime<Local>) -> bool {
         
         let mut day = false;
         let mut hour = false;

@@ -308,6 +308,7 @@ impl<'a> DefaultCurveCreator<'a> {
                 trip_start_time,
                 trip_id,
                 stop_id,
+                stop_sequence,
                 route_variant
             FROM 
                 records 

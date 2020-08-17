@@ -16,6 +16,7 @@ use retry::delay::Fibonacci;
 use retry::retry;
 use simple_error::{SimpleError, bail};
 use chrono::{NaiveDate, NaiveTime, NaiveDateTime, Duration, Date, DateTime, Local};
+use chrono::offset::TimeZone;
 use regex::Regex;
 use std::fs;
 use std::fs::File;
@@ -95,7 +96,7 @@ pub fn read_dir_simple(path: &str) -> FnResult<Vec<String>> {
     Ok(path_list)
 }
 
-pub fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
+pub fn date_from_filename(filename: &str) -> FnResult<Date<Local>> {
     lazy_static! {
         static ref FIND_DATE: Regex = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap(); // can't fail because our hard-coded regex is known to be ok
     }
@@ -106,12 +107,15 @@ pub fn date_from_filename(filename: &str) -> FnResult<NaiveDate> {
             "File name does not contain a valid date (does not match format YYYY-MM-DD): {}",
             filename
         ))?;
-    let date_option = NaiveDate::from_ymd_opt(
+    let naive_date_option = NaiveDate::from_ymd_opt(
         date_element_captures[1].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
         date_element_captures[2].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
         date_element_captures[3].parse().unwrap(), // can't fail because input string is known to be a bunch of decimal digits
     );
-    Ok (date_option.ok_or(SimpleError::new(format!("File name does not contain a valid date (format looks ok, but values are out of bounds): {}", filename)))?)
+    let naive_date = naive_date_option.ok_or(SimpleError::new(format!("File name does not contain a valid date (format looks ok, but values are out of bounds): {}", filename)))?;
+    let date = Local.from_local_date(&naive_date).unwrap(); 
+    
+    Ok (date)
 }
 
 fn parse_args() -> ArgMatches {

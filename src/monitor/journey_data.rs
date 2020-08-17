@@ -1,7 +1,8 @@
 use chrono::{Date, DateTime, Local, Duration, NaiveTime};
 use chrono::offset::TimeZone;
 use simple_error::bail;
-use crate::{FnResult, OrError, date_and_time_local, types::EventType};
+use crate::{FnResult, OrError, date_and_time_local};
+use crate::types::{EventType, VehicleIdentifier, GtfsDateTime};
 use gtfs_structures::{Gtfs, RouteType, Stop, Trip};
 use std::sync::Arc;
 use regex::Regex;
@@ -276,7 +277,7 @@ impl JourneyData {
                         vehicle_id = Some(trip_data.vehicle_id.clone());
                         
                         if let Ok(a_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, &trip_data.vehicle_id, EventType::Arrival){
-                            let scheduled_arrival = date_and_time_local(&trip_data.vehicle_id.start_date, stop_time.arrival_time.unwrap() as i32);
+                            let scheduled_arrival = date_and_time_local(&trip_data.vehicle_id.start.date(), stop_time.arrival_time.unwrap() as i32);
                             start_curve = TimeCurve::new(a_curve, scheduled_arrival);
                             start_prob = prev.get_prob();
                         } else {
@@ -406,20 +407,18 @@ impl JourneyData {
                     if let Some(scheduled_departure) = stop_time.departure_time {
                         for d in &filtered_trip_days {
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
-                            let scheduled_datetime = date_and_time_local(&start_departure.date(), scheduled_departure as i32) + Duration::days(**d as i64 - 1);
+                            // TODO I have no idea what this `- 1` is doing
+                            let scheduled_datetime = GtfsDateTime::new(start_departure.date() + Duration::days(**d as i64 - 1), scheduled_departure as i32);
                             // compare if this is the one we're looking for:
-                            if scheduled_datetime != start_departure {
+                            if scheduled_datetime.date_time() != start_departure {
                                 continue;
                             } else {
                                 // now we can finally gather the remaining info:
                                 let route_id = trip.route_id.clone();
                                 let start_id = Some(stop_time.stop.id.clone());
                                 let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
-                                let trip_start_time = Duration::seconds(trip.stop_times[0].departure_time.unwrap() as i64);
-                                let trip_start_date = start_departure.date() + Duration::days(**d as i64 - 1);
                                 let vehicle_id = VehicleIdentifier {
-                                    start_date: trip_start_date,
-                                    start_time: trip_start_time,
+                                    start: scheduled_datetime.clone(),
                                     trip_id: id.clone()
                                 };
 
@@ -430,7 +429,7 @@ impl JourneyData {
                                     &vehicle_id,
                                     EventType::Departure
                                 ) {
-                                    let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime);
+                                    let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime.date_time());
                                     let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve);
                                     (departure_curve, start_departure_prob)
                                 } else {
@@ -518,8 +517,8 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
             "event_type" => et.to_int(),
             "stop_id" => stop_id,
             "trip_id" => &vehicle_id.trip_id,
-            "trip_start_date" => vehicle_id.start_date.naive_local(),
-            "trip_start_time" => vehicle_id.start_time,
+            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_time" => vehicle_id.start.duration(),
         },
     )?;
 
@@ -575,11 +574,4 @@ pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {
     let mut curve = IrregularDynamicCurve::new(points);
     curve.simplify(0.01);
     return curve;
-}
-
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
-pub struct VehicleIdentifier {
-    pub trip_id: String,
-    pub start_time: Duration,
-    pub start_date: Date<Local>
 }
