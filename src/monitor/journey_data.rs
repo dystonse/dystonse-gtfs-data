@@ -14,7 +14,7 @@ use dystonse_curves::{IrregularDynamicCurve, Tup};
 use mysql::*;
 use mysql::prelude::*;
 
-use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
+use percent_encoding::{percent_decode_str, CONTROLS, AsciiSet};
 
 const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
 
@@ -262,28 +262,30 @@ impl JourneyData {
         //let mut arrival_time_min : Option<DateTime<Local>> = None;
         let mut start_prob: f32;
         let mut arrival_trip_stop_index : Option<usize> = None;
-        let mut vehicle_id : Option<VehicleIdentifier> = None;
         
         if let Some(prev) = &prev_component {
             if let JourneyComponent::Trip(trip_data) = prev {
                 if let Ok(trip) = self.monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id) {
-                    // TODO in the next line we find the stop_time at which we get off the vehicle,
+
+                    // in the next part we find the stop_time at which we get off the vehicle,
                     // and we must check that it's stop_sequence is higher than the stop_sequence on
-                    // which we get onto the vehicle earlyer.
-                    if let Some(stop_time) = &trip.stop_times.iter().filter(|st| st.stop.name == stop_name).next(){
-                        //set some of the arrival trip info:
-                        arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
-                        vehicle_id = Some(trip_data.vehicle_id.clone());
-                        
-                        if let Ok(a_curve) = get_curve_for(self.monitor.clone(), &stop_time.stop.id, &trip_data.vehicle_id, EventType::Arrival){
-                            let scheduled_arrival = date_and_time_local(&trip_data.vehicle_id.start_date, stop_time.arrival_time.unwrap() as i32);
-                            start_curve = TimeCurve::new(a_curve, scheduled_arrival);
-                            start_prob = prev.get_prob();
-                        } else {
-                            bail!("Could not get curve.");
-                        }
+                    // which we got onto the vehicle earlier 
+                    // (when we didn't do this, ring routes could travel back in time :D)
+
+                    let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
+
+                    let stop_time = trip.stop_times.iter().filter(|st| st.stop.name == stop_name)
+                    .filter(|st| st.stop_sequence > start_sequence).next().or_error("Could not get matching stop_time")?;
+
+                    //set some of the arrival trip info:
+                    arrival_trip_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)?);
+                    
+                    if let Ok(a_curve) = get_curve_for(self.monitor.clone(), stop_time.stop_sequence, &trip_data.vehicle_id, EventType::Arrival){
+                        let scheduled_arrival = date_and_time_local(&trip_data.vehicle_id.start_date, stop_time.arrival_time.unwrap() as i32);
+                        start_curve = TimeCurve::new(a_curve, scheduled_arrival);
+                        start_prob = prev.get_prob();
                     } else {
-                        bail!("Could not get matching stop_time.");
+                        bail!("Could not get curve.");
                     }
                 } else {
                     bail!("Could not get trip.");
@@ -426,7 +428,7 @@ impl JourneyData {
                                 // set curve and prob for departure at first stop:
                                 let (start_curve, start_prob) = if let Ok(s_d_curve) = get_curve_for(
                                     self.monitor.clone(), 
-                                    &stop_time.stop.id, 
+                                    stop_time.stop_sequence, 
                                     &vehicle_id,
                                     EventType::Departure
                                 ) {
@@ -473,16 +475,16 @@ impl JourneyData {
     }
 }
 
-pub fn get_curve_for(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
+pub fn get_curve_for(monitor: Arc<Monitor>, stop_sequence: u16, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<IrregularDynamicCurve<f32, f32>> {
 
-    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_id, vehicle_id, et) {
+    if let Ok(pred) = get_prediction_for_first_line(monitor, stop_sequence, vehicle_id, et) {
         return Ok(pred.prediction_curve.clone());
     };
     
-    bail!("no curve found for {:?} at stop {:?} in trip {:?}", et, stop_id, vehicle_id.trip_id);
+    bail!("no curve found for {:?} at stop {} in trip {:?}", et, stop_sequence, vehicle_id.trip_id);
 }
 
-pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<DbPrediction> {
+pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_sequence: u16, vehicle_id: &VehicleIdentifier, et: EventType) -> FnResult<DbPrediction> {
     
     let mut conn = monitor.pool.get_conn()?;
 
@@ -505,7 +507,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
         WHERE 
             `source`=:source AND 
             `event_type`=:event_type AND
-            `stop_id`=:stop_id AND
+            `stop_sequence`=:stop_sequence AND
             `trip_id`=:trip_id AND
             `trip_start_date`=:trip_start_date AND
             `trip_start_time`=:trip_start_time",
@@ -516,7 +518,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
         params! {
             "source" => &monitor.source,
             "event_type" => et.to_int(),
-            "stop_id" => stop_id,
+            "stop_sequence" => stop_sequence,
             "trip_id" => &vehicle_id.trip_id,
             "trip_start_date" => vehicle_id.start_date.naive_local(),
             "trip_start_time" => vehicle_id.start_time,
@@ -536,7 +538,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_id: &String, ve
         return Ok(pred.clone());
     };
     
-    bail!("no prediction found for {:?} at stop {:?} in trip {:?}", et, stop_id, vehicle_id.trip_id);
+    bail!("no prediction found for {:?} at stop {} in trip {:?}", et, stop_sequence, vehicle_id.trip_id);
 }
 
 pub fn get_walk_time(distance_meters: f32) -> IrregularDynamicCurve<f32, f32> {

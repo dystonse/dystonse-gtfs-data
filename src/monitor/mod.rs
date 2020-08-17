@@ -263,9 +263,10 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
 
     //first line: arrival at this stop
     if let Some(arrival_trip) = stop_data.get_previous_trip_data() {
-        let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
+        //let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
+        let arrival_stop_sequence = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop_sequence;
 
-        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), &arrival_stop_id, &arrival_trip.vehicle_id, EventType::Arrival) {
+        if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), arrival_stop_sequence, &arrival_trip.vehicle_id, EventType::Arrival) {
             trip_arrival_option = Some(arrival);
         }
     }
@@ -502,10 +503,10 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
-    let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
+    //let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
 
     // departure from first stop: this is where the user changes into this trip
-    let mut departure = get_prediction_for_first_line(monitor.clone(), start_id, &trip_data.vehicle_id, EventType::Departure)?;
+    let mut departure = get_prediction_for_first_line(monitor.clone(), start_sequence, &trip_data.vehicle_id, EventType::Departure)?;
 
     let mut arrivals = get_predictions_for_trip(
         monitor,
