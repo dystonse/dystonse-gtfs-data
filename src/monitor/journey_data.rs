@@ -184,16 +184,16 @@ impl JourneyData {
         let mut expect_stop = true;
 
         for string in journey_iter {
-            let decoced_string = &utf8_percent_encode(&string, PATH_ELEMENT_ESCAPE).to_string();
+            //let decoded_string = &utf8_percent_encode(&string, PATH_ELEMENT_ESCAPE).to_string();
             let component = if expect_stop {
                 expect_stop = false;
-                self.parse_stop_data(decoced_string, prev_component)?
+                self.parse_stop_data(string, prev_component)?
             } else {
                 expect_stop = true;
                 if string == "Fußweg" {
-                    self.parse_walk_data(decoced_string, prev_component.unwrap())?
+                    self.parse_walk_data(string, prev_component.unwrap())?
                 } else {
-                    self.parse_trip_data(decoced_string, prev_component.unwrap())?
+                    self.parse_trip_data(string, prev_component.unwrap())?
                 }
             };
             self.components.push(component.clone());
