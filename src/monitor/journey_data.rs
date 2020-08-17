@@ -431,7 +431,7 @@ impl JourneyData {
                                     EventType::Departure
                                 ) {
                                     let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime);
-                                    let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve);
+                                    let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve) * stop_data.start_prob;
                                     (departure_curve, start_departure_prob)
                                 } else {
                                     bail!("Could not get curves for trip.");
