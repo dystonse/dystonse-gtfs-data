@@ -605,7 +605,7 @@ fn write_walk_arrival_output(
     mut w: &mut Vec<u8>, 
     walk_data: &WalkData,
     stop_data: &StopData,
-    monitor: &Arc<Monitor>,
+    _monitor: &Arc<Monitor>,
     min_time: DateTime<Local>,
     max_time: DateTime<Local>,
 ) -> FnResult<()> {
@@ -962,6 +962,7 @@ fn format_duration(duration: Duration) -> String {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_transfer_probability(
     arrival_time: DateTime<Local>, 
     arrival_dist: &IrregularDynamicCurve<f32, f32>, 
@@ -1226,10 +1227,12 @@ impl DbPrediction {
         self.prediction_curve.x_at_y(prob) as i32
     }
 
+    #[allow(dead_code)]
     pub fn get_relative_time(&self, time: DateTime<Local>) -> FnResult<f32> {
         Ok(-self.meta_data.as_ref().or_error("Prediction has no meta_data")?.scheduled_time_absolute.signed_duration_since(time).num_seconds() as f32)
     }
 
+    #[allow(dead_code)]
     pub fn get_probability_for_relative_time(&self, relative_seconds: f32) -> f32 {
         self.prediction_curve.y_at_x(relative_seconds)
     }
