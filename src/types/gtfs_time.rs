@@ -41,7 +41,7 @@ impl GtfsDateTime {
 
         Ok(Self{
             service_day: start_date,
-            time: hours * 36000 + minutes * 60 + seconds,
+            time: hours * 3600 + minutes * 60 + seconds,
         })
     }
 
