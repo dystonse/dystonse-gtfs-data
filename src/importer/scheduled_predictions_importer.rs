@@ -142,7 +142,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             // a very small number, we extend the range to advance our predictions more quickly.
             if trip_selection.len() < *PREDICTION_MIN_BATCH_COUNT {
                 if self.verbose {
-                    println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), initial_begin, end);
+                    println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), begin, end);
                 }
                 begin = end;
                 end = end + *PREDICTION_MIN_BATCH_DURATION;
@@ -154,11 +154,14 @@ impl<'a> ScheduledPredictionsImporter<'a> {
                 }
 
                 // if the new range begins on another date - that is, we moved past midnight - we need to rebuild the trip collections
-                if end.date() != current_day {
+                if end.date() == current_day + Duration::days(1) {
                     current_day = end.date();
                     previous_day = end.date() - Duration::days(1);
                     previous_day_trips = current_day_trips; // we can reuse the selected trips, as the old today is the new yesterday
                     current_day_trips = self.gtfs_schedule.trips_for_date(current_day.naive_local())?;
+                }
+                if end.date() != current_day {
+                    println!("end.date() is {} and current_day is {}, which is an invalid state.", end.date(), current_day);
                 }
             } else {
                 break;
@@ -261,14 +264,14 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         
         let select_statement = conn.prep(r"SELECT `trip_start_date`,`trip_start_time` 
             FROM `predictions` WHERE `origin_type` = :origin_type AND `source` = :source
-            ORDER BY `trip_start_date` DESC, `trip_start_time` DESC 
+            ORDER BY trip_start_date + INTERVAL TIME_TO_SEC(trip_start_time) SECOND DESC 
             LIMIT 1,1;").expect("Could not prepare select statement");
  
         let query_result : Option<(NaiveDate, Duration)> = conn.exec_first(select_statement, 
             params!{"source" => self.importer.main.source.clone(), "origin_type" => OriginType::Schedule.to_int()})?; 
             //actual errors will be thrown here if they occur
         if let Some((date, duration)) = query_result {
-            return Ok(date_and_time_local(&Local.from_local_date(&date).unwrap(), duration.num_seconds() as i32));
+            return Ok(GtfsDateTime::new(Local.from_local_date(&date).unwrap(), duration.num_seconds() as i32).date_time());
         } else {
             // if there aren't any scheduled predictions in the database yet 
             // (this is not an error and can happen when we start),
