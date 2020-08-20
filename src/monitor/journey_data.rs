@@ -84,14 +84,14 @@ pub struct TripData {
     pub route_type: RouteType,
     pub route_name: String,
     pub trip_headsign: String,
-    pub start_departure: DateTime<Local>,
+    pub boarding_stop_departure: DateTime<Local>,
 
     pub start_curve: TimeCurve,
     pub start_prob: f32,
 
     pub route_id: String,
-    pub start_id: Option<String>,
-    pub start_index: Option<usize>,
+    pub boarding_stop_id: Option<String>,
+    pub boarding_stop_index: Option<usize>,
     pub vehicle_id: VehicleIdentifier,
 }
 
@@ -276,7 +276,7 @@ impl JourneyData {
                     // which we got onto the vehicle earlier 
                     // (when we didn't do this, ring routes could travel back in time :D)
 
-                    let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
+                    let start_sequence = trip.stop_times[trip_data.boarding_stop_index.unwrap()].stop_sequence;
 
                     let stop_time = trip.stop_times.iter().filter(|st| st.stop.name == stop_name)
                     .filter(|st| st.stop_sequence > start_sequence).next().or_error("Could not get matching stop_time")?;
@@ -364,16 +364,16 @@ impl JourneyData {
         let route_name: String = trip_element_captures[2].to_string();
         let trip_headsign: String = percent_decode_str(&trip_element_captures[3]).decode_utf8_lossy().to_string();
         let some_trip_headsign = Some(trip_headsign.clone());
-        let time: NaiveTime = NaiveTime::parse_from_str(&trip_element_captures[4], "%H:%M")?;
+        let boarding_stop_departure_time: NaiveTime = NaiveTime::parse_from_str(&trip_element_captures[4], "%H:%M")?;
         
         let journey_start_date: Date<Local> = self.start_date_time.date();
         // here we assume that we don't have journeys that span more than 24 hours:
         // TODO Duration::hours(-5) is just a wild guess at how long ago a trip might have been scheduled
         // and still be a trip in the near future.
-        let start_departure = if time - self.start_date_time.time() >= Duration::hours(-5) {
-            journey_start_date.and_time(time).unwrap()
+        let boarding_stop_departure = if boarding_stop_departure_time - self.start_date_time.time() >= Duration::hours(-5) {
+            journey_start_date.and_time(boarding_stop_departure_time).unwrap()
         } else {
-            journey_start_date.and_time(time).unwrap() + Duration::days(1)
+            journey_start_date.and_time(boarding_stop_departure_time).unwrap() + Duration::days(1)
         };
 
         // now we will need the schedule, and info about the stop from where we want to start...
@@ -415,17 +415,17 @@ impl JourneyData {
                 for stop_time in trip.stop_times.iter().filter(|st| stop_data.extended_stop_names.contains(&st.stop.name)) {
                     if let Some(scheduled_boarding_departure_time) = stop_time.departure_time {
                         for d in &filtered_trip_days {
-                            let service_date = start_departure.date() + Duration::days(**d as i64 - 1);
+                            let service_date = journey_start_date + Duration::days(**d as i64 - 1);
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
                             let scheduled_boarding_departure_datetime = GtfsDateTime::new(service_date, scheduled_boarding_departure_time as i32);
                             // compare if this is the one we're looking for:
-                            if scheduled_boarding_departure_datetime.date_time() != start_departure {
+                            if scheduled_boarding_departure_datetime.date_time() != boarding_stop_departure {
                                 continue;
                             } else {
                                 // now we can finally gather the remaining info:
                                 let route_id = trip.route_id.clone();
-                                let start_id = Some(stop_time.stop.id.clone());
-                                let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
+                                let boarding_stop_id = Some(stop_time.stop.id.clone());
+                                let boarding_stop_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
                                 let scheduled_trip_departure_datetime = GtfsDateTime::new(service_date, trip.stop_times[0].departure_time.unwrap() as i32);
                             
                                 let vehicle_id = VehicleIdentifier {
@@ -454,11 +454,11 @@ impl JourneyData {
                                     route_type,
                                     route_name,
                                     trip_headsign,
-                                    start_departure,
+                                    boarding_stop_departure,
                                     vehicle_id,
                                     route_id,
-                                    start_id,
-                                    start_index,
+                                    boarding_stop_id,
+                                    boarding_stop_index,
                                     start_curve,
                                     start_prob,
                                 };

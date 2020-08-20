@@ -502,7 +502,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     let trip = monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
-    let start_sequence = trip.stop_times[trip_data.start_index.unwrap()].stop_sequence;
+    let start_sequence = trip.stop_times[trip_data.boarding_stop_index.unwrap()].stop_sequence;
     //let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
 
     // departure from first stop: this is where the user changes into this trip
@@ -578,10 +578,10 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
-        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? == trip_data.start_index.unwrap() {
+        if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? == trip_data.boarding_stop_index.unwrap() {
             write_stop_time_output(&mut w, &stop_time, Some(&departure), min_time, max_time, EventType::Departure, Some(trip_data.start_prob))?;
 
-        } else if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? > trip_data.start_index.unwrap() {
+        } else if trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence)? > trip_data.boarding_stop_index.unwrap() {
             //arrivals at later stops:
             let arrival = arrivals.iter().filter(|a| a.stop_sequence == stop_time.stop_sequence as usize).next();
             write_stop_time_output(&mut w, &stop_time, arrival, min_time, max_time, EventType::Arrival, None)?;
