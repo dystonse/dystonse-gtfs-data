@@ -364,14 +364,14 @@ impl JourneyData {
         let some_trip_headsign = Some(trip_headsign.clone());
         let time: NaiveTime = NaiveTime::parse_from_str(&trip_element_captures[4], "%H:%M")?;
         
-        let start_departure_date: Date<Local> = self.start_date_time.date();
+        let journey_start_date: Date<Local> = self.start_date_time.date();
         // here we assume that we don't have journeys that span more than 24 hours:
         // TODO Duration::hours(-5) is just a wild guess at how long ago a trip might have been scheduled
         // and still be a trip in the near future.
         let start_departure = if time - self.start_date_time.time() >= Duration::hours(-5) {
-            start_departure_date.and_time(time).unwrap()
+            journey_start_date.and_time(time).unwrap()
         } else {
-            start_departure_date.and_time(time).unwrap() + Duration::days(1)
+            journey_start_date.and_time(time).unwrap() + Duration::days(1)
         };
 
         // now we will need the schedule, and info about the stop from where we want to start...
@@ -400,28 +400,34 @@ impl JourneyData {
             }
 
             // then, filter trips by date (we only want trips that are scheduled to the start_departure_date or the previous or next day)
-            let trip_days : Vec<u16> = self.monitor.schedule.trip_days(&trip.service_id, (start_departure_date - Duration::days(1)).naive_local());
+            let trip_days : Vec<u16> = self.monitor.schedule.trip_days(&trip.service_id, (journey_start_date - Duration::days(1)).naive_local());
             let filtered_trip_days : Vec<_> = trip_days.iter().filter(|d| **d <= 2).collect();
+            // after this filter, only a subset of these values can be in filtered_trip_days:
+            // 0 day before start_departure_date
+            // 1 day of start_departure_date
+            // 2 day after start_departure_date
             if  filtered_trip_days.is_empty() {
                 continue;
             } else {
                 // only use trips that include the stop we want to start from:
                 for stop_time in trip.stop_times.iter().filter(|st| stop_data.extended_stop_names.contains(&st.stop.name)) {
-                    if let Some(scheduled_departure) = stop_time.departure_time {
+                    if let Some(scheduled_boarding_departure_time) = stop_time.departure_time {
                         for d in &filtered_trip_days {
+                            let service_date = start_departure.date() + Duration::days(**d as i64 - 1);
                             // find out for what time this trip is scheduled to depart from the stop we're looking at:
-                            // TODO I have no idea what this `- 1` is doing
-                            let scheduled_datetime = GtfsDateTime::new(start_departure.date() + Duration::days(**d as i64 - 1), scheduled_departure as i32);
+                            let scheduled_boarding_departure_datetime = GtfsDateTime::new(service_date, scheduled_boarding_departure_time as i32);
                             // compare if this is the one we're looking for:
-                            if scheduled_datetime.date_time() != start_departure {
+                            if scheduled_boarding_departure_datetime.date_time() != start_departure {
                                 continue;
                             } else {
                                 // now we can finally gather the remaining info:
                                 let route_id = trip.route_id.clone();
                                 let start_id = Some(stop_time.stop.id.clone());
                                 let start_index = Some(trip.get_stop_index_by_stop_sequence(stop_time.stop_sequence).unwrap());
+                                let scheduled_trip_departure_datetime = GtfsDateTime::new(service_date, trip.stop_times[0].departure_time.unwrap() as i32);
+                            
                                 let vehicle_id = VehicleIdentifier {
-                                    start: scheduled_datetime.clone(),
+                                    start: scheduled_trip_departure_datetime,
                                     trip_id: id.clone()
                                 };
 
@@ -432,11 +438,11 @@ impl JourneyData {
                                     &vehicle_id,
                                     EventType::Departure
                                 ) {
-                                    let departure_curve = TimeCurve::new(s_d_curve, scheduled_datetime.date_time());
+                                    let departure_curve = TimeCurve::new(s_d_curve, scheduled_boarding_departure_datetime.date_time());
                                     let start_departure_prob = stop_data.start_curve.get_transfer_probability(&departure_curve) * stop_data.start_prob;
                                     (departure_curve, start_departure_prob)
                                 } else {
-                                    bail!("Could not get curves for trip.");
+                                    bail!("Could not get curve for trip.");
                                 };
 
                                 // now we can finally make our struct from all the gathered info :)
