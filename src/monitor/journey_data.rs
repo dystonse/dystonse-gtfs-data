@@ -15,7 +15,7 @@ use dystonse_curves::{IrregularDynamicCurve, Tup};
 use mysql::*;
 use mysql::prelude::*;
 
-use percent_encoding::{percent_decode_str, CONTROLS, AsciiSet};
+use percent_encoding::{percent_decode_str, utf8_percent_encode, CONTROLS, AsciiSet};
 
 const PATH_ELEMENT_ESCAPE: &AsciiSet = &CONTROLS.add(b'/').add(b'?').add(b'"').add(b'`');
 
@@ -96,6 +96,7 @@ pub struct TripData {
 }
 
 impl TripData {
+    #[allow(dead_code)]
     pub fn get_previous_stop_data(&self) -> Option<Arc<StopData>> {
         if let JourneyComponent::Stop(stop_data) = &self.prev_component {
             Some(stop_data.clone())
@@ -143,6 +144,7 @@ impl JourneyComponent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_prev(&self) -> Option<JourneyComponent> {
         match self {
             JourneyComponent::Stop(stop_data) => stop_data.prev_component.clone(),
@@ -185,16 +187,16 @@ impl JourneyData {
         let mut expect_stop = true;
 
         for string in journey_iter {
-            //let decoded_string = &utf8_percent_encode(&string, PATH_ELEMENT_ESCAPE).to_string();
+            let decoded_string = &utf8_percent_encode(&string, PATH_ELEMENT_ESCAPE).to_string();
             let component = if expect_stop {
                 expect_stop = false;
-                self.parse_stop_data(string, prev_component)?
+                self.parse_stop_data(decoded_string, prev_component)?
             } else {
                 expect_stop = true;
                 if string == "Fußweg" {
-                    self.parse_walk_data(string, prev_component.unwrap())?
+                    self.parse_walk_data(decoded_string, prev_component.unwrap())?
                 } else {
-                    self.parse_trip_data(string, prev_component.unwrap())?
+                    self.parse_trip_data(decoded_string, prev_component.unwrap())?
                 }
             };
             self.components.push(component.clone());
@@ -203,7 +205,7 @@ impl JourneyData {
         Ok(())
     }
 
-    pub fn parse_walk_data(&self, walk_string: &str, prev_component: JourneyComponent) -> FnResult<JourneyComponent> {
+    pub fn parse_walk_data(&self, _walk_string: &str, prev_component: JourneyComponent) -> FnResult<JourneyComponent> {
         Ok(JourneyComponent::Walk(Arc::new(WalkData{
             prev_component: prev_component.clone(),
             url: format!("{}{}/", prev_component.get_url(), "Fußweg"),
@@ -259,9 +261,9 @@ impl JourneyData {
         }
 
         // create info for previous trip/arrival:
-        let mut start_curve: TimeCurve;
+        let start_curve: TimeCurve;
         //let mut arrival_time_min : Option<DateTime<Local>> = None;
-        let mut start_prob: f32;
+        let start_prob: f32;
         let mut arrival_trip_stop_index : Option<usize> = None;
         
         if let Some(prev) = &prev_component {
