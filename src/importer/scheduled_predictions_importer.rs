@@ -142,7 +142,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             // a very small number, we extend the range to advance our predictions more quickly.
             if trip_selection.len() < *PREDICTION_MIN_BATCH_COUNT {
                 if self.verbose {
-                    println!("Only {} trips starting between {} and {}, extending range…", trip_selection.len(), begin, end);
+                    println!("Only {} trips found in total after adding trips between {} and {}, extending range…", trip_selection.len(), begin, end);
                 }
                 begin = end;
                 end = end + *PREDICTION_MIN_BATCH_DURATION;

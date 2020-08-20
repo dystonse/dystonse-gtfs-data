@@ -283,7 +283,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         }
     }
 
-    // Remove the top and bottom 1% of the predicted time span. 
+    // Remove the top and bottom 5% of the predicted time span. 
     // They mostly contain outliers with several hours of (sometimes negative) delay.
     departures.retain(|dep| {
         if dep.meta_data.is_some() {
@@ -325,7 +325,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         if let Ok(trip) = &monitor.schedule.get_trip(&dep.trip_id) {
             if let Some(stop_time) = &trip.stop_times.last() {
                 let last_stop_id = &stop_time.stop.id;
-                return dep.stop_id == *last_stop_id
+                return dep.stop_id == *last_stop_id && dep.stop_sequence == stop_time.stop_sequence as usize;
             }
         }
         false
