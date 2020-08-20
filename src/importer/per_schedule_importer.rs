@@ -182,9 +182,6 @@ impl<'a> PerScheduleImporter<'a> {
             if let Err(e) = res {
                 println!("Error with stop_time_update: {}", e);
             }
-            if prediction_done {
-                break;
-            }
         }
         if self.perform_predict && !prediction_done {
             println!("At the end, still no prediction.");
