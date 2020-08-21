@@ -16,6 +16,7 @@ use std::net::SocketAddr;
 use hyper::{Body, Request, Response, Server, StatusCode};
 use hyper::header::{HeaderValue};
 use hyper::service::{make_service_fn, service_fn};
+use hyper_staticfile::Static;
 use itertools::Itertools;
 use simple_error::bail;
 
@@ -47,7 +48,8 @@ pub struct Monitor {
     pub schedule: Arc<Gtfs>,
     pub pool: Arc<Pool>,
     pub source: String,
-    pub stats: Arc<DelayStatistics>
+    pub stats: Arc<DelayStatistics>,
+    pub static_server: Static,
 }
 
 impl Monitor {
@@ -64,6 +66,7 @@ impl Monitor {
             pool: main.pool.clone(),
             source: main.source.clone(),
             stats,
+            static_server: Static::new("web-assets/"),
         };
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
@@ -108,15 +111,13 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
 }
 
 async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
-    let mut response = Response::new(Body::empty());
-
     let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).filter(|p| !p.is_empty()).collect();
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
     println!("path_parts_str: {:?}", path_parts_str);
-    let res = match &path_parts_str[..] {
-        [] => generate_search_page(&mut response, &monitor, false),
-        ["grad.png"] | ["fonts", _] => generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported."),
-        ["embed"] => generate_search_page(&mut response, &monitor, true),
+    let result: FnResult<Response<Body>> = match &path_parts_str[..] {
+        [] => generate_search_page(&monitor, false),
+        ["fonts", _] | ["favicons", _] | ["favicon.ico"] => serve_static_file(&monitor, req).await,
+        ["embed"] => generate_search_page(&monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
@@ -126,39 +127,39 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
                 start_time, 
                 utf8_percent_encode(&stop_name, PATH_ELEMENT_ESCAPE).to_string(),
             );
+            let mut response = Response::new(Body::empty());
             response.headers_mut().append(hyper::header::LOCATION, HeaderValue::from_str(&new_path).unwrap());
             *response.status_mut() = StatusCode::FOUND;
-            Ok(())
+            Ok(response)
         },
         ["info", ..] => {
             let journey = JourneyData::new(&path_parts[1..], monitor.clone()).unwrap();
 
             generate_info_page(
-                &mut response, 
                 &monitor, 
                 &journey
             )
         },
         _ => {
-            if path_parts[0].starts_with("favicon") {
-                generate_error_page(&mut response, StatusCode::NOT_FOUND, "Static resources not suppported.").unwrap();
-                return Ok(response);
-            }
-
             // TODO use https://crates.io/crates/chrono_locale for German day and month names
-            handle_route_with_stop(&mut response, &monitor,  &path_parts)
+            handle_route_with_stop(&monitor, &path_parts)
         },
     };
 
-    if let Err(e) = res {
-        eprintln!("Fehler: {}", e);
-        generate_error_page(&mut response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();  
+    if let Err(e) = result {
+        Ok(generate_error_page(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap())
+    } else {
+        Ok(result.unwrap())
     }
-
-    Ok(response)
 }
 
-fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, embed: bool) -> FnResult<()> {
+async fn serve_static_file(monitor: &Arc<Monitor>, request: Request<Body>) -> FnResult<Response<Body>> {
+    let response = monitor.static_server.clone().serve(request).await?;
+
+    return Ok(response);
+}
+
+fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Response<Body>> {
     println!("{} Haltestellen gefunden.", monitor.schedule.stops.len());
     // TODO: handle the different GTFS_SOURCE_IDs in some way
     // TODO: compress output, of this page specifically. Adding compression to hyper is
@@ -229,41 +230,38 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
         )?;
     }
 
-    *response.body_mut() = Body::from(w);
+    let mut response = Response::new(Body::from(w));
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
-    Ok(())
+    Ok(response)
 }
 
-fn handle_route_with_stop(response: &mut Response<Body>, monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<()> {
+fn handle_route_with_stop(monitor: &Arc<Monitor>, journey: &[String]) -> FnResult<Response<Body>> {
     let journey = JourneyData::new(&journey, monitor.clone())?;
 
     // println!("Parsed journey: time: {}\n\nstops: {:?}\n\ntrips: {:?}", journey.start_date_time, journey.stops, journey.trips);
     
-    let res = match journey.get_last_component() {
-        Some(JourneyComponent::Stop(stop_data)) => generate_stop_page(response, monitor, &journey, &stop_data),
-        Some(JourneyComponent::Trip(trip_data)) => generate_trip_page(response, monitor, &journey, &trip_data),
-        Some(JourneyComponent::Walk(_)) => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Journey may not end with a walk.")),
-        None => generate_error_page(response, StatusCode::BAD_REQUEST, &format!("Empty journey.")),
+    let result: FnResult<Response<Body>> = match journey.get_last_component() {
+        Some(JourneyComponent::Stop(stop_data)) => generate_stop_page(monitor, &journey, &stop_data),
+        Some(JourneyComponent::Trip(trip_data)) => generate_trip_page(monitor, &journey, &trip_data),
+        Some(JourneyComponent::Walk(_)) => generate_error_page(StatusCode::BAD_REQUEST, &format!("Journey may not end with a walk.")),
+        None => generate_error_page(StatusCode::BAD_REQUEST, &format!("Empty journey.")),
     };
 
-    if let Err(e) = res {
-        eprintln!("Fehler: {}", e);
-        generate_error_page(response, StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()).unwrap();
-    }
-    
-    Ok(())
+    result
 }
 
-fn generate_error_page(response: &mut Response<Body>, code: StatusCode, message: &str) -> FnResult<()> {
+fn generate_error_page(code: StatusCode, message: &str) -> FnResult<Response<Body>> {
+    let mut response = Response::new(Body::empty());
     let doc_string = format!("{}: {}", code.as_str(), message);
     *response.body_mut() = Body::from(doc_string);
     *response.status_mut() = code;
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-    Ok(())
+    Ok(response)
 }
 
-fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<()> {
+fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<Response<Body>> {
+    let mut response = Response::new(Body::empty());
     let mut departures : Vec<DbPrediction> = Vec::new();
     let exact_min_time = stop_data.start_curve.typed_x_at_y(0.01);
     let exact_max_time = stop_data.start_curve.typed_x_at_y(0.99);
@@ -414,7 +412,7 @@ fn generate_stop_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
-    Ok(())
+    Ok(response)
 }
 
 fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
@@ -511,7 +509,8 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
     Ok(())
 }
 
-fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_data: &TripData) -> FnResult<()> {
+fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_data: &TripData) -> FnResult<Response<Body>> {
+    let mut response = Response::new(Body::empty());
     let trip = monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id)?;
     let route = monitor.schedule.get_route(&trip.route_id)?;
     
@@ -529,8 +528,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
         start_sequence + 1)?;
 
     if arrivals.is_empty() {
-        generate_error_page(response, StatusCode::INTERNAL_SERVER_ERROR, "No predictions for this trip").unwrap();
-        return Ok(());
+        return generate_error_page(StatusCode::INTERNAL_SERVER_ERROR, "No predictions for this trip");
     }
 
     for arr in &mut arrivals {
@@ -611,7 +609,7 @@ fn generate_trip_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
-    Ok(())
+    Ok(response)
 }
 
 fn write_walk_arrival_output(
@@ -1048,7 +1046,8 @@ fn generate_png_data_url(time_curve: &TimeCurve, min_time: DateTime<Local>, max_
     Ok(format!("data:image/png;base64,{}", b64_data))
 }
 
-fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult<()> {
+fn generate_info_page(monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult<Response<Body>> {
+    let mut response = Response::new(Body::empty());
     println!("generate_info_page");
     let trip_data = match journey.get_last_component().unwrap() {
         JourneyComponent::Trip(trip_data) => trip_data,
@@ -1171,7 +1170,7 @@ fn generate_info_page(response: &mut Response<Body>,  monitor: &Arc<Monitor>, jo
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
-    Ok(())
+    Ok(response)
 }
 
 #[derive(Debug, Clone)]

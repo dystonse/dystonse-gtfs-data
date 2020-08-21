@@ -7,7 +7,7 @@ edition = "2018"
 [features]
 default = []
 visual-schedule = ["plotters"]
-monitor = ["hyper", "tokio", "futures"]
+monitor = ["hyper", "hyper-staticfile", "tokio", "futures"]
 
 [dependencies]
 gtfs-rt = { git = "https://github.com/dystonse/gtfs-rt.git", branch = "extension", version = "0.1.0" }
@@ -37,6 +37,7 @@ colorous = "1.0.2"
 rmp-serde = "0.14.3"
 serde = { version = "1.0.112", features = ["derive"] }
 hyper = { version = "0.13", optional = true }
+hyper-staticfile = { version = "0.5.3", optional = true }
 tokio = { version = "0.2", features = ["full"], optional = true }
 futures = {version = "0.3", optional = true}
 url = "2.1.1"
