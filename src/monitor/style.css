@@ -56,13 +56,17 @@ body.embed .project-btn {
     margin-left: 0.5rem;
     margin-top: 0.5rem;
     box-shadow: -0.5rem -0.5rem 0 var(--ptf_neon_blue);
-    transition: box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
+    transition: box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 body.embed .project-btn:hover {
     box-shadow: 0 0 0 var(--ptf_neon_blue);
     background-color: var(--ptf_neon_blue);
     border-color: var(--ptf_neon_blue);
+}
+
+body.embed div.search #start {
+    margin-top: 0.5rem;
 }
 
 table, th, td {
