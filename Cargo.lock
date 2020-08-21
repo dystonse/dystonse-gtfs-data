@@ -306,6 +306,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono_locale"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1cbf42d590cf2cd03df7910ef6e1cd46039ca566d0547341a3f9b6bfd9e3c491"
+dependencies = [
+ "chrono",
+ "lazy_static",
+ "num-integer",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "walkdir",
+]
+
+[[package]]
 name = "chunked_transfer"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -616,6 +631,7 @@ dependencies = [
  "base64 0.12.3",
  "bytes 0.5.5",
  "chrono",
+ "chrono_locale",
  "clap",
  "colorous",
  "dystonse-curves",

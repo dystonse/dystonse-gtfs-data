@@ -7,7 +7,7 @@ edition = "2018"
 [features]
 default = []
 visual-schedule = ["plotters"]
-monitor = ["hyper", "hyper-staticfile", "tokio", "futures"]
+monitor = ["hyper", "hyper-staticfile", "tokio", "futures", "chrono_locale"]
 
 [dependencies]
 gtfs-rt = { git = "https://github.com/dystonse/gtfs-rt.git", branch = "extension", version = "0.1.0" }
@@ -45,3 +45,4 @@ percent-encoding = "2.1.0"
 geo = "0.14.1"
 png = "0.16.7"
 base64 = "0.12.3"
+chrono_locale = { version = "0.1.1", optional = true }

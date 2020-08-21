@@ -3,6 +3,7 @@ mod time_curve;
 
 use crate::{FnResult, Main, date_and_time_local, OrError};
 use chrono::{Date, DateTime, Local, Duration, Timelike};
+use chrono_locale::LocaleDate;
 use clap::{App, ArgMatches};
 use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics, VehicleIdentifier};
 use crate::FileCache;
@@ -385,7 +386,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
         stop_name = stop_data.stop_name,
         stop_names = stop_data.extended_stop_names.join(",\n"),
         stops_number = stop_data.extended_stop_names.len() - 1,
-        date = min_time.format("%A, %e. %B"),
+        date = min_time.formatl("%A, %e. %B", "de"),
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
     )?;
