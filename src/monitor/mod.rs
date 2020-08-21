@@ -208,14 +208,27 @@ fn generate_search_page(response: &mut Response<Body>, monitor: &Arc<Monitor>, e
                     <option>{name}</option>"#,
         name=name)?;
     }
-    write!(&mut w, r#"
-                </datalist>
-                <input id="button" type="submit" value="Abfahrten anzeigen"/>
-            </div>
+
+    if embed {
+        write!(&mut w, r#"
+        </datalist>
+        <input class="btn project-btn" type="submit" value="Abfahrten anzeigen"/>
+        </div>
         </form>
-    </body>
-</html>"#
-    )?;
+        </body>
+        </html>"#
+        )?;
+    } else {
+        write!(&mut w, r#"
+        </datalist>
+        <input id="button" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+        </form>
+        </body>
+        </html>"#
+        )?;
+    }
+
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
