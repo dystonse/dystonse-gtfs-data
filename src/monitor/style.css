@@ -21,14 +21,48 @@ body {
     color: #000;
     background-color: #fff;
 
-    --pfpink: #f7258e;
-    --pfblue: #0095c6;
-    --pfpurple:  #001776;
-    --pfdarkblue: #161730;
+    --ptf_neon_pink: #FF0080;
+    --ptf_neon_blue: #009ACE;
+    --ptf_neon_blue_dark: #005DA6;
+    --ptf_neon_pink_dark: #FF0040;
+    --ptf_neon_blue_pink: #000067;
+    --ptf_black: #000000;
+    --ptf_white: #FFFFFF;
+    --ptf_gray: #F7F7F7;
+    --ptf_text_color: #8385B7;
+    --ptf_background_color: #161730;
+    --ptf_background_dark: #0D0D22;
 }
 
 body.embed {
-    background-color: var(--pfblue);
+    background-color: var(--ptf_background_dark);
+    color: var(--ptf_white);
+}
+
+/* button in the ptf demo week 2020 design: */
+
+body.embed .btn {
+    padding: 0.75rem 1rem;
+
+    border-radius: 5px;
+    border: 1px solid var(--ptf_neon_pink);
+    font-size: 14px;
+}
+
+body.embed .project-btn {
+    background-color: var(--ptf_neon_pink);
+    color:var(--ptf_white);
+    position: relative;
+    margin-left: 0.5rem;
+    margin-top: 0.5rem;
+    box-shadow: -0.5rem -0.5rem 0 var(--ptf_neon_blue);
+    transition: box-shadow 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+body.embed .project-btn:hover {
+    box-shadow: 0 0 0 var(--ptf_neon_blue);
+    background-color: var(--ptf_neon_blue);
+    border-color: var(--ptf_neon_blue);
 }
 
 table, th, td {
