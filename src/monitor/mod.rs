@@ -832,6 +832,8 @@ fn get_source_area(db_prediction: Option<&DbPrediction>) -> String {
         let source_class = match (origin_letter, precision_letter) {
             ("E","S+") => "a",
             ("E","S") => "a",
+            (_,"S+") => "b",
+            (_,"S") => "b",
             (_,"S-") => "b",
             (_,"G+") => "c",
             (_,"G") => "d",
