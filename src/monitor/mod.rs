@@ -660,7 +660,7 @@ fn write_walk_arrival_output(
         distance = distance,
         stop_name = stop_name,
         image_url = image_url,
-        probclass = if prob == 100.0 { "hundred" } else { "" },
+        probclass = if prob >= 99.5 { "hundred" } else { "" },
         prob = prob,
     )?;
     Ok(())
@@ -816,7 +816,7 @@ fn write_departure_output(
         image_url = image_url,
         prob = prob,
         source_area = get_source_area(Some(dep)),
-        probclass = if prob == 100.0 { "hundred" } else { "" },
+        probclass = if prob >= 99.5 { "hundred" } else { "" },
         scheduled_percent = scheduled_percent
     )?;
     Ok(())
@@ -918,7 +918,7 @@ fn write_stop_time_output(
     let prob_area = if let Some(actual_prob) = prob {
         format!(
             r#"<div class="area prob {probclass}">{prob:.0} %</div>"#, 
-            probclass = if actual_prob == 1.0 { "hundred" } else { "" },
+            probclass = if actual_prob >= 0.995 { "hundred" } else { "" },
             prob = actual_prob * 100.0)
     } else {
         String::new()
