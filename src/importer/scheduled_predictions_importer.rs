@@ -119,19 +119,19 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         loop {
             for trip in &current_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
-                    let start_time = GtfsDateTime::new(current_day, start_time as i32);
-                    let absolute_start_time = start_time.date_time();
+                    let start_date_time = GtfsDateTime::new(current_day, start_time as i32);
+                    let absolute_start_time = start_date_time.date_time();
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push((start_time, trip));
+                        trip_selection.push((start_date_time, trip));
                     }
                 }
             };
             for trip in &previous_day_trips {
                 if let Some(start_time) = trip.stop_times[0].departure_time {
-                    let start_time = GtfsDateTime::new(previous_day, start_time as i32);
-                    let absolute_start_time = start_time.date_time();
+                    let start_date_time = GtfsDateTime::new(previous_day, start_time as i32);
+                    let absolute_start_time = start_date_time.date_time();
                     if absolute_start_time > begin && absolute_start_time <= end {
-                        trip_selection.push((start_time, trip));
+                        trip_selection.push((start_date_time, trip));
                     }
                 }
             };
@@ -181,6 +181,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         // make predictions for all stops of those trips
         for (start_time, trip) in trip_selection {
+            println!("{:?} = {}", start_time, start_time.date_time());
             let route_id = &trip.route_id;
             let vehicle_id = VehicleIdentifier {
                 trip_id: trip.id.clone(), 
@@ -222,7 +223,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         let latest_prediction = self.get_latest_prediction_time_from_database()?;
         if latest_prediction > end {
-            eprintln!("WARNING: latest prediction is {}, should not be later than {}", latest_prediction, end);
+            eprintln!("WARNINGWARNINGWARNINGWARNINGWARNINGWARNINGWARNING: latest prediction is {}, should not be later than {}", latest_prediction, end);
         } else {
             println!("Wrote predictions until {}.", latest_prediction);
         }
