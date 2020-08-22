@@ -181,7 +181,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         // make predictions for all stops of those trips
         for (start_time, trip) in trip_selection {
-            println!("{:?} = {}", start_time, start_time.date_time());
+            println!("trip {}, {:?} = {}", trip.id, start_time, start_time.date_time());
             let route_id = &trip.route_id;
             let vehicle_id = VehicleIdentifier {
                 trip_id: trip.id.clone(), 
@@ -223,7 +223,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         let latest_prediction = self.get_latest_prediction_time_from_database()?;
         if latest_prediction > end {
-            eprintln!("WARNINGWARNINGWARNINGWARNINGWARNINGWARNINGWARNING: latest prediction is {}, should not be later than {}", latest_prediction, end);
+            panic!("WARNINGWARNINGWARNINGWARNINGWARNINGWARNINGWARNING: latest prediction is {}, should not be later than {}", latest_prediction, end);
         } else {
             println!("Wrote predictions until {}.", latest_prediction);
         }
