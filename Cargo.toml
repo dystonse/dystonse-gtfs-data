@@ -9,6 +9,9 @@ default = []
 visual-schedule = ["plotters"]
 monitor = ["hyper", "hyper-staticfile", "tokio", "futures", "chrono_locale"]
 
+[profile.release]
+debug = true
+
 [dependencies]
 gtfs-rt = { git = "https://github.com/dystonse/gtfs-rt.git", branch = "extension", version = "0.1.0" }
 prost = "0.4"
