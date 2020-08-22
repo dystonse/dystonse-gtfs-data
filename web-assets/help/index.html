@@ -1,0 +1,297 @@
+<html>
+
+<head>
+
+  <meta name=viewport content="width=device-width, initial-scale=1">
+  <meta charset="utf-8">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicons/favicon-16x16.png">
+  <link rel="manifest" href="/favicons/site.webmanifest">
+  <link rel="mask-icon" href="/favicons/safari-pinned-tab.svg" color="#5bbad5">
+  <meta name="msapplication-TileColor" content="#00aba9">
+  <meta name="theme-color" content="#ffffff">
+
+<style>
+@font-face {
+    font-family: SourceSansPro;
+    src: url(/fonts/SourceSansPro-Regular.ttf);
+    font-weight:400;
+  }
+
+@font-face {
+    font-family: SourceSansPro;
+    src: url(/fonts/SourceSansPro-Bold.ttf);
+    font-weight: 700;
+  }
+
+@font-face {
+    font-family: SourceSansPro;
+    src: url(/fonts/SourceSansPro-Light.ttf);
+    font-weight: 200;
+  }
+
+body {
+  color: #000;
+  background-color: #fff;
+  padding: 20px;
+  font-family: "SourceSansPro";
+  font-weight: normal;
+}
+
+.content {
+  max-width: 600px;
+  margin: auto;
+  position: relative;
+}
+
+.content img {
+  width: 100%;
+  max-width: 600px;
+}
+
+a.navi {
+  display: block;
+  position: absolute;
+  right: 0;
+}
+
+h1 {
+  padding-top: 30px;
+}
+
+a:link, a:visited {
+  text-decoration: none;
+  color:  #608b9e;
+}
+
+a:hover {
+  text-decoration: underline;
+  color:  #608b9e;
+}
+
+td {
+  border: solid 1px;
+  border-color: #608b9e;
+  padding: 10px;
+}
+
+p.images {
+  display: inline-block;
+}
+
+.content .dystonse-image {
+  display: inline-block;
+  vertical-align: top;
+  width: 49%;
+}
+
+@media (max-width: 844px) {
+
+  .content {
+    margin: auto;
+  }
+  
+}
+
+@media (max-width: 650px) {
+  .content img {
+    margin: auto;
+  }
+
+  .content .dystonse-image {
+    width: 100%;
+  }
+  
+}
+
+
+</style>
+
+</head>
+
+<body>
+
+<div class="content"> 
+  <a name="top"></a>
+  <a href="/" class="navi">Zurück zur Haltestellensuche</a>
+  <h1>Erweiterter Abfahrtsmonitor - Anleitung</h1>
+</div>
+
+<div class="content">
+  <ul>
+    <li><a href="/help/#was-ist-der-erweiterte-abfahrtsmonitor">Was ist der erweiterte Abfahrtsmonitor?</a></li>
+    <li><a href="/help/#so-gehts">So geht’s</a></li>
+    <li><a href="/help/#an-der-ersten-haltestelle">An der ersten Haltestelle</a></li>
+    <li><a href="/help/#einsteigen-und-weiterfahren">Einsteigen und Weiterfahren</a></li>
+    <li><a href="/help/#umsteigen">Umsteigen</a></li>
+    <li><a href="/help/#reisekette">Reisekette</a></li>
+    <li><a href="/help/#datenqualität">Datenqualität</a></li>
+    <li><a href="/help/#mehr-info">Mehr Info und Hintergrundwissen</a></li>
+  </ul>
+</div>
+
+<div class="content">
+
+<h2 id="was-ist-der-erweiterte-abfahrtsmonitor"><a name="was-ist-der-erweiterte-abfahrtsmonitor"></a>Was ist der erweiterte Abfahrtsmonitor?</h2>
+
+<p>Die meisten Abfahrtsmonitore zeigen immer nur <strong>genau eine Zeit</strong> pro Fahrzeug an. Manchmal sind das einfach die Zeiten aus dem Fahrplan, manchmal ist es eine Echtzeit-basierte Prognose vom Verkehrsanbieter, der z.B. die aktuelle Position des Fahrzeugs kennt. Meistens weiß man gar nicht so genau, worauf diese Zeit im Einzelfall basiert und wie zuverlässig sie ist.</p>
+
+<p>Wer eine bestimmte Linie gut kennt, hat vielleicht eine Intuition dafür, wie weit die Abfahrtszeiten in Wirklichkeit verteilt sind. Das kann sich allerdings kein Mensch für alle Fahrzeuge merken – aber für einen Computer ist das eigentlich einfach. Leider haben wir bisher trotzdem noch kein Abfahrtsdisplay gesehen, wo aus diesen Informationen mehr gemacht wird, als nur eine einfache Uhrzeit, vielleicht noch mit einer zusätzlichen Verspätungsangabe in Minuten.</p>
+
+<p>Deshalb haben wir den erweiterten Abfahrtsmonitor entwickelt. Hier kannst du die <strong>Wahrscheinlichkeitsverteilung</strong>, wann dein Bus abfahren wird, als <strong>grafische Visualisierung</strong> sehen. Weil wir davon überzeugt sind, dass diese Information dir ein umfassenderes Bild davon vermitteln kann, wie sicher dein Ein-/Umstieg in Wirklichkeit ist.</p>
+
+<p>Außerdem kannst du nicht nur die Abfahrten an einer Haltestelle sehen, sondern auch ausprobieren, wie deine Fahrt weitergeht, und deine <strong>Reisekette mit Umstiegen</strong> selbst zusammenstellen. Natürlich auch inklusive grafisch dargestellter Wahrscheinlichkeitsverteilung der Ankunfts- und Abfahrtszeiten.</p>
+
+<p>Und weil das auch manchmal nicht übersichtlich genug ist, kannst du bei uns auch den <strong>Prozentwert</strong> sehen, mit welcher Chance du alle Anschlüsse auf deiner Reise bekommen wirst.</p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+
+<h2 id="so-gehts"><a name="so-gehts"></a>So geht’s</h2>
+
+<p>Auf der Startseite kannst du die Haltestelle auswählen, von der deine Reise starten soll. Aktuell stehen alle Haltestellen im Gebiet des Verkehrsverbundes Bremen/Niedersachsen (VBN) zur Auswahl.</p>
+
+<img src="images/haltestellenauswahl.png" alt="Screenshot von der Startseite mit Haltestellen-Auswahlmenü und &quot;Abfahrten anzeigen&quot;-Button" />
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="an-der-ersten-haltestelle"><a name="an-der-ersten-haltestelle"></a>An der ersten Haltestelle</h2>
+
+<p>Mit einem Klick auf “Abfahrten anzeigen” gelangst du zur Übersicht aller Verkehrsmittel, die in der nächsten halben Stunde von der gewählten Haltestelle abfahren und <strong>mit mindestens 5% Wahrscheinlichkeit noch erreichbar</strong> sind.</p>
+
+<p>In der Überschrift siehst du außerdem eine Angabe, von wievielen weiteren Haltestellen in der Nähe die Abfahrten ebenfalls angezeigt werden. Wenn du die Maus über die Schrift “(und … weitere)” bewegst, werden die Namen dieser Haltestellen als Tooltip eingeblendet.</p>
+
+<p><img src="images/abfahrten-bremen-hauptbahnhof-mit-tooltip.png" alt="Screenshot der Abfahrtsseite für Bremen Hauptbahnhof (mit Tooltip inkl. &quot;Bremen Hbf&quot;)" /></p>
+
+<p>Mit dem Lupen-Symbol oben links (hier und auf allen weiteren Seiten) kommst du jederzeit wieder zurück zur Haltestellen-Auswahl.</p>
+
+<p>Für jede Fahrt werden folgende Infos in einer Zeile angezeigt:</p>
+
+<p><img src="images/abfahrt-zeile-mit-markierungen.png" alt="Screenshot einer Zeile mit Markierungen 1 bis 10" /></p>
+
+<ol>
+  <li>Abfahrtszeit laut Fahrplan</li>
+  <li>Früheste Abfahrtszeit, die in 99% der Fälle nicht unterschritten wird (in Minuten Abweichung vom Fahrplan, genaue Uhrzeit als Tooltip)</li>
+  <li>Mittlere Abfahrtszeit.</li>
+  <li>Späteste Abfahrtszeit, die in 99% der Fälle nicht überschritten wird.</li>
+  <li>Verkehrsmittel-Typ</li>
+  <li>Liniennummer</li>
+  <li>Richtung / Ziel</li>
+  <li>Bei Abfahrt von einer Haltestelle in der Nähe: Fußweg-Symbol und Entfernung (mit Fußwegdauer und Haltestellenname als Tooltip).</li>
+  <li>Wahrscheinlichkeit in Prozent, dass dieser Umstieg erreicht wird</li>
+  <li>Kürzel für die Qualität der Datenmenge, auf der diese Vorhersage basiert (siehe unten)</li>
+</ol>
+
+<p>Unterhalb der Zeile ist die Wahrscheinlichkeitsverteilung der Abfahrtszeit durch einen farbigen Balken in blau/grün/gelb dargestellt: Je dunkler die Farbe, desto höher die Chance, dass das Fahrzeug tatsächlich zu diesem Zeitpunkt abfährt. Die Abfahrtszeit laut Fahrplan ist durch ein schwarzes Dreieck markiert.</p>
+
+<p><img src="images/abfahrt-farbbalken-mit-dreieck.png" alt="Screenshot einer Zeile mit blau-grün-gelbem Balken und Zeitskala" /></p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="einsteigen-und-weiterfahren"><a name="einsteigen-und-weiterfahren"></a>Einsteigen und Weiterfahren</h2>
+
+<p>Durch Klick auf eine Abfahrts-Zeile kommst du auf die nächste Seite. Dort werden alle weiteren Halte der gewählten Fahrt angezeigt - ebenfalls mit Zeitangaben und farbigen Balken (in braun/orange/gelb) zur Darstellung der Ankunftszeit-Verteilung.</p>
+
+<p>Eine Wahrscheinlichkeit wird hier nur in der obersten Zeile angezeigt. Denn wenn du den Bus erstmal erwischt hast, gehen wir davon aus, dass du genauso wahrscheinlich auch später aus diesem Bus wieder aussteigen kannst (Die Fälle, in denen sich der Bus unterwegs in Luft auflöst, sind so selten, dass sie bei unseren Datenmengen nicht ins Gewicht fallen…).</p>
+
+<p><img src="images/busfahrt-seite.png" alt="Screenshot einer Busfahrt-Seite" /></p>
+
+<p>Klicke dann auf die Haltestelle, an der du umsteigen möchtest.</p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="umsteigen"><a name="umsteigen"></a>Umsteigen</h2>
+
+<p>Du gelangst dann auf eine ähnliche Seite wie die vorherige, wo die weiteren Abfahrten an dieser Haltestelle aufgelistet sind. Für die Berechnung der Wahrscheinlichkeit, dass du den Anschluss bekommst, wird jetzt berücksichtigt, wann du wahrscheinlich mit dem Fahrzeug ankommst, was in der obersten Zeile angezeigt wird.</p>
+
+<p><img src="images/abfahrten-mit-ankunft-per-bus.png" alt="Screenshot einer Abfahrtsseite mit Ankunft per Bus" /></p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="reisekette"><a name="reisekette"></a>Reisekette</h2>
+
+<p>So kannst du dir deine ganze Reisekette zusammenstellen, und sehen, wie wahrscheinlich du alle Umstiege erreichst. Je nach Vorliebe kannst du dich damit schon vor der Fahrt entscheiden, ob du lieber eine Route nimmst, die nicht unbedingt klappt, aber wenn, dann eben schneller am Ziel ist – oder lieber eine sichere Route, die dafür etwas längere Umsteigezeiten enthält. Und natürlich alles dazwischen.</p>
+
+<p>In beiden folgenden Beispielen beginnt die Reise um <strong>19:00</strong> an der Haltestelle <strong>Braunschweig Rudolfplatz</strong>.</p>
+
+<p>Mit der schnelleren Verbindung kommst du evtl. schon um <strong>19:42</strong> in <strong>Salzgitter-Lebenstedt</strong> an - aber die Ein- und Umstiege sind insgesamt nur mit <strong>5%</strong> Chance überhaupt schaffbar.</p>
+
+<p>Mit der langsameren Verbindung bist du zwar erst um <strong>20:10</strong> in <strong>Salzgitter-Lebenstedt</strong>, aber dafür sind die Umsteigezeiten lang genug, dass diese Verbindung zu <strong>100%</strong> klappt.</p>
+
+<p class="images">
+<a href="images/reisekette_schnell_aber_unwahrscheinlich.png" class="dystonse-image"><img title="Schnelle, aber unsichere Verbindung" src="images/reisekette_schnell_aber_unwahrscheinlich.png" width="49%" /></a>
+<a href="images/reisekette_langsam_aber_wahrscheinlich.png" class="dystonse-image"><img title="Langsame, aber sichere Verbindung" src="images/reisekette_langsam_aber_wahrscheinlich.png" width="49%" /></a>
+</p>
+
+<p>In der Navigationszeile oben links kannst du jederzeit zu früheren Teilen der Reise zurückspringen, um andere Varianten auszuprobieren.</p>
+
+<p><img src="images/breadcrumbs.png" alt="Screenshot Breadcrumbs-Navigation" /></p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="datenqualität"><a name="datenqualität"></a>Datenqualität</h2>
+
+<p>Um die Wahrscheinlichkeits-Verteilung von Abfahrt und Ankunft auszurechnen, haben wir Echtzeitdaten aus der Vergangenheit gesammelt und darüber Statistiken erstellt. Echtzeitdaten sind aber nicht für alle Linien verfügbar, daher kann die Qualität der Prognose im Einzelfall sehr unterschiedlich sein.</p>
+
+<p>An den Kürzeln ganz rechts in jeder Zeile kannst du sehen, was die Grundlage für die dort angezeigte Verteilung ist.</p>
+
+<p><img src="images/symbole-fuer-datenqualitaet-mit-tooltip.png" alt="Screenshot: Verschiedene Daten-Kürzel mit Tooltip" /></p>
+
+<p>Die Kürzel bestehen aus zwei Teilen. Der erste Buchstabe gibt an, ob wir aktuelle Echtzeitdaten für diese Fahrt haben und sie zur Berechnung der Verteilung mit einbeziehen:</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td><strong>E</strong></td>
+      <td>Aktuelle Echtzeitdaten werden genutzt.</td>
+    </tr>
+    <tr>
+      <td><strong>U</strong></td>
+      <td>Wir haben zwar aktuelle Echtzeitdaten, aber noch nicht genug historische Aufzeichnungen zu dieser Linienvariante, um sie damit zu verknüpfen - deswegen werden die Echtzeitdaten hier noch nicht genutzt.</td>
+    </tr>
+    <tr>
+      <td><strong>P</strong></td>
+      <td>Für diese Fahrt haben wir keine aktuellen Echtzeitdaten.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Der Zweite Teil des Kürzels gibt an, wie genau die Statistische Auswertung auf diese Fahrt und Haltestelle zugeschnitten ist:</p>
+
+<table>
+  <tbody>
+    <tr>
+      <td><strong>S+</strong></td>
+      <td>Statistik für diese Wochen-/Tageszeit, diese Linienvariante und diese Haltestelle, verknüpft mit aktuellen Echtzeitdaten</td>
+    </tr>
+    <tr>
+      <td><strong>S</strong></td>
+      <td>Statistik für diese Linienvariante und diese Haltestelle, verknüpft mit aktuellen Echtzeitdaten</td>
+    </tr>
+    <tr>
+      <td><strong>S-</strong></td>
+      <td>Statistik für diese Linienvariante und diese Haltestelle</td>
+    </tr>
+    <tr>
+      <td><strong>G+</strong></td>
+      <td>Statistik für diese Wochen-/Tageszeit, Verkehrsmittel-Typ und Streckenabschnitt (etwas ungenau)</td>
+    </tr>
+    <tr>
+      <td><strong>G</strong></td>
+      <td>Statistik für diesen Verkehrsmittel-Typ (ungenau)</td>
+    </tr>
+    <tr>
+      <td><strong>G-</strong></td>
+      <td>Statistik für alle Verkehrsmittel (sehr ungenau)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Als Tooltip wird dir außerdem eine Zahl angezeigt, die angibt, auf wievielen Aufnahmen die Berechnung basiert. Was diese Zahl genau bedeutet, erklären wir demnächst noch genauer – das ist im Moment noch nicht so wichtig.</p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+<h2 id="mehr-info-und-hintergrundwissen"><a name="mehr-info"></a>Mehr Info und Hintergrundwissen</h2>
+
+<p>Wenn du es noch genauer wissen willst, dann schau dir gerne den <a href="https://blog.dystonse.org">Dystonse Blog</a> an. Dort berichten wir von der Entwicklung dieses erweiterten Abfahrtsmonitors und erklären verschiedene Details zu den Verarbeitungsschritten, die hinter den Kulissen ablaufen.</p>
+
+<p class="up"><a href="/help/#top">▲ nach oben</a></p>
+</div>
+
+</body>
+</html>
