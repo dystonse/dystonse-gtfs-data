@@ -4,6 +4,7 @@ use itertools::Itertools;
 use mysql::*;
 use mysql::prelude::*;
 use simple_error::bail;
+use chrono::{DateTime, Local};
 
 use dystonse_curves::irregular_dynamic::*;
 use dystonse_curves::{Curve, curve_set::CurveSet};
@@ -142,16 +143,23 @@ impl<'a> SpecificCurveCreator<'a> {
         // threshold of delay (in seconds) that will be considered. 
         // Every stop with more than t or less then -t delay will be ignored.
         let t = 3000; 
-
-        for ts in &TimeSlot::TIME_SLOTS_WITH_DEFAULT {
+        
+        for et in &EventType::TYPES {
+            let item_times: Vec<(&DbItem, DateTime<Local>)> = rows_matching_variant.iter().filter_map(|item| { 
+                if let Some(datetime) = item.get_datetime_from_trip(trip, **et) {
+                    Some((*item, datetime))
+                } else {
+                    None
+                }
+            }).collect();
+            for ts in &TimeSlot::TIME_SLOTS_WITH_DEFAULT {
             // TODO here we filter all rows based on departure:true, maybe we should actually filter twice, once for each [departure, arrival]
-            for et in &EventType::TYPES {
-                let rows_matching_time_slot : Vec<_> = rows_matching_variant.iter().filter(|item| ts.matches_item(item, trip, **et)).collect();
+                let rows_matching_time_slot : Vec<&DbItem> = item_times.iter().filter_map(|(item, datetime)| if ts.matches(*datetime) { Some(*item)} else {None} ).collect();
 
                 // Iterate over all start stations
                 for (i_s, st_s) in trip.stop_times.iter().enumerate() {
                     // Locally select the rows which match the start station
-                    let rows_matching_start : Vec<_> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| **i).collect();
+                    let rows_matching_start : Vec<&DbItem> = rows_matching_time_slot.iter().filter(|item| item.stop_id == st_s.stop.id).map(|i| *i).collect();
 
                     // this is where the general_delay curves are created
                     if let Ok(res) = self.generate_delay_curve_data(&rows_matching_start, **et) {
