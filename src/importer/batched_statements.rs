@@ -57,7 +57,7 @@ impl<'a> BatchedStatements {
     }
 
     fn write_to_database_internal(&self, params_vec: Vec<Params>) -> FnResult<()> {
-        println!("Trying to write to database ({})", self.name);
+        // println!("Trying to write to database ({})", self.name);
         let mut retry = false;
         {
             let mut conn = self.conn_mutex.lock().unwrap();

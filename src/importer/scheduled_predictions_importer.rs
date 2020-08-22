@@ -219,6 +219,14 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             }
         }
         self.predictions_statements.as_ref().unwrap().write_to_database()?;
+
+        let latest_prediction = self.get_latest_prediction_time_from_database()?;
+        if latest_prediction > end {
+            eprintln!("WARNING: latest prediction is {}, should not be later than {}", latest_prediction, end);
+        } else {
+            println!("Wrote predictions until {}.", latest_prediction);
+        }
+
         Ok(())
     }
 
