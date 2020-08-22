@@ -2,13 +2,15 @@
 
 **This repository is a part of the multi-repository project `dystonse`. See the [main repository](https://github.com/dystonse/dystonse) for more information.**
 
-This is a Rust crate that works with static gtfs schedules (as zip or directory), gtfs-realtime data (as .pb or .zip files) and a mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) to read, import or anaylse the data.
+This is a Rust crate that works with static gtfs schedules (as zip or directory), gtfs-realtime data (as .pb or .zip files) and a mysql database (setup info is specified in [dystonse-docker](https://github.com/dystonse/dystonse-docker)) to read, import or anaylse the data, and/or display a travel information system website (see below for details).
 
-In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database.
+In **import** mode, it matches the realtime data to the schedule data and writes everything into the mysql database. It also makes predictions for trips in the near future, based on schedule and realtime data, and writes them into the database as well.
 
 In **analyse** mode, it can compute delay probability curves both for specific and general data sets, and save them as small machine-readable files or human-readable images in different formats. It can also count the data entries per time and output some simple statistics.
 
 In **predict** mode, it can look up and return the delay probability curve that is most useful for predicting the delay of a specified trip, stop, time, and (optional) delay at a specified earlier stop.
+
+In **monitor** mode, it generates a passenger information system website ("erweiterter Abfahrtsmonitor") with interactive and visual info about delay probability distributions for every stop of every trip in the near future (the exact length of this time span depends on the available predictions as defined in the *importer* module, default value is 8.5 days)
 
 ## How to use this
 
@@ -92,6 +94,18 @@ The following arguments are needed:
  
  ### `start`mode
  (not yet implemented.)
+
+## Passenger information system / journey planning website
+
+The "monitor" website has some large dependencies that are not needed for any of the other modules, therefore it is configured as an optional feature. If you want to use the `monitor` command, `--features "monitor"` needs to be specified at compile time.
+
+You can then run the `monitor` functionality with the `monitor` subcommand, e.g.:
+
+    dystonse-gtfs-data --host <db_hostname> --password <db_password> --source <source> --dir <dir> monitor
+
+The website will then be available on **localhost:3000**.
+
+A manual for using the website is included in the website and currently only available in German language.
 
 ## Docker integration
 
