@@ -274,7 +274,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
         let select_statement = conn.prep(r"SELECT `trip_start_date`,`trip_start_time` 
             FROM `predictions` WHERE `origin_type` = :origin_type AND `source` = :source
             ORDER BY trip_start_date + INTERVAL TIME_TO_SEC(trip_start_time) SECOND DESC 
-            LIMIT 1,1;").expect("Could not prepare select statement");
+            LIMIT 0,1;").expect("Could not prepare select statement");
  
         let query_result : Option<(NaiveDate, Duration)> = conn.exec_first(select_statement, 
             params!{"source" => self.importer.main.source.clone(), "origin_type" => OriginType::Schedule.to_int()})?; 
