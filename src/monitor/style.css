@@ -121,6 +121,19 @@ body {
     font-family: "SourceSansPro";
 }
 
+a.help-link, a.help-link:link, a.help-link:visited {
+    float: right;
+    padding-left: 30px;
+    padding-bottom: 30px;
+    font-size: 22px;
+    color: #000;
+    text-decoration: none;
+}
+
+a.help-link:hover {
+    text-decoration: underline;
+}
+
 .breadcrumbs a, .breadcrumbs span {
     font-size: 22px;
     font-weight: lighter;

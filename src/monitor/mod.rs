@@ -117,7 +117,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     let result: FnResult<Response<Body>> = match &path_parts_str[..] {
         [] => generate_search_page(&monitor, false),
-        ["fonts", _] | ["favicons", _] | ["favicon.ico"] => serve_static_file(&monitor, req).await,
+        ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["help", ..] => serve_static_file(&monitor, req).await,
         ["embed"] => generate_search_page(&monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -190,6 +190,7 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
     if !embed {
         write!(&mut w, r#"
     <body>
+        <a href="/help/" class="help-link">Hilfe</a>
         <h1>Reiseplaner</h1>
         <p class="official">
             Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
@@ -361,7 +362,8 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
 
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
-    <body>"#,         
+    <body>
+    <a href="/help/" class="help-link">Hilfe</a>"#,        
     css = CSS,
     favicon_headers = FAVICON_HEADERS,)?;
 
@@ -563,7 +565,8 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
 
         <meta name=viewport content="width=device-width, initial-scale=1">
     </head>
-    <body>"#,
+    <body>
+    <a href="/help/" class="help-link">Hilfe</a>"#,
     css = CSS,
     favicon_headers = FAVICON_HEADERS
     )?;
