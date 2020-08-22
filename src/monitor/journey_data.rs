@@ -528,7 +528,7 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_sequence: u16, 
             "event_type" => et.to_int(),
             "stop_sequence" => stop_sequence,
             "trip_id" => &vehicle_id.trip_id,
-            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_date" => vehicle_id.start.service_day().naive_local(),
             "trip_start_time" => vehicle_id.start.duration(),
         },
     )?;

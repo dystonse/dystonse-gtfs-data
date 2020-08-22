@@ -254,7 +254,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             "prediction_max" => prediction_max.naive_local(),
             route_id,
             "trip_id" => vehicle_id.trip_id.clone(),
-            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_date" => vehicle_id.start.service_day().naive_local(),
             "trip_start_time" => vehicle_id.start.duration(),
             stop_sequence,
             "precision_type" => curve_data.precision_type.to_int(),

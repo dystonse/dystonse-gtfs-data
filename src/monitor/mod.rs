@@ -1423,7 +1423,7 @@ fn get_predictions_for_trip(
             "source" => source,
             "event_type" => event_type.to_int(),
             "trip_id" => vehicle_id.trip_id.clone(),
-            "trip_start_date" => vehicle_id.start.date().naive_local(),
+            "trip_start_date" => vehicle_id.start.service_day().naive_local(),
             "trip_start_time" => vehicle_id.start.duration(),
             "start_sequence" => start_sequence,
         },
