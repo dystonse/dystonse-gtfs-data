@@ -170,16 +170,16 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
 
     let mut w = Vec::new();
     write!(&mut w, r#"
-<html>
-    <head>
-        <title>ÖPNV-Reiseplaner</title>
-        <style>
-{css}
-        </style>
+    <html>
+        <head>
+            <title>Haltestelle wählen | Dystonse ÖPNV-Reiseplaner</title>
+            <style>
+                {css}
+            </style>
 
-{favicon_headers}
-        <meta name=viewport content="width=device-width, initial-scale=1">
-    </head>"#,
+            {favicon_headers}
+            <meta name=viewport content="width=device-width, initial-scale=1">
+        </head>"#,
         css = CSS,
         favicon_headers = FAVICON_HEADERS,
     )?;
@@ -355,19 +355,20 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
 
     let mut w = Vec::new();
     write!(&mut w, r#"
-<html>
-    <head>
-        <title>ÖPNV-Reiseplaner</title>
-        <style>{css}</style>
-        
-        {favicon_headers}
+    <html>
+        <head>
+            <title>{stop_name} | Dystonse ÖPNV-Reiseplaner</title>
+            <style>{css}</style>
+            
+            {favicon_headers}
 
-        <meta name=viewport content="width=device-width, initial-scale=1">
-    </head>
-    <body>
-    <a href="/help/" class="help-link">Hilfe</a>"#,        
-    css = CSS,
-    favicon_headers = FAVICON_HEADERS,)?;
+            <meta name=viewport content="width=device-width, initial-scale=1">
+        </head>
+        <body>
+        <a href="/help/" class="help-link">Hilfe</a>"#,
+        stop_name = stop_data.stop_name,
+        css = CSS,
+        favicon_headers = FAVICON_HEADERS,)?;
 
     generate_breadcrumbs(&mut w, journey_data)?;
 
@@ -411,9 +412,9 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     }
     generate_timeline(&mut w, min_time, len_time)?;
     write!(&mut w, r#"
-</body>
-</html>"#,
-    )?;
+        </body>
+        </html>"#,
+        )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
@@ -558,20 +559,22 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
 
     let mut w = Vec::new();
     write!(&mut w, r#"
-<html>
-    <head>
-        <title>ÖPNV-Reiseplaner</title>
-        <style>{css}</style>
+        <html>
+        <head>
+            <title>{route_type} Linie {route_name} | Dystonse ÖPNV-Reiseplaner</title>
+            <style>{css}</style>
 
-        {favicon_headers}
+            {favicon_headers}
 
-        <meta name=viewport content="width=device-width, initial-scale=1">
-    </head>
-    <body>
-    <a href="/help/" class="help-link">Hilfe</a>"#,
-    css = CSS,
-    favicon_headers = FAVICON_HEADERS
-    )?;
+            <meta name=viewport content="width=device-width, initial-scale=1">
+        </head>
+        <body>
+        <a href="/help/" class="help-link">Hilfe</a>"#,
+        route_type = route_type_to_str(route.route_type),
+        route_name = route.short_name,
+        css = CSS,
+        favicon_headers = FAVICON_HEADERS
+        )?;
 
     generate_breadcrumbs(&mut w, journey_data)?;
     
@@ -609,9 +612,9 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
     generate_timeline(&mut w, min_time, len_time)?;
 
     write!(&mut w, r#"
-</body>
-</html>"#,
-    )?;
+        </body>
+        </html>"#,
+        )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
@@ -625,7 +628,7 @@ fn write_walk_arrival_output(
     _monitor: &Arc<Monitor>,
     min_time: DateTime<Local>,
     max_time: DateTime<Local>,
-) -> FnResult<()> {
+    ) -> FnResult<()> {
 
     let a_01 = stop_data.start_curve.typed_x_at_y(0.01);
     let a_50 = stop_data.start_curve.typed_x_at_y(0.50);
@@ -679,7 +682,7 @@ fn write_departure_output(
     min_time: DateTime<Local>,
     max_time: DateTime<Local>,
     event_type: EventType,
-) -> FnResult<()> {
+    ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
     let scheduled_percent = a_scheduled.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
@@ -882,7 +885,7 @@ fn write_stop_time_output(
     max_time: DateTime<Local>, 
     event_type: EventType,
     prob: Option<f32>
-) -> FnResult<()> {
+    ) -> FnResult<()> {
     
     let stop_link = match event_type {
         EventType::Arrival => format!(r#"<a href="{}/""#, stop_time.stop.name),
@@ -987,7 +990,7 @@ pub fn get_transfer_probability(
     arrival_dist: &IrregularDynamicCurve<f32, f32>, 
     departure_time: DateTime<Local>, 
     departure_dist: &IrregularDynamicCurve<f32, f32>
-) -> f32 {
+    ) -> f32 {
     let mut total_miss_prob = 0.0;
     let step_size = 1;
     for percentile in (0..100).step_by(step_size) {
@@ -1065,24 +1068,24 @@ fn generate_info_page(monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult
 
     let mut w = Vec::new();
     write!(&mut w, r#"
-<html>
-    <head>
-        <title>ÖPNV-Reiseplaner</title>
-        <style>{css}</style>
+    <html>
+        <head>
+            <title>Datenqualität für Linie {route_name} | Dystonse ÖPNV-Reiseplaner</title>
+            <style>{css}</style>
 
-        {favicon_headers}
+            {favicon_headers}
 
-    </head>
-    <body>
-        <h1>Informationen für Linie {route_name} (route_id {route_id}, route_variant {route_variant}) nach {headsign}</h1>
-        <h2>Statistische Analysen</h2>"#,
-        css = CSS,
-        favicon_headers = FAVICON_HEADERS,
-        route_name = route.short_name.clone(),
-        route_id = trip_data.route_id,
-        route_variant = route_variant,
-        headsign = utf8_percent_encode(&trip.trip_headsign.as_ref().or_error("trip_headsign is None")?, PATH_ELEMENT_ESCAPE).to_string(),
-    )?;
+        </head>
+        <body>
+            <h1>Informationen für Linie {route_name} (route_id {route_id}, route_variant {route_variant}) nach {headsign}</h1>
+            <h2>Statistische Analysen</h2>"#,
+            css = CSS,
+            favicon_headers = FAVICON_HEADERS,
+            route_name = route.short_name.clone(),
+            route_id = trip_data.route_id,
+            route_variant = route_variant,
+            headsign = utf8_percent_encode(&trip.trip_headsign.as_ref().or_error("trip_headsign is None")?, PATH_ELEMENT_ESCAPE).to_string(),
+        )?;
 
     match monitor.stats.specific.get(&trip_data.route_id) {
         None => { writeln!(&mut w, "        Keine Linien-spezifischen Statistiken vorhanden.")?; },
@@ -1170,9 +1173,9 @@ fn generate_info_page(monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult
     }
 
     write!(&mut w, r#"</table>
-    </body>
-</html>"#
-    )?;
+        </body>
+    </html>"#
+        )?;
     *response.body_mut() = Body::from(w);
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
 
