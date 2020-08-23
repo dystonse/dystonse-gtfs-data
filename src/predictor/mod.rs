@@ -196,17 +196,20 @@ impl<'a> Predictor<'a> {
 
         if route_id == "32727_3" {
             println!(
-                "ROUTE_DEBUG: Made prediction for route {}, trip {}, starting at {:?}, stop_sequence {}, ET {:?}",
+                "ROUTE_DEBUG: Made prediction for route {}, trip {}, starting at stop/delay {:?} with trip start time {}, stop_sequence {}, ET {:?}",
                 route_id,
                 trip_id,
                 start,
+                date_time.format("%d.%m. %H:%M"),
                 stop_sequence,
                 et
             );
-            println!(
-                "ROUTE_DEBUG: Specific prediction is: {:?}",
-                specific_prediction
-            );
+            if let Ok(PredictionResult::CurveData(curve_data)) = &specific_prediction {
+                println!(
+                    "ROUTE_DEBUG: Specific prediction has precision_type: {:?}",
+                    curve_data.precision_type
+                );
+            }
         }
 
         // unwrap that, or try a default prediction if it failed:
@@ -223,7 +226,7 @@ impl<'a> Predictor<'a> {
             let default_prediction = self.predict_default(&key);
             if route_id == "32727_3" {
                 println!(
-                    "ROUTE_DEBUG: Use default prediction instead, with key: {:?}",
+                    "ROUTE_DEBUG: No specific prediction. Use default prediction instead, with key: {:?}",
                     key
                 );
                 println!(
