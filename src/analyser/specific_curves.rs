@@ -123,13 +123,125 @@ impl<'a> SpecificCurveCreator<'a> {
                 },
                 Some(trip) => {
                     let rows_matching_variant : Vec<_> = db_items.iter().filter(|item| item.route_variant == *route_variant).collect();
-                    let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip)?;
-                    route_data.variants.insert(*route_variant, variant_data);
+
+                    println!("trying to compute projection of missing delays…");
+                    // try to do projections
+                    if let Ok(rows_matching_variant_with_projection) = self.compute_projections_for_route_variant(&rows_matching_variant) {
+
+                        println!("projection successful for route_variant {}.", route_variant);
+
+                        // convert vec into vec of references:
+                        let rows_matching_variant_with_projection_refs = rows_matching_variant_with_projection.iter().collect();
+
+                        let variant_data = self.create_curves_for_route_variant(&rows_matching_variant_with_projection_refs, trip)?;
+                        route_data.variants.insert(*route_variant, variant_data);
+
+                    } else { // if making projections failed, proceed as usual
+
+                        println!("projection failed for route_variant {}. Now using only the data we already had before.", route_variant);
+                        let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip)?;
+                        route_data.variants.insert(*route_variant, variant_data);
+                    }
                 }
             }
         }
 
         Ok(route_data)
+    }
+
+    // project the delay at the previous stop onto each following stop where we have no data
+    fn compute_projections_for_route_variant(&self, rows_from_db: &Vec<&DbItem>) -> FnResult<Vec<DbItem>> {
+
+        let route_variant = rows_from_db[0].route_variant;
+        
+        let mut resulting_rows : Vec<DbItem> = Vec::new();
+
+        // first step: sort the items by vehicle id
+        let mut rows_by_vehicle : HashMap<VehicleIdentifier, Vec<&DbItem>> = HashMap::new();
+
+        for item in rows_from_db {
+            let trip_id = item.trip_id.clone();
+            if let Some(start_date) = item.trip_start_date {
+                if let Some(start_time) = item.trip_start_time {
+                    let start = GtfsDateTime::new(start_date, start_time.num_seconds() as i32);
+                    let v_id = VehicleIdentifier{
+                        trip_id,
+                        start
+                    };
+                    // sort the item into the corresponding vec for its vehicle id
+                    let vec = rows_by_vehicle.entry(v_id).or_insert_with(|| Vec::new());
+                    vec.push(item);
+                } else {
+                    eprintln!("No trip_start_time found in DbItem, this should not happen!");
+                }
+            } else {
+                eprintln!("No trip_start_date found in DbItem, this should not happen!");
+            }
+        }
+
+        // second step: for each vehicle id, fill in the gaps
+
+        for (v_id, vec) in rows_by_vehicle {
+            
+            let mut delay_arr;
+            let mut delay_dep;
+
+            // find out which stops this trip is supposed to have
+            let stop_times = if let Ok(trip) = self.analyser.schedule.get_trip(&v_id.trip_id) {
+                &trip.stop_times
+            } else {
+                //TODO: maybe use eprintln and continue instead of bail?
+                bail!("no stop times found in schedule for trip {}", v_id.trip_id);
+            };
+
+            let items_iter = vec.iter();
+            let mut st_iter = stop_times.iter();
+
+            'item_loop: for item in items_iter {
+
+                // remember the delays:
+                delay_arr = item.delay.arrival;
+                delay_dep = item.delay.departure;
+
+                'stop_time_loop: loop {
+
+                    if let Some(st) = st_iter.next() {
+
+                        if item.stop_sequence == st.stop_sequence {
+
+                            resulting_rows.push((**item).clone());
+
+                            break 'stop_time_loop; // go on to next item
+
+                        } else if item.stop_sequence < st.stop_sequence {
+
+                            eprintln!("ERROR: stop_sequence of dbitem is smaller than stop_sequence from schedule. This should not happen!");
+                            continue 'item_loop;
+
+                        } else if item.stop_sequence > st.stop_sequence {
+
+                            // we have found a gap and have to fill it in now:
+
+                            //TODO: if delay_arrival was None before, we should probably use delay_departure for projecting the next arrival
+                            let new_item = DbItem{
+                                delay : EventPair { arrival: delay_arr, departure: delay_dep },
+                                trip_start_date : Some(v_id.start.service_day()),
+                                trip_start_time : Some(v_id.start.duration()),
+                                trip_id : v_id.trip_id.clone(),
+                                stop_sequence : st.stop_sequence,
+                                stop_id : st.stop.id.clone(),
+                                route_variant : route_variant
+                            };
+
+                            resulting_rows.push(new_item);
+                        }
+                    } else {
+                        break 'item_loop;
+                    }
+                }
+            }
+        }
+        Ok(resulting_rows)
     }
 
     fn create_curves_for_route_variant(
@@ -153,7 +265,7 @@ impl<'a> SpecificCurveCreator<'a> {
                 }
             }).collect();
             for ts in &TimeSlot::TIME_SLOTS_WITH_DEFAULT {
-            // TODO here we filter all rows based on departure:true, maybe we should actually filter twice, once for each [departure, arrival]
+           
                 let rows_matching_time_slot : Vec<&DbItem> = item_times.iter().filter_map(|(item, datetime)| if ts.matches(*datetime) { Some(*item)} else {None} ).collect();
 
                 // Iterate over all start stations

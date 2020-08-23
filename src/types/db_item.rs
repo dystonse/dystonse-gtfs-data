@@ -6,6 +6,7 @@ use gtfs_structures::{Trip, Gtfs};
 use super::{EventType, EventPair, GetByEventType};
 use crate::date_and_time_local;
 
+#[derive(Clone)]
 pub struct DbItem {
     pub delay: EventPair<Option<i32>>,
     //pub delay_arrival: Option<i32>,
