@@ -126,21 +126,21 @@ impl<'a> SpecificCurveCreator<'a> {
 
                     println!("trying to compute projection of missing delays…");
                     // try to do projections
-                    if let Ok(rows_matching_variant_with_projection) = self.compute_projections_for_route_variant(&rows_matching_variant) {
+                    match self.compute_projections_for_route_variant(&rows_matching_variant) {
+                        Ok(rows_matching_variant_with_projection) => {
+                            println!("projection successful for route_variant {}.", route_variant);
 
-                        println!("projection successful for route_variant {}.", route_variant);
+                            // convert vec into vec of references:
+                            let rows_matching_variant_with_projection_refs = rows_matching_variant_with_projection.iter().collect();
 
-                        // convert vec into vec of references:
-                        let rows_matching_variant_with_projection_refs = rows_matching_variant_with_projection.iter().collect();
-
-                        let variant_data = self.create_curves_for_route_variant(&rows_matching_variant_with_projection_refs, trip)?;
-                        route_data.variants.insert(*route_variant, variant_data);
-
-                    } else { // if making projections failed, proceed as usual
-
-                        println!("projection failed for route_variant {}. Now using only the data we already had before.", route_variant);
-                        let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip)?;
-                        route_data.variants.insert(*route_variant, variant_data);
+                            let variant_data = self.create_curves_for_route_variant(&rows_matching_variant_with_projection_refs, trip)?;
+                            route_data.variants.insert(*route_variant, variant_data);
+                        },
+                        Err(e) => { // if making projections failed, proceed as usual
+                            println!("projection failed for route_variant {}. Now using only the data we already had before. Reason: {}", route_variant, e);
+                            let variant_data = self.create_curves_for_route_variant(&rows_matching_variant, trip)?;
+                            route_data.variants.insert(*route_variant, variant_data);
+                        }
                     }
                 }
             }
