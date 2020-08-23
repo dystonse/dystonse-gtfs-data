@@ -189,6 +189,11 @@ fn parse_args() -> ArgMatches {
             app = app.subcommand(Monitor::get_subcommand());
         } 
 
+        // use those lines to profile the bianry on MacOS
+        // due to a bug in [cargo-]flamegraph command line args are forbidden
+        // let testargs = ["dystonse-gtfs-data", "--host", "hetzner.dystonse.org", "--password", "PASSWORD_HERE", "--source", "vbn", "--dir", "data", "analyse", "compute-curves", "--route-ids", "35761_0"];
+        // let matches = app.get_matches_from(testargs.iter());
+        
         let matches = app.get_matches();
     return matches;
 }
