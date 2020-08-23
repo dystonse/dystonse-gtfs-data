@@ -184,9 +184,20 @@ p.images {
   <li>Kürzel für die Qualität der Datenmenge, auf der diese Vorhersage basiert (siehe unten)</li>
 </ol>
 
-<p>Unterhalb der Zeile ist die Wahrscheinlichkeitsverteilung der Abfahrtszeit durch einen farbigen Balken in blau/grün/gelb dargestellt: Je dunkler die Farbe, desto höher die Chance, dass das Fahrzeug tatsächlich zu diesem Zeitpunkt abfährt. Die Abfahrtszeit laut Fahrplan ist durch ein schwarzes Dreieck markiert.</p>
+<p>Unterhalb der Zeile ist die Wahrscheinlichkeitsverteilung der Abfahrtszeit durch einen farbigen Balken in blau/grün/gelb dargestellt.</p>
 
 <p><img src="images/abfahrt-farbbalken-mit-dreieck.png" alt="Screenshot einer Zeile mit blau-grün-gelbem Balken und Zeitskala" /></p>
+
+<p>So ist der Balken zu lesen:
+  <ul>
+    <li>Je dunkler die Farbe, desto höher die Chance, dass das Fahrzeug tatsächlich zu diesem Zeitpunkt abfährt.</li>
+    <li>Die Abfahrtszeit laut Fahrplan ist durch ein Dreieck unterhalb des Balkens markiert.</li>
+    <li>Die wahrscheinlichste Abfahrtszeit gemäß unserer Prognose ist durch einen Kreis oberhalb des Balkens markiert. (Genau genommen handelt es sich um den Median aller möglichen Abfahrtszeiten, d.h. dass die Abfahrt vor oder nach diesem Zeitpunkt stattfindet, ist genau so wahrscheinlich.)</li>
+    <li>Die frühesten und spätesten Abfahrtszeiten, die in 99% der Fälle nicht unter-/ überschritten werden, sind durch eckige Klammern auf dem Balken eingerahmt.</li>
+    <li>Außerhalb der eckigen Klammern haben manche Balken noch einen hell-gelben Bereich. Er stellt den Bereich der extrem unwahrscheinlichen Verspätungen / Verfrühungen dar, die seltener als in 1% aller Fälle auftreten. Ihn kannst du eigentlich ignorieren, da diese Daten oft auf Messfehlern bei den Verkehrsbetrieben basieren - daher haben wir auch so einen hellen, kaum sichtbaren Farbton gewählt.</li>
+  </ul>
+</p>
+
 
 <p class="up"><a href="/help/#top">▲ nach oben</a></p>
 <h2 id="einsteigen-und-weiterfahren"><a name="einsteigen-und-weiterfahren"></a>Einsteigen und Weiterfahren</h2>
