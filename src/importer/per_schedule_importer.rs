@@ -264,7 +264,7 @@ impl<'a> PerScheduleImporter<'a> {
                 // it would be better to use the most recent stop that is already in the past!
 
                 let basis = PredictionBasis { 
-                    stop_id: stop_id.clone(),
+                    stop_sequence: stop_sequence as u16,
                     delay_departure: departure.delay
                 };
                 let vehicle_id = VehicleIdentifier {

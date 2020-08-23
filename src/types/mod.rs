@@ -25,9 +25,9 @@ pub use gtfs_time::GtfsDateTime;
 
 use serde::{Serialize, Deserialize};
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct PredictionBasis {
-    pub stop_id: String,
+    pub stop_sequence: u16,
     pub delay_departure: Option<i64>
 }
 

@@ -46,14 +46,14 @@ impl<'a> Predictor<'a> {
                     .about("Id of the trip for which the prediction shall be made.")
                     .takes_value(true)
                     .value_name("TRIP_ID")
-                ).arg(Arg::new("stop-sequence")
-                    .short('s')
-                    .long("stop-sequence")
+                ).arg(Arg::new("end-stop-sequence")
+                    .short('e')
+                    .long("end-stop-sequence")
                     .about("Sequence number of the stop for which the prediction shall be made. May be ommitted to get predictions for all stops of the route.")
                     .takes_value(true)
-                    .value_name("STOP_SEQUENCE")
+                    .value_name("END_STOP_SEQUENCE")
                 ).arg(Arg::new("event-type")
-                    .short('e')
+                    .short('t')
                     .long("event-type")
                     .required(true)
                     .about("Event type (arrival or departure) for which the prediction shall be made.")
@@ -66,12 +66,13 @@ impl<'a> Predictor<'a> {
                     .about("Date and time YYYY-MM-DDThh:mm:ss in UTC for which the prediction shall be made.")
                     .takes_value(true)
                     .value_name("DATE_TIME")
-                ).arg(Arg::new("start-stop-id")
-                    .long("start-stop-id")
+                ).arg(Arg::new("start-stop-sequence")
+                    .short('s')
+                    .long("start-stop-sequence")
                     .required(false)
-                    .about("Id of a stop in the past from which the vehicle started with initial-delay.")
+                    .about("Sequence number of a stop in the past from which the vehicle started with initial-delay.")
                     .takes_value(true)
-                    .value_name("START_STOP_ID")
+                    .value_name("START_STOP_SEQUENCE")
                 ).arg(Arg::new("initial-delay")
                     .long("initial-delay")
                     .required(false)
@@ -119,7 +120,7 @@ impl<'a> Predictor<'a> {
         // parse command line arguments into the right data types
         let route_id = args.value_of("route-id").unwrap();
         let trip_id = args.value_of("trip-id").unwrap();
-        let potential_stop_sequence : Option<u16> = match args.value_of("stop-sequence") {
+        let potential_end_stop_sequence : Option<u16> = match args.value_of("end-stop-sequence") {
             None => None,
             Some(sss) => Some(str::parse::<u16>(sss)?)
         };
@@ -133,16 +134,16 @@ impl<'a> Predictor<'a> {
         let trip = self.schedule.get_trip(trip_id)?;
 
         // parse optional arguments:
-        let start = match args.value_of("start-stop-id") {
-            Some(s) => match args.value_of("initial-delay") {
-                            Some(d) => Some (PredictionBasis {stop_id: s.to_string(), delay_departure: Some(i64::from_str(d).unwrap())}),
-                            None => Some(PredictionBasis {stop_id: s.to_string(), delay_departure: None}),
+        let start = match args.value_of("start-stop-sequence") {
+            Some(sss) => match args.value_of("initial-delay") {
+                            Some(d) => Some (PredictionBasis {stop_sequence: sss.parse()?, delay_departure: Some(i64::from_str(d).unwrap())}),
+                            None => Some(PredictionBasis {stop_sequence: sss.parse()?, delay_departure: None}),
                         },
             None => {
                 // TODO move or delete everything related to db access for realtime data
                 if args.is_present("use-realtime") {
                     match real_time::get_realtime_data(self.main, &trip) {
-                        Ok((stop_id, delay)) => Some(PredictionBasis{ stop_id: stop_id.clone(), delay_departure: Some(delay as i64)}),
+                        Ok((stop_sequence, delay)) => Some(PredictionBasis{ stop_sequence, delay_departure: Some(delay as i64)}),
                         _ => None
                     }
                 } else {
@@ -153,7 +154,7 @@ impl<'a> Predictor<'a> {
 
         // if no single stop_sequence is given, iterate over all stop_sequences of the trip
         // TODO we currently ignore the stop_id from the args
-        let stop_sequences : Vec<u16> = match potential_stop_sequence {
+        let stop_sequences : Vec<u16> = match potential_end_stop_sequence {
             Some(stop_sequence) => vec!{stop_sequence},
             None => trip.stop_times.iter().map(|st| st.stop_sequence).collect()
         };
@@ -209,10 +210,10 @@ impl<'a> Predictor<'a> {
     }
 
     // looks up a curve from default curves and returns it
-    fn predict_default(&self, key: DefaultCurveKey) // rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
+    fn predict_default(&self, key: &DefaultCurveKey) // rt: RouteType, rs: RouteSection, ts: &TimeSlot, et: EventType) 
             -> FnResult<PredictionResult> {
 
-        let potential_curve_data = self.delay_statistics.general.all_default_curves.get(&key);
+        let potential_curve_data = self.delay_statistics.general.all_default_curves.get(key);
         
         if let Some(curve_data) = potential_curve_data {
             Ok(PredictionResult::CurveData(curve_data.clone()))
@@ -260,7 +261,7 @@ impl<'a> Predictor<'a> {
             },
             Some(actual_start) => {
                 // TODO use stop_sequence instead of stop_id, which has less chance of failure since it's always unique
-                let start_stop_index = trip.get_stop_index_by_id(&actual_start.stop_id)? as u32;
+                let start_stop_index = trip.get_stop_index_by_stop_sequence(actual_start.stop_sequence)? as u32;
                 let key = CurveSetKey {
                     start_stop_index,
                     end_stop_index,

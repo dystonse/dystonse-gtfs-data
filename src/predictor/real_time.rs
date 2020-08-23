@@ -28,7 +28,7 @@ pub struct RealtimeItem {
     }
 }
 
-pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
+pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(u16, i32)> {
     let mut con = main.pool.get_conn()?;
     let stmt = con.prep(
         r"SELECT 
@@ -72,14 +72,14 @@ pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
     println!("Got realtime data, found {} rows: {:?}.", realtime_items.len(), realtime_items);
 
     // map the (relative) delays from the db to absolute_departures, which are tuples of (stop_id, time)
-    let absolute_departures : Vec<(&String, NaiveTime, i32)> = realtime_items.iter().filter_map(|item| {
+    let absolute_departures : Vec<(u16, NaiveTime, i32)> = realtime_items.iter().filter_map(|item| {
         let stop_time = trip.stop_times.iter().filter(|st| st.stop.id == item.stop_id).next().unwrap();
         match (stop_time.departure_time, item.delay_departure) {
             (Some(departure_time), Some(departure_delay)) => { 
                 let secs = ((departure_time as i32 - 7200) + departure_delay) as u32;
                 // TODO / FIXME: we substract 7200, which equals two hours, because the schedule is 
                 // in local time and our database contains UTC times.
-                Some((&item.stop_id, NaiveTime::from_num_seconds_from_midnight(secs, 0), departure_delay))
+                Some((item.stop_sequence as u16, NaiveTime::from_num_seconds_from_midnight(secs, 0), departure_delay))
             },
             _ => None
         }
@@ -94,10 +94,10 @@ pub fn get_realtime_data(main: &Main, trip: &Trip) -> FnResult<(String, i32)> {
 
     let now = chrono::Utc::now().time();
     println!("Comparing to 'now', which is {}.", now);
-    match absolute_departures.iter().filter(|(_stop_id, time, _delay)| time < &now).next() {
-        Some((stop_id, time, delay)) => {
-            println!("Found  most recent absolute_departure: at stop {} on {} with delay {}.", stop_id, time, delay);
-            Ok((stop_id.to_string(), *delay))
+    match absolute_departures.iter().filter(|(_stop_sequence, time, _delay)| time < &now).next() {
+        Some((stop_sequence, time, delay)) => {
+            println!("Found  most recent absolute_departure: at stop_sequence {} on {} with delay {}.", stop_sequence, time, delay);
+            Ok((*stop_sequence, *delay))
         },
         None => {
             println!("Did not find  most recent absolute_departure.");
