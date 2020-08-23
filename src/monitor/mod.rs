@@ -834,7 +834,7 @@ fn write_departure_output(
     write!(
         &mut w, r#"</{trip_link_type}>"#,
         trip_link_type = trip_link_type,
-    );
+    )?;
     Ok(())
 }
 
@@ -851,7 +851,7 @@ fn write_marker(
         &mut w, r#"<div class="marker {marker_class}" style="left:{percent:.2}%;"></div>"#,
         percent = percent,
         marker_class = marker_class
-    );
+    )?;
     Ok(())
 }
 
@@ -940,8 +940,6 @@ fn write_stop_time_output(
     let a_50 = scheduled_time + Duration::seconds(r_50 as i64);
     let a_99 = scheduled_time + Duration::seconds(r_99 as i64);
 
-    let scheduled_percent = scheduled_time.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
-
     let image_url = if let Some(prediction) = prediction {
         generate_png_data_url(&prediction.get_time_curve(), min_time, max_time, 120, event_type)?
     } else {
@@ -993,7 +991,7 @@ fn write_stop_time_output(
     write!(
         &mut w, r#"</{stop_link_type}>"#,
         stop_link_type = stop_link_type,
-    );
+    )?;
     Ok(())
 }
 
