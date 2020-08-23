@@ -376,10 +376,10 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
         <h1>Abfahrten für {stop_name} <span class="extended_stops" title="{stop_names}">(und {stops_number} weitere)</span>, {date} von {min_time} bis {max_time}</h1>
             <div class="header">
             <div class="timing">
-                <div class="head time">Plan</div>
-                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">-</div>
+            <div class="head time" title="Abfahrt laut Fahrplan">Plan △</div>
+                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">[−</div>
                 <div class="head med" title="Mittlere Abfahrt">○</div>
-                <div class="head max" title="Späteste Abfahrt, die in 99% der Fälle nicht überschritten wird">+</div>
+                <div class="head max" title="Späteste Abfahrt, die in 99% der Fälle nicht überschritten wird">+]</div>
             </div>
             <div class="head type">Typ</div>
             <div class="head route">Linie</div>
@@ -475,15 +475,18 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
             match component {
                 JourneyComponent::Trip(trip_data) => {
                     trip_text = trip_data.route_name.clone();
+                    if trip_data.route_type == RouteType::Bus || trip_data.route_type == RouteType::Tramway || char::is_numeric(trip_text.chars().next().unwrap()) {
+                        trip_text = format!("{} {}", route_type_to_str(trip_data.route_type), trip_text);
+                    }
                     walked = false;
                     //write link for previous stop:
-                    write!(&mut w, r#" > <a href="{}">{}</a>"#, trip_data.prev_component.get_url(), stop_text)?;
+                    write!(&mut w, r#" ➞ <a href="{}">{}</a>"#, trip_data.prev_component.get_url(), stop_text)?;
                 },
                 JourneyComponent::Walk(walk_data) => {
                     trip_text = String::from(""); // dummy, never used
                     walked = true;
                     //write link for previous stop:
-                    write!(&mut w, r#" > <a href="{}">{}</a>"#, walk_data.prev_component.get_url(), stop_text)?;
+                    write!(&mut w, r#" ➞ <a href="{}">{}</a>"#, walk_data.prev_component.get_url(), stop_text)?;
                 },
                 JourneyComponent::Stop(stop_data) => { // there should not be a stop here!
                     bail!("Expected trip or walk, found stop: {}", stop_data.stop_name);
@@ -491,21 +494,21 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
             } 
         }else { // previus stop was the last stop
             //write non-link for last stop:
-            write!(&mut w, r#" > <span>{}<span>"#, stop_text)?;
+            write!(&mut w, r#" ➞ <span>{}<span>"#, stop_text)?;
             break;
         }
         if let Some(JourneyComponent::Stop(stop_data)) = journey_iter.next() {
             stop_text = stop_data.stop_name.clone();
             if walked {
                 //write non-link for previous walk:
-                write!(&mut w, r#" > <span>Fußweg<span>"#)?;
+                write!(&mut w, r#" ➞ <span>Fußweg<span>"#)?;
             } else {
                 //write link for previous trip:
-                write!(&mut w, r#" > <a href="{}">{}</a>"#, stop_data.prev_component.as_ref().unwrap().get_url(), trip_text)?;
+                write!(&mut w, r#" ➞ <a href="{}">{}</a>"#, stop_data.prev_component.as_ref().unwrap().get_url(), trip_text)?;
             }
         } else if !walked {
             //write non-link for last trip:
-            write!(&mut w, r#" > <span>{}<span>"#, trip_text)?;
+            write!(&mut w, r#" ➞ <span>{}<span>"#, trip_text)?;
             break;
         }
     }
@@ -582,10 +585,10 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
         <h1>Halte für {route_type} Linie {route_name} nach {headsign}</h1>
             <div class="header">
             <div class="timing">
-                <div class="head time">Plan</div>
-                <div class="head min" title="Früheste Ankunft, die in 99% der Fälle nicht unterschritten wird">-</div>
-                <div class="head med">○</div>
-                <div class="head max">+</div>
+                <div class="head time" title="Abfahrt laut Fahrplan">Plan △</div>
+                <div class="head min" title="Früheste Abfahrt, die in 99% der Fälle nicht unterschritten wird">[−</div>
+                <div class="head med" title="Mittlere Abfahrt">○</div>
+                <div class="head max" title="Späteste Abfahrt, die in 99% der Fälle nicht überschritten wird">+]</div>
             </div>
             <div class="head stopname">Haltestelle</div>
             <!-- div class="head prob">Chance</div-->
@@ -1064,9 +1067,10 @@ fn generate_png_data_url(time_curve: &TimeCurve, min_time: DateTime<Local>, max_
         for i in 0..width {
             let prob_uncum = probs_uncum[i] / max;
             let prob_cum = probs_cum[i];
-            let crop = 0.2;
+            let crop_bottom = 0.2;
+            let crop_top = 0.2;
             let color = if prob_cum > 0.01 && prob_cum < 0.99 { 
-                gradient.eval_continuous((crop + (prob_uncum * (1.0 - crop))) as f64)
+                gradient.eval_continuous((crop_bottom + (prob_uncum * (1.0 - crop_bottom - crop_top))) as f64)
             } else if prob_cum > 0.0 && prob_cum < 1.0 {
                 gradient.eval_continuous(0.0 as f64)
             } else {
