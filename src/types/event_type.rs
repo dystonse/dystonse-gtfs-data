@@ -21,6 +21,14 @@ impl EventType {
         }
     }
 
+    pub fn from_int(i: u8) -> Self {
+        match i {
+            1 => EventType::Arrival,
+            2 => EventType::Departure,
+            _ => panic!("{} is an invalid EventType", i)
+        }
+    }
+
     pub fn get_time_from_stop_time(&self, st: &StopTime) -> Option<i32> {
         let time = match self {
             EventType::Arrival => st.arrival_time,

@@ -509,7 +509,8 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_sequence: u16, 
             `sample_size`,
             `prediction_curve`,
             `stop_id`,
-            `stop_sequence`
+            `stop_sequence`,
+            `event_type`
         FROM
             `predictions` 
         WHERE 

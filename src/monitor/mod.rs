@@ -1191,6 +1191,7 @@ pub struct DbPrediction {
     pub prediction_curve: IrregularDynamicCurve<f32, f32>,
     pub stop_id: String,
     pub stop_sequence: usize,
+    pub event_type: EventType,
 
     pub meta_data: Option<DbPredictionMetaData>,
 }
@@ -1217,7 +1218,10 @@ impl DbPrediction {
         let route_type = route.route_type;
         let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
         let stop_index = trip.get_stop_index_by_stop_sequence(self.stop_sequence as u16).or_error("stop_index is None")?;
-        let scheduled_time_seconds = trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?;
+        let scheduled_time_seconds = match self.event_type {
+            EventType::Arrival   => trip.stop_times[stop_index].arrival_time  .or_error("arrival_time is None"  )?,
+            EventType::Departure => trip.stop_times[stop_index].departure_time.or_error("departure_time is None")?
+        };
         let scheduled_time_absolute = date_and_time_local(&self.trip_start_date, scheduled_time_seconds as i32);
 
         self.meta_data = Some(DbPredictionMetaData{ 
@@ -1279,6 +1283,7 @@ impl FromRow for DbPrediction {
                                     ::deserialize_compact(row.get_opt(9).unwrap().unwrap()),
             stop_id:            row.get_opt(10).unwrap().unwrap(),
             stop_sequence:      row.get_opt(11).unwrap().unwrap(),
+            event_type:         EventType::from_int(row.get_opt(12).unwrap().unwrap()),
             meta_data:          None,
         })
     }
@@ -1353,7 +1358,8 @@ fn get_predictions_for_stop(
             `sample_size`,
             `prediction_curve`,
             `stop_id`,
-            `stop_sequence`
+            `stop_sequence`,
+            `event_type`
         FROM
             `predictions` 
         WHERE 
@@ -1408,7 +1414,8 @@ fn get_predictions_for_trip(
             `sample_size`,
             `prediction_curve`,
             `stop_id`,
-            `stop_sequence`
+            `stop_sequence`,
+            `event_type`
         FROM
             `predictions` 
         WHERE 
