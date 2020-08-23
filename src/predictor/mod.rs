@@ -194,6 +194,21 @@ impl<'a> Predictor<'a> {
         // try to find a specific prediction:
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
+        if route_id == "32727_3" {
+            println!(
+                "ROUTE_DEBUG: Made prediction for route {}, trip {}, starting at {:?}, stop_sequence {}, ET {:?}",
+                route_id,
+                trip_id,
+                start,
+                stop_sequence,
+                et
+            );
+            println!(
+                "ROUTE_DEBUG: Specific prediction is: {:?}",
+                specific_prediction
+            );
+        }
+
         // unwrap that, or try a default prediction if it failed:
         specific_prediction.or_else(|_| {
             // eprintln!("⚠️ No specific_prediction because: {}", e);
@@ -205,7 +220,18 @@ impl<'a> Predictor<'a> {
                 time_slot: ts.clone(),
                 event_type: et
             };
-            self.predict_default(key)
+            let default_prediction = self.predict_default(&key);
+            if route_id == "32727_3" {
+                println!(
+                    "ROUTE_DEBUG: Use default prediction instead, with key: {:?}",
+                    key
+                );
+                println!(
+                    "ROUTE_DEBUG: Default prediction is: {:?}",
+                    default_prediction
+                );
+            }
+            default_prediction
         })
     }
 
