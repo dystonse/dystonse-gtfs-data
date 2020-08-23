@@ -183,9 +183,6 @@ impl<'a> SpecificCurveCreator<'a> {
 
         for (v_id, vec) in rows_by_vehicle {
             
-            let mut delay_arr;
-            let mut delay_dep;
-
             // find out which stops this trip is supposed to have
             let stop_times = if let Ok(trip) = self.analyser.schedule.get_trip(&v_id.trip_id) {
                 &trip.stop_times
@@ -197,11 +194,13 @@ impl<'a> SpecificCurveCreator<'a> {
             let items_iter = vec.iter();
             let mut st_iter = stop_times.iter();
 
+            let mut delay_found = false;
+
             'item_loop: for item in items_iter {
 
                 // remember the delays:
-                delay_arr = item.delay.arrival;
-                delay_dep = item.delay.departure;
+                let delay_arr = item.delay.arrival;
+                let delay_dep = item.delay.departure;
 
                 'stop_time_loop: loop {
 
@@ -211,14 +210,18 @@ impl<'a> SpecificCurveCreator<'a> {
 
                             resulting_rows.push((**item).clone());
 
-                            break 'stop_time_loop; // go on to next item
+                            delay_found = true;
 
-                        } else if item.stop_sequence < st.stop_sequence {
-
-                            eprintln!("ERROR: stop_sequence of dbitem is smaller than stop_sequence from schedule. This should not happen!");
-                            continue 'item_loop;
+                            continue 'stop_time_loop; // go on to next item
 
                         } else if item.stop_sequence > st.stop_sequence {
+
+                            if delay_found {
+                                eprintln!("ERROR: stop_sequence of dbitem is bigger than stop_sequence from schedule. This should not happen after delay was found once!");
+                            } 
+                            continue 'stop_time_loop;
+
+                        } else if item.stop_sequence < st.stop_sequence {
 
                             // we have found a gap and have to fill it in now:
 
