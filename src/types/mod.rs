@@ -88,11 +88,11 @@ impl PrecisionType {
     pub fn from_int(int: u8) -> Self {
         match int {
             1 => Self::Specific,
-            2 => Self::SemiSpecific,
-            3 => Self::General,
-            4 => Self::FallbackGeneral,
-            5 => Self::SuperGeneral,
-            6 => Self::FallbackSpecific,
+            2 => Self::FallbackSpecific,
+            3 => Self::SemiSpecific,
+            4 => Self::General,
+            5 => Self::FallbackGeneral,
+            6 => Self::SuperGeneral,
             _ => Self::Unknown 
         }
     }
