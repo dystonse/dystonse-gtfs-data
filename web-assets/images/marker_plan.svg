@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 40 80" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <g id="ArtBoard1" transform="matrix(1,0,0,3.33333,0,-76.6667)">
+        <rect x="0" y="23" width="40" height="24" style="fill:none;"/>
+        <g id="Plan" transform="matrix(1,0,0,0.287616,-2599.63,-461.935)">
+            <g transform="matrix(1,0,0,1.04306,2599.63,1686.05)">
+                <path d="M15.433,71.877L24.567,71.877L20,63.971L15.433,71.877Z" style="fill:white;"/>
+            </g>
+            <g transform="matrix(1,0,0,1.04306,2599.63,1691.26)">
+                <path d="M18.5,55.57L18.5,23L21.5,23L21.5,55.57L29.764,69.877L10.236,69.877L18.5,55.57ZM15.433,66.877L24.567,66.877L20,58.971L15.433,66.877Z"/>
+            </g>
+        </g>
+    </g>
+</svg>

@@ -438,6 +438,33 @@ a.outer:hover .line {
     margin-left: -6px;
 }
 
+.marker {
+    position: absolute;
+    bottom: 2px;
+    height: 40px;
+    margin-left: -10px;
+    width: 20px;
+    background-image: url("/images/marker_test.svg");
+    background-repeat: no-repeat;
+}
+
+.marker.min {
+    background-image: url("/images/marker_min.svg");
+}
+
+.marker.max {
+    background-image: url("/images/marker_max.svg");
+}
+
+.marker.median {
+    background-image: url("/images/marker_median.svg");
+}
+
+.marker.plan {
+    background-image: url("/images/marker_plan.svg");
+}
+
+
 .timeline {
     position: relative;
 }

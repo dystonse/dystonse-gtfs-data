@@ -119,7 +119,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     let result: FnResult<Response<Body>> = match &path_parts_str[..] {
         [] => generate_search_page(&monitor, false),
-        ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["help", ..] => serve_static_file(&monitor, req).await,
+        ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
         ["embed"] => generate_search_page(&monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -269,7 +269,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     let mut departures : Vec<DbPrediction> = Vec::new();
     let exact_min_time = stop_data.start_curve.typed_x_at_y(0.01);
     let exact_max_time = stop_data.start_curve.typed_x_at_y(0.99);
-    let min_time = exact_min_time - Duration::minutes(exact_min_time.time().minute() as i64 % 5); // round to previous nice time
+    let min_time = (exact_min_time - Duration::minutes(exact_min_time.time().minute() as i64 % 5)).with_second(0).unwrap(); // round to previous nice time
     let exact_len_time: i64 = exact_max_time.signed_duration_since(exact_min_time).num_minutes() + 30;
     let len_time: i64 = exact_len_time - (exact_len_time % 5);
     let max_time = min_time + Duration::minutes(len_time);
@@ -424,7 +424,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
 fn generate_timeline(mut w: &mut Vec<u8>, min_time: DateTime<Local>, len_time: i64) -> FnResult<()> {
     for m in (0..(len_time + 1)).step_by(1) {
         if m % 5 == 0 {
-            writeln!(&mut w, r#"    <div class="timebar" style="left: {percent:.1}%;"></div>"#,
+            writeln!(&mut w, r#"    <div class="timebar" style="left: calc({percent:.1}% - 1.5px);"></div>"#,
                 //time = (min_time + Duration::minutes(m)).format("%H:%M"),
                 percent = m as f32 / (len_time as f32) * 100.0,
             )?;
@@ -685,7 +685,6 @@ fn write_departure_output(
     ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
-    let scheduled_percent = a_scheduled.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
     let a_01 = dep.get_absolute_time_for_probability(0.01).unwrap();
     let a_50 = dep.get_absolute_time_for_probability(0.50).unwrap();
     let a_99 = dep.get_absolute_time_for_probability(0.99).unwrap();
@@ -803,11 +802,9 @@ fn write_departure_output(
                 <div class="area prob {probclass}">{prob:.0} %</div>
                 {source_area}
             </div>
-            <div class="visu" style="background-image:url('{image_url}')"></div>
-            <div class="schedulepoint" style="left:{scheduled_percent:.2}%;">▲</div>
-        </{trip_link_type}>"#,
+            <div class="visu" style="background-image:url('{image_url}')"></div>         
+        "#,
         trip_link = trip_link,
-        trip_link_type = trip_link_type,
         time = md.scheduled_time_absolute.format("%H:%M"),
         min = format_delay(r_01),
         min_tooltip = a_01.format("%H:%M:%S"),
@@ -823,9 +820,35 @@ fn write_departure_output(
         image_url = image_url,
         prob = prob,
         source_area = get_source_area(Some(dep)),
-        probclass = if prob >= 99.5 { "hundred" } else { "" },
-        scheduled_percent = scheduled_percent
+        probclass = if prob >= 99.5 { "hundred" } else { "" }
     )?;
+
+    write_marker(w, a_scheduled, min_time, max_time, "plan")?;
+    write_marker(w, a_01, min_time, max_time, "min")?;
+    write_marker(w, a_50, min_time, max_time, "median")?;
+    write_marker(w, a_99, min_time, max_time, "max")?;
+
+    write!(
+        &mut w, r#"</{trip_link_type}>"#,
+        trip_link_type = trip_link_type,
+    );
+    Ok(())
+}
+
+fn write_marker(
+    mut w: &mut Vec<u8>, 
+    time: DateTime<Local>,
+    min_time: DateTime<Local>,
+    max_time: DateTime<Local>,
+    marker_class: &str,
+) -> FnResult<()> {
+    let percent = time.signed_duration_since(min_time).num_seconds() as f32 / (max_time.signed_duration_since(min_time).num_seconds() as f32) * 100.0;
+    
+    write!(
+        &mut w, r#"<div class="marker {marker_class}" style="left:{percent:.2}%;"></div>"#,
+        percent = percent,
+        marker_class = marker_class
+    );
     Ok(())
 }
 
@@ -944,11 +967,8 @@ fn write_stop_time_output(
                 {prob_area}
                 {source_area}
             </div>
-            <div class="visu" style="background-image:url('{image_url}')"></div>
-            <div class="schedulepoint" style="left:{scheduled_percent:.2}%;">▲</div>
-        </{stop_link_type}>"#,
+            <div class="visu" style="background-image:url('{image_url}')"></div>"#,
         stop_link = stop_link,
-        stop_link_type = stop_link_type,
         time = scheduled_time.format("%H:%M"),
         min = format_delay(r_01 as i32 / 60),
         min_tooltip = a_01.format("%H:%M:%S"),
@@ -960,9 +980,17 @@ fn write_stop_time_output(
         source_area = get_source_area(prediction),
         prob_area = prob_area,
         image_url = image_url,
-        scheduled_percent = scheduled_percent,
-
     )?;
+
+    write_marker(w, scheduled_time, min_time, max_time, "plan")?;
+    write_marker(w, a_01, min_time, max_time, "min")?;
+    write_marker(w, a_50, min_time, max_time, "median")?;
+    write_marker(w, a_99, min_time, max_time, "max")?;
+
+    write!(
+        &mut w, r#"</{stop_link_type}>"#,
+        stop_link_type = stop_link_type,
+    );
     Ok(())
 }
 
