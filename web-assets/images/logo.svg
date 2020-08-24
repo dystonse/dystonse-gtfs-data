@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 683 335" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-miterlimit:1.5;">
+    <g id="ArtBoard1" transform="matrix(1.00294,0,0,1.00601,-57.1674,-147.883)">
+        <rect x="57" y="147" width="681" height="333" style="fill:none;"/>
+        <g id="Logo-Minimal-Blau" serif:id="Logo Minimal Blau" transform="matrix(0.997072,0,0,0.99403,2.16105,9.82388)">
+            <path d="M611,321L688,321L688,310C688,305.226 686.104,300.648 682.728,297.272C679.352,293.896 674.774,292 670,292C657.923,292 642.077,292 630,292C625.226,292 620.648,293.896 617.272,297.272C613.896,300.648 612,305.226 612,310L612,334C612,343.941 620.059,352 630,352C646.374,352 668,352 668,352L668,336" style="fill:none;stroke:rgb(216,216,184);stroke-width:12px;"/>
+            <path d="M647,274L548,274C544.817,274 541.765,275.264 539.515,277.515C537.264,279.765 536,282.817 536,286C536,289.861 536,294.139 536,298C536,304.627 541.373,310 548,310L566,310C577.598,310 587,319.402 587,331C587,331 587,331 587,331C587,342.598 577.598,352 566,352C512.632,352 376,352 376,352" style="fill:none;stroke:rgb(212,222,173);stroke-width:12px;"/>
+            <path d="M468,331L450,331L450,292C450,287.226 451.896,282.648 455.272,279.272C458.648,275.896 463.226,274 468,274C475.884,274 485.116,274 493,274C497.774,274 502.352,275.896 505.728,279.272C509.104,282.648 511,287.226 511,292C511,308.703 511,331 511,331L530,331" style="fill:none;stroke:rgb(185,219,181);stroke-width:12px;"/>
+            <g transform="matrix(1.03214,0,0,1,-13.1462,0)">
+                <path d="M429,292C429,287.226 427.163,282.648 423.892,279.272C420.622,275.896 416.186,274 411.561,274L369.439,274C364.814,274 360.378,275.896 357.108,279.272C353.837,282.648 352,287.226 352,292L352,313C352,317.774 353.837,322.352 357.108,325.728C360.378,329.104 364.814,331 369.439,331L411.561,331C416.186,331 420.622,329.104 423.892,325.728C427.163,322.352 429,317.774 429,313L429,292Z" style="fill:none;stroke:rgb(134,210,201);stroke-width:11.81px;"/>
+            </g>
+            <path d="M387,252L292,252" style="fill:none;stroke:rgb(82,192,205);stroke-width:12px;"/>
+            <path d="M313,189L328,189L328,314.334C328,324.324 331.968,333.904 339.032,340.968C346.096,348.032 355.676,352 365.666,352C371.696,352 376,352 376,352" style="fill:none;stroke:rgb(82,192,205);stroke-width:12px;"/>
+            <path d="M292,274L267.987,274C264.808,274 261.759,275.263 259.511,277.511C257.263,279.759 256,282.808 256,285.987L256,298C256,304.627 261.373,310 268,310L287.472,310C293.134,310 298.556,312.284 302.512,316.335C306.468,320.386 308.622,325.862 308.488,331.522C308.488,331.523 308.488,331.524 308.487,331.525C308.216,342.911 298.909,352 287.519,352C256.709,352 202,352 202,352" style="fill:none;stroke:rgb(37,140,193);stroke-width:12px;"/>
+            <path d="M147,426L161,434C161,434 218.014,316.686 240.493,270.431C245.972,259.157 257.408,252 269.943,252L292,252" style="fill:none;stroke:white;stroke-width:20px;"/>
+            <path d="M147,426L161,434C161,434 218.014,316.686 240.493,270.431C245.972,259.157 257.408,252 269.943,252L292,252" style="fill:none;stroke:rgb(45,94,172);stroke-width:12px;"/>
+            <g transform="matrix(1.03922,0,0,1.02083,-7.92157,-5.29167)">
+                <path d="M139.453,261.837L152.925,254.98L202,350" style="fill:none;stroke:rgb(45,94,172);stroke-width:11.65px;"/>
+            </g>
+            <g transform="matrix(1,0,0,0.993902,0,1.15244)">
+                <path d="M184,207.11C184,197.108 175.941,189 166,189L102,189L102,353L166,353C175.941,353 184,344.892 184,334.89L184,207.11Z" style="fill:none;stroke:white;stroke-width:20.06px;stroke-linecap:round;"/>
+            </g>
+            <g transform="matrix(1,0,0,0.993902,0,1.15244)">
+                <path d="M184,207.11C184,197.108 175.941,189 166,189L102,189L102,353L166,353C175.941,353 184,344.892 184,334.89L184,207.11Z" style="fill:none;stroke:rgb(35,66,148);stroke-width:12.04px;stroke-linecap:round;"/>
+            </g>
+        </g>
+        <g id="Nubsies-Blau" serif:id="Nubsies Blau" transform="matrix(0.997072,0,0,0.99403,2.16105,9.82388)">
+            <path d="M167,219L184,219" style="fill:none;stroke:rgb(35,66,148);stroke-width:12px;"/>
+            <path d="M118,300L102,300" style="fill:none;stroke:rgb(35,66,148);stroke-width:12px;"/>
+            <path d="M217,278L233,286" style="fill:none;stroke:rgb(45,94,172);stroke-width:12px;"/>
+            <path d="M281,328L281,311" style="fill:none;stroke:rgb(37,140,193);stroke-width:12px;"/>
+            <path d="M262,369L262,352" style="fill:none;stroke:rgb(37,140,193);stroke-width:12px;"/>
+            <path d="M313,291L329,291" style="fill:none;stroke:rgb(82,192,205);stroke-width:12px;"/>
+            <path d="M417,369L417,352" style="fill:none;stroke:rgb(212,222,173);stroke-width:12px;"/>
+            <g transform="matrix(1,0,0,1,65,0)">
+                <path d="M417,369L417,352" style="fill:none;stroke:rgb(212,222,173);stroke-width:12px;"/>
+            </g>
+            <g transform="matrix(1,0,0,1,130,0)">
+                <path d="M417,369L417,352" style="fill:none;stroke:rgb(212,222,173);stroke-width:12px;"/>
+            </g>
+            <g transform="matrix(1,0,0,1,164,-98)">
+                <path d="M417,369L417,352" style="fill:none;stroke:rgb(212,222,173);stroke-width:12px;"/>
+            </g>
+        </g>
+    </g>
+</svg>

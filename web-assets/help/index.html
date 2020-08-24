@@ -14,6 +14,7 @@
   <meta name="msapplication-TileColor" content="#00aba9">
   <meta name="msapplication-config" content="/favicons/browserconfig.xml?v=m2ndzBjkKM">
   <meta name="theme-color" content="#ffffff">
+  <link rel="stylesheet" href="/style.css">
 
 <style>
 @font-face {
@@ -34,23 +35,8 @@
     font-weight: 200;
   }
 
-body {
-  color: #000;
-  background-color: #fff;
-  padding: 20px;
-  font-family: "SourceSansPro";
-  font-weight: normal;
-}
-
-.content {
-  max-width: 600px;
-  margin: auto;
-  position: relative;
-}
-
-.content img {
+.headbox img {
   width: 100%;
-  max-width: 600px;
 }
 
 a.navi {
@@ -83,26 +69,18 @@ p.images {
   display: inline-block;
 }
 
-.content .dystonse-image {
+.headbox .dystonse-image {
   display: inline-block;
   vertical-align: top;
   width: 49%;
 }
 
-@media (max-width: 844px) {
-
-  .content {
-    margin: auto;
-  }
-  
-}
-
-@media (max-width: 650px) {
-  .content img {
+@media (max-width: 800px) {
+  .headbox img {
     margin: auto;
   }
 
-  .content .dystonse-image {
+  .headbox .dystonse-image {
     width: 100%;
   }
   
@@ -114,14 +92,18 @@ p.images {
 </head>
 
 <body>
+  <div class="g1"><a href="/" class="boxlink">Zurück zur Haltestellensuche</a></div>
+  <div class="g2"></div>
+  <div class="g3"></div>
 
-<div class="content"> 
+  <div class="container">
+      
+      <div class="headbox">
+
   <a name="top"></a>
-  <a href="/" class="navi">Zurück zur Haltestellensuche</a>
+  
   <h1>Erweiterter Abfahrtsmonitor - Anleitung</h1>
-</div>
 
-<div class="content">
   <ul>
     <li><a href="/help/#was-ist-der-erweiterte-abfahrtsmonitor">Was ist der erweiterte Abfahrtsmonitor?</a></li>
     <li><a href="/help/#so-gehts">So geht’s</a></li>
@@ -132,9 +114,7 @@ p.images {
     <li><a href="/help/#datenqualität">Datenqualität</a></li>
     <li><a href="/help/#mehr-info">Mehr Info und Hintergrundwissen</a></li>
   </ul>
-</div>
 
-<div class="content">
 
 <h2 id="was-ist-der-erweiterte-abfahrtsmonitor"><a name="was-ist-der-erweiterte-abfahrtsmonitor"></a>Was ist der erweiterte Abfahrtsmonitor?</h2>
 
@@ -304,7 +284,12 @@ p.images {
 <p>Wenn du es noch genauer wissen willst, dann schau dir gerne den <a href="https://blog.dystonse.org">Dystonse Blog</a> an. Dort berichten wir von der Entwicklung dieses erweiterten Abfahrtsmonitors und erklären verschiedene Details zu den Verarbeitungsschritten, die hinter den Kulissen ablaufen.</p>
 
 <p class="up"><a href="/help/#top">▲ nach oben</a></p>
+
+</div>
 </div>
 
+  <div class="footer">
+    <a href="http://blog.dystonse.org/impressum/">Impressum</a> 
+</div>
 </body>
 </html>

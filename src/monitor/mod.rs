@@ -33,7 +33,6 @@ use colorous::*;
 use journey_data::*;
 use time_curve::TimeCurve;
 
-const CSS:&'static str = include_str!("style.css");
 const FAVICON_HEADERS: &'static str = r##"
 <link rel="apple-touch-icon" sizes="180x180" href="/favicons/apple-touch-icon.png?v=m2ndzBjkKM">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png?v=m2ndzBjkKM">
@@ -119,7 +118,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     let result: FnResult<Response<Body>> = match &path_parts_str[..] {
         [] => generate_search_page(&monitor, false),
-        ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
+        ["fonts", _] | ["favicons", _] | ["favicon.ico"]  | ["style.css"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
         ["embed"] => generate_search_page(&monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -173,14 +172,11 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
     <html>
         <head>
             <title>Haltestelle wählen | Dystonse ÖPNV-Reiseplaner</title>
-            <style>
-                {css}
-            </style>
+            <link rel="stylesheet" href="/style.css">
 
             {favicon_headers}
             <meta name=viewport content="width=device-width, initial-scale=1">
         </head>"#,
-        css = CSS,
         favicon_headers = FAVICON_HEADERS,
     )?;
     
@@ -192,11 +188,21 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
     if !embed {
         write!(&mut w, r#"
     <body>
-        <a href="/help/" class="help-link">Hilfe</a>
-        <h1>Reiseplaner</h1>
-        <p class="official">
-            Herzlich willkommen. Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
-        </p>"#)?;
+        <div class="g1"><a href="/help/" class="boxlink">Hilfe</a></div>
+        <div class="g2"></div>
+        <div class="g3"></div>
+
+        <div class="container">
+            
+            <div class="headbox">
+                <div>
+                    <img src="/images/logo.svg" class="logo" />
+                </div>
+            
+            <h1>Reiseplaner</h1>
+            <p class="official">
+                Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.
+            </p>"#)?;
     }
 
     write!(&mut w, r#"
@@ -226,9 +232,14 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
     } else {
         write!(&mut w, r#"
         </datalist>
-        <input id="button" type="submit" value="Abfahrten anzeigen"/>
+        <input class="box" type="submit" value="Abfahrten anzeigen"/>
         </div>
         </form>
+        </div>
+        </div>
+        <div class="footer">
+            <a class="boxlink" href="http://blog.dystonse.org/impressum/">Impressum</a> 
+        </div>
         </body>
         </html>"#
         )?;
@@ -358,16 +369,15 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     <html>
         <head>
             <title>{stop_name} | Dystonse ÖPNV-Reiseplaner</title>
-            <style>{css}</style>
+            <link rel="stylesheet" href="/style.css">
             
             {favicon_headers}
 
             <meta name=viewport content="width=device-width, initial-scale=1">
         </head>
-        <body>
+        <body class="monitorbody">
         <a href="/help/" class="help-link">Hilfe</a>"#,
         stop_name = stop_data.stop_name,
-        css = CSS,
         favicon_headers = FAVICON_HEADERS,)?;
 
     generate_breadcrumbs(&mut w, journey_data)?;
@@ -565,17 +575,16 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
         <html>
         <head>
             <title>{route_type} Linie {route_name} | Dystonse ÖPNV-Reiseplaner</title>
-            <style>{css}</style>
+            <link rel="stylesheet" href="/style.css">
 
             {favicon_headers}
 
             <meta name=viewport content="width=device-width, initial-scale=1">
         </head>
-        <body>
+        <body class="monitorbody">
         <a href="/help/" class="help-link">Hilfe</a>"#,
         route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
-        css = CSS,
         favicon_headers = FAVICON_HEADERS
         )?;
 
@@ -1101,15 +1110,14 @@ fn generate_info_page(monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult
     <html>
         <head>
             <title>Datenqualität für Linie {route_name} | Dystonse ÖPNV-Reiseplaner</title>
-            <style>{css}</style>
+            <link rel="stylesheet" href="/style.css">
 
             {favicon_headers}
 
         </head>
-        <body>
+        <body class="monitorbody">
             <h1>Informationen für Linie {route_name} (route_id {route_id}, route_variant {route_variant}) nach {headsign}</h1>
             <h2>Statistische Analysen</h2>"#,
-            css = CSS,
             favicon_headers = FAVICON_HEADERS,
             route_name = route.short_name.clone(),
             route_id = trip_data.route_id,
