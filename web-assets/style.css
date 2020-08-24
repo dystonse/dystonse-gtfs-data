@@ -45,13 +45,13 @@ body.monitorbody {
     padding: 20px;
 }
 
+/* embedded monitor startpage widget in prototype fund demo week 2020 design: */
+
 body.embed {
     background-color: var(--ptf_background_dark);
     color: var(--ptf_white);
     padding: 20px;
 }
-
-/* button in the ptf demo week 2020 design: */
 
 body.embed .btn {
     padding: 0.75rem 1rem;
@@ -80,6 +80,8 @@ body.embed .project-btn:hover {
 body.embed div.search #start {
     margin-top: 0.5rem;
 }
+
+/* end of embedded design section */
 
 table, th, td {
     border: 1px solid black;
@@ -551,6 +553,10 @@ a.outer:hover .line {
     padding: 10px;
 }
 
+.content {
+    padding: 20px;
+}
+
 .box {
     border: 1px solid lightblue;
     background-color: #DFF0F0;
@@ -635,6 +641,9 @@ a.box:hover, .box:hover {
     width: 100%;
     height: 10px;
     background: linear-gradient(to right, rgba(85,193,205,1) 0%,rgba(39,159,200,1) 14%,rgba(45,94,172,1) 27%,rgba(5,43,107,1) 44%,rgba(45,94,172,1) 61%,rgba(39,159,200,1) 74%,rgba(85,193,205,1) 87%,rgba(141,212,200,1) 100%);
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 img.logo {
@@ -654,6 +663,13 @@ img.logo {
         grid-column: 1 / 2;
     }
 }
+
+/* smaller image for start page: */
+
+.headbox img.logo {
+    width: 60%;
+  }
+
 
 /* from help page: */
 
@@ -795,6 +811,7 @@ img.logo {
 
     div.search #start {
         font-size: 16px;
+        flex-basis: 60px;
     }
 
     .timing {
