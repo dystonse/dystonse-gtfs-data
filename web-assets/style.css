@@ -48,9 +48,9 @@ body.monitorbody {
 /* embedded monitor startpage widget in prototype fund demo week 2020 design: */
 
 body.embed {
-    background-color: var(--ptf_background_dark);
+    background-color: var(--ptf_background_color);
     color: var(--ptf_white);
-    padding: 20px;
+    padding: 0;
 }
 
 body.embed .btn {
@@ -812,6 +812,16 @@ img.logo {
     div.search #start {
         font-size: 16px;
         flex-basis: 60px;
+    }
+
+    .embed div.search #start {
+        font-size: 16px;
+        flex-basis: 40px;
+        margin-top: 0;
+    }
+
+    body.embed .btn {
+        padding: 0.5rem 1rem;
     }
 
     .timing {
