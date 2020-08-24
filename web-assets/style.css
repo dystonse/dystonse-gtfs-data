@@ -111,6 +111,8 @@ div.search #start {
     font-size: 14px;
 }
 
+/*
+
 div.search #button {
     background-color: #eee;
     border-radius: 5px;
@@ -123,6 +125,21 @@ div.search #button:hover {
     border-color: #000;
 }
 
+*/
+div.spacer {
+    margin-top: 50px;
+}
+
+div.disclaimer-hint {
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    padding: 20px;
+    margin-top: 30px;
+}
+
+.disclaimer-hint span {
+    float: right;
+}
 
 a:link, a:visited, a:hover {
     color: #aaa;

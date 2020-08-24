@@ -201,7 +201,7 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
             
             <h1>Reiseplaner</h1>
             <p class="official">
-                <b>Hier kannst du deine Reiseroute mit dem ÖPNV im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.</b>
+                <b>Hier kannst du deine Reiseroute mit dem öffentlichen Nahverkehr im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.</b>
             </p>"#)?;
     }
 
@@ -235,14 +235,9 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
         <input class="box" type="submit" value="Abfahrten anzeigen"/>
         </div>
         </form>
-        <div>
-        <p><b>Hinweis:</b> Der erweiterte Abfahrtsmonitor ist ein experimenteller Prototyp – es sind sicherlich noch einige Fehler in unserem Code.</p>
-
-        <p>Es ist zwar unser erklärtes Ziel, das Vertrauen in den öffentlichen Nahverkehr zu stärken, aber wir legen auch gleichzeitig sehr viel Wert drauf, einen kritischen Umgang mit Daten und Medien zu vermitteln. Daher geben wir z.B. auch in jeder Zeile an, auf welcher Datenmenge und -art eine Prognose basiert. Doch auch diese Zahlen sind immer mit Vorsicht zu betrachten.</p>
-
-        <p>Unsere Daten, Analysen, Prognosen und Wahrscheinlichkeiten sind nach bestem Wissen und Gewissen zusammengestellt, aber enthalten natürlich trotzdem noch Fehler. Manche Fehler <a href="https://github.com/dystonse/dystonse-gtfs-data/issues">kennen wir schon</a> und arbeiten daran, sie zu beheben. Andere kennen wir noch nicht, und wir glauben, dass keine Software perfekt ist, und es immer wieder Feher geben wird. Falls du einen Fehler bemerkst, den wir noch nicht kennen, kannst du dafür gerne <a href="https://github.com/dystonse/dystonse-gtfs-data/issues">ein Issue auf GitHub anlegen</a> oder uns <a href="mailto:mail@dystonse.org">eine E-mail schreiben</a>.</p>
-        
-        <p>Betrachte die Informationen im erweiterten Abfahrtsmonitor immer mit diesem Wissen im Hinterkopf und verlasse dich nicht unkritisch darauf.</p>
+        <div class="spacer"></div>
+        <div class="disclaimer-hint">
+        <b>Hinweis:</b> Der erweiterte Abfahrtsmonitor ist ein experimenteller Prototyp, der sicherlich noch einige Fehler enthält. Verlasse dich nicht unkritisch auf die Daten, die dir hier angezeigt werden! <span><a href="/help/#disclaimer">➞ zum Disclaimer</a></span>
         </div>
         </div>
         </div>
