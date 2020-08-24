@@ -1,25 +1,25 @@
 @font-face {
     font-family: SourceSansPro;
     src: url(/fonts/SourceSansPro-Regular.ttf);
+    font-weight:400;
   }
 
 @font-face {
     font-family: SourceSansPro;
     src: url(/fonts/SourceSansPro-Bold.ttf);
-    font-weight: bold;
+    font-weight: 700;
   }
 
 @font-face {
     font-family: SourceSansPro;
     src: url(/fonts/SourceSansPro-Light.ttf);
-    font-weight: lighter;
+    font-weight: 200;
   }
 
 
 
-body {
+html, body {
     color: #000;
-    background-color: #fff;
 
     --ptf_neon_pink: #FF0080;
     --ptf_neon_blue: #009ACE;
@@ -34,7 +34,11 @@ body {
     --ptf_background_dark: #0D0D22;
 
     font-family: "SourceSansPro";
-    font-weight: normal;
+    font-weight: 300;
+    font-size: 20px;
+    margin: 0;
+    padding: 0;
+
 }
 
 body.monitorbody {
@@ -124,11 +128,6 @@ a:link, a:visited, a:hover {
     color: #aaa;
 }
 
-body {
-    padding: 20px;
-    font-family: "SourceSansPro";
-}
-
 a.help-link, a.help-link:link, a.help-link:visited {
     float: right;
     padding-left: 30px;
@@ -156,12 +155,6 @@ a.help-link:hover {
     text-decoration: underline;
     color:  #608b9e;
 }
-
-/*
-.extended_stops {
-    color: #555;
-}
-*/
 
 *[title] {
     text-decoration: underline dotted 1px;
@@ -496,20 +489,6 @@ a.outer:hover .line {
     margin-bottom: 20px;
 }
 
-/*
-.timebar span {
-    position: absolute;
-    display: block;
-    top: 100%;
-    left: -20px;
-    right: -20px;
-    text-align: center;
-    color: #90B9CA;
-    font-weight: normal;
-    font-size: 14px;
-}
-*/
-
 .timelabels_footer {
     position: -webkit-sticky;
     position: sticky;
@@ -544,14 +523,6 @@ a.outer:hover .line {
 
 /* from dystonse-landingpage */
 
-html, body {
-    font-family: "SourceSansPro";
-    font-weight: 300;
-    font-size: 20px;
-    margin: 0;
-    padding: 0;
-}
-
 .container {
     display: grid;
     justify-content: center;
@@ -575,6 +546,10 @@ html, body {
     
     transition: all 0.2s ease;
     
+}
+
+input.box {
+    cursor: pointer;
 }
 
 a.box:hover, .box:hover {
@@ -662,6 +637,59 @@ img.logo {
         grid-column: 1 / 2;
     }
 }
+
+/* from help page: */
+
+.headbox img {
+    width: 100%;
+  }
+  
+  a.navi {
+    display: block;
+    position: absolute;
+    right: 0;
+  }
+  
+  h1 {
+    padding-top: 30px;
+  }
+  
+  a:link, a:visited {
+    text-decoration: none;
+    color:  #608b9e;
+  }
+  
+  a:hover {
+    text-decoration: underline;
+    color:  #608b9e;
+  }
+  
+  td {
+    border: solid 1px;
+    border-color: #608b9e;
+    padding: 10px;
+  }
+  
+  p.images {
+    display: inline-block;
+  }
+
+.headbox .dystonse-image {
+    display: inline-block;
+    vertical-align: top;
+    width: 49%;
+  }
+
+@media (max-width: 800px) {
+    .headbox img {
+      margin: auto;
+    }
+  
+    .headbox .dystonse-image {
+      width: 100%;
+    }
+    
+  }
 
 /* From monitor */
 
