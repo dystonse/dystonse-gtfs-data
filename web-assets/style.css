@@ -814,7 +814,7 @@ img.logo {
         flex-basis: 60px;
     }
 
-    .embed div.search #start {
+    body.embed div.search #start {
         font-size: 16px;
         flex-basis: 40px;
         margin-top: 0;
