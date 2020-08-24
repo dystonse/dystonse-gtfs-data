@@ -118,7 +118,7 @@ async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::resul
     println!("path_parts_str: {:?}", path_parts_str);
     let result: FnResult<Response<Body>> = match &path_parts_str[..] {
         [] => generate_search_page(&monitor, false),
-        ["fonts", _] | ["favicons", _] | ["favicon.ico"]  | ["style.css"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
+        ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["impressum.html"]  | ["style.css"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
         ["embed"] => generate_search_page(&monitor, true),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
@@ -238,7 +238,7 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
         </div>
         </div>
         <div class="footer">
-            <a class="boxlink" href="http://blog.dystonse.org/impressum/">Impressum</a> 
+            <a class="boxlink" href="/impressum.html">Impressum</a> 
         </div>
         </body>
         </html>"#
