@@ -386,8 +386,18 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
 
     generate_breadcrumbs(&mut w, journey_data)?;
 
+    let extended_stops_span = if stop_data.extended_stop_names.len() > 1 {
+        format!(
+            r#" <span class="extended_stops" title="{stop_names}">(und {stops_number} weitere)</span>"#,
+            stop_names = stop_data.extended_stop_names.join(",\n"),
+            stops_number = stop_data.extended_stop_names.len() - 1,
+        )
+    } else {
+        String::new()
+    };
+
     write!(&mut w, r#"
-        <h1>Abfahrten für {stop_name} <span class="extended_stops" title="{stop_names}">(und {stops_number} weitere)</span>, {date} von {min_time} bis {max_time}</h1>
+        <h1>Abfahrten für {stop_name}{extended_stops_span}, {date} von {min_time} bis {max_time}</h1>
             <div class="header">
             <div class="timing">
             <div class="head time" title="Abfahrt laut Fahrplan">Plan △</div>
@@ -403,8 +413,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
         </div>
         <div class="timeline">"#,
         stop_name = stop_data.stop_name,
-        stop_names = stop_data.extended_stop_names.join(",\n"),
-        stops_number = stop_data.extended_stop_names.len() - 1,
+        extended_stops_span = extended_stops_span,
         date = min_time.formatl("%A, %e. %B", "de"),
         min_time = min_time.format("%H:%M"),
         max_time = max_time.format("%H:%M")
@@ -508,21 +517,21 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
             } 
         }else { // previus stop was the last stop
             //write non-link for last stop:
-            write!(&mut w, r#" ➞ <span>{}<span>"#, stop_text)?;
+            write!(&mut w, r#" ➞ <span>{}</span>"#, stop_text)?;
             break;
         }
         if let Some(JourneyComponent::Stop(stop_data)) = journey_iter.next() {
             stop_text = stop_data.stop_name.clone();
             if walked {
                 //write non-link for previous walk:
-                write!(&mut w, r#" ➞ <span>Fußweg<span>"#)?;
+                write!(&mut w, r#" ➞ <span>Fußweg</span>"#)?;
             } else {
                 //write link for previous trip:
                 write!(&mut w, r#" ➞ <a href="{}">{}</a>"#, stop_data.prev_component.as_ref().unwrap().get_url(), trip_text)?;
             }
         } else if !walked {
             //write non-link for last trip:
-            write!(&mut w, r#" ➞ <span>{}<span>"#, trip_text)?;
+            write!(&mut w, r#" ➞ <span>{}</span>"#, trip_text)?;
             break;
         }
     }

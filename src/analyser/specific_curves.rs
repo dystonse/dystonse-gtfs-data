@@ -212,8 +212,7 @@ impl<'a> SpecificCurveCreator<'a> {
 
                             delay_found = true;
 
-                            continue 'stop_time_loop; // go on to next item
-
+                            
                         } else if item.stop_sequence > st.stop_sequence {
 
                             if delay_found {
