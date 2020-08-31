@@ -250,13 +250,15 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             WHERE 
                 `source` = :source AND 
                 `trip_start_date` + INTERVAL TIME_TO_SEC(`trip_start_time`) SECOND < :end AND
-                `schedule_file_name` != :schedule_file_name
+                `schedule_file_name` != :schedule_file_name AND
+                `origin_type` = :origin_type
             ;",
         )?;
         con.exec_drop(statement, params!{
             "source" => self.importer.main.source.clone(),
             "end" => date_time.naive_local(),
             "schedule_file_name" => self.filename.clone(),
+            "origin_type" => OriginType::Schedule.to_int(),
         })?;
 
         Ok(())
