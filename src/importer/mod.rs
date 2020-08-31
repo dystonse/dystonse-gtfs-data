@@ -566,7 +566,7 @@ pub fn get_predictions_statements(pool: Arc<Pool>) -> FnResult<BatchedStatements
         `origin_type` = :origin_type,
         `sample_size` = :sample_size,
         `prediction_curve` = :prediction_curve,
-        `schedule_file_name` = schedule_file_name
+        `schedule_file_name` = :schedule_file_name
         WHERE
         `source` = :source AND
         `event_type` = :event_type AND
