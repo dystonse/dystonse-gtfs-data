@@ -268,19 +268,19 @@ impl Main {
 
     // returns the schedule (from args or auto-lookup)
     pub fn get_schedule(&self) -> FnResult<Arc<Gtfs>> {
-        let filename = Self::get_schedule_filename(&self.args)?;
+        let filename = self.get_schedule_filename()?;
         FileCache::get_cached_simple(&self.gtfs_cache, &filename)
     }
 
-    fn get_schedule_filename(args: &ArgMatches) -> FnResult<String> {
+    pub fn get_schedule_filename(&self) -> FnResult<String> {
         // find out if schedule arg is given:
         let schedule_filename : String = 
-        if let Some(filename) = args.value_of("schedule") {
+        if let Some(filename) = self.args.value_of("schedule") {
             filename.to_string()
         } else {
             // if the arg is not given, look up the newest schedule file:
             println!("No schedule file name given, looking up the most recent schedule file…");
-            let dir = args.value_of("dir").unwrap(); // already validated by clap
+            let dir = self.args.value_of("dir").unwrap(); // already validated by clap
             let schedule_dir = format!("{}/schedule", dir);
             let schedule_filenames = read_dir_simple(&schedule_dir)?; //list of all schedule files
             schedule_filenames.last().or_error("No schedule found when trying to find the newest schedule file.")?.clone() //return the newest file (last filename)

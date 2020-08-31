@@ -22,6 +22,7 @@ pub struct ScheduledPredictionsImporter<'a> {
     verbose: bool,
     predictor: Predictor<'a>,
     predictions_statements: Option<BatchedStatements>,
+    filename: String,
 }
 
 lazy_static!{
@@ -54,6 +55,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             verbose,
             predictor: Predictor::new(importer.main, &importer.main.args)?,
             predictions_statements: None,
+            filename: importer.main.get_schedule_filename()?,
         };
         instance.init_predictions_statements()?;
         Ok(instance)
@@ -261,7 +263,8 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             "precision_type" => curve_data.precision_type.to_int(),
             "origin_type" => OriginType::Schedule.to_int(),
             "sample_size" => curve_data.sample_size,
-            "prediction_curve" => curve_data.curve.serialize_compact_limited(120)
+            "prediction_curve" => curve_data.curve.serialize_compact_limited(120),
+            "schedule_file_name" => self.filename.clone(),
         }))?;
         
         Ok(())
