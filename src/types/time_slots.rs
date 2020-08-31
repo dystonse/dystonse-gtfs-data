@@ -200,6 +200,7 @@ impl TimeSlot {
         return day && hour;
     }
 
+    #[allow(dead_code)]
     pub fn matches_item(&self, item: &DbItem, trip: &Trip, et: EventType) -> bool {
         if let Some(dt) = item.get_datetime_from_trip(trip, et) {
             self.matches(dt)

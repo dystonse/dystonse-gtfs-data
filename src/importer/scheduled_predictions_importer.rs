@@ -5,7 +5,7 @@ use std::sync::Arc;
 use mysql::*;
 use mysql::prelude::*;
 
-use super::{Importer, VehicleIdentifier};
+use super::{Importer, VehicleIdentifier, get_predictions_statements};
 use super::MAX_ESTIMATED_TRIP_DURATION;
 use super::batched_statements::BatchedStatements;
 use crate::{FnResult, date_and_time_local};
@@ -291,41 +291,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
     }
 
     fn init_predictions_statements(&mut self) -> FnResult<()> {
-        let mut conn = self.importer.main.pool.get_conn()?;
-        let insert_statement = conn.prep(r"INSERT IGNORE INTO `predictions` (
-            `source`,
-            `event_type`,
-            `stop_id`,
-            `prediction_min`,
-            `prediction_max`,
-            `route_id`,
-            `trip_id`,
-            `trip_start_date`,
-            `trip_start_time`,
-            `stop_sequence`,
-            `precision_type`,
-            `origin_type`,
-            `sample_size`,
-            `prediction_curve`
-        ) VALUES ( 
-            :source,
-            :event_type,
-            :stop_id,
-            :prediction_min,
-            :prediction_max,
-            :route_id,
-            :trip_id,
-            :trip_start_date,
-            :trip_start_time,
-            :stop_sequence,
-            :precision_type,
-            :origin_type,
-            :sample_size,
-            :prediction_curve
-        );")
-        .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
-
-        self.predictions_statements = Some(BatchedStatements::new("scheduled predictions", conn, vec![insert_statement]));
+        self.predictions_statements = Some(get_predictions_statements(self.importer.main.pool.clone())?);
         Ok(())
     }
 }

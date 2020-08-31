@@ -14,6 +14,8 @@ use mysql::prelude::*;
 use chrono::{Local, Duration, DateTime, Timelike};
 use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Arc;
+use batched_statements::BatchedStatements;
 
 use crate::{Main, FileCache, FnResult, read_dir_simple, date_from_filename, OrError};
 use crate::types::{PredictionBasis, VehicleIdentifier};
@@ -551,4 +553,64 @@ impl<'a> Importer<'a>  {
         std::fs::rename(filename, target_path)?;
         Ok(())
     }
+}
+
+pub fn get_predictions_statements(pool: Arc<Pool>) -> FnResult<BatchedStatements> {
+    let mut conn = pool.get_conn()?;
+    let update_statement = conn.prep(r"UPDATE `predictions`
+    SET 
+        `stop_id` = :stop_id,
+        `prediction_min` = :prediction_min,
+        `prediction_max` = :prediction_max,
+        `precision_type` = :precision_type,
+        `origin_type` = :origin_type,
+        `sample_size` = :sample_size,
+        `prediction_curve` = :prediction_curve,
+        `schedule_file_name` = schedule_file_name
+        WHERE
+        `source` = :source AND
+        `event_type` = :event_type AND
+        `stop_sequence` = :stop_sequence AND
+        `route_id` = :route_id AND
+        `trip_id` = :trip_id AND
+        `trip_start_date` = :trip_start_date AND
+        `trip_start_time` = :trip_start_time;").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
+
+    let insert_statement = conn.prep(r"INSERT IGNORE INTO `predictions` (
+        `source`,
+        `event_type`,
+        `stop_id`,
+        `prediction_min`,
+        `prediction_max`,
+        `route_id`,
+        `trip_id`,
+        `trip_start_date`,
+        `trip_start_time`,
+        `stop_sequence`,
+        `precision_type`,
+        `origin_type`,
+        `sample_size`,
+        `prediction_curve`,
+        `schedule_file_name`
+    ) VALUES ( 
+        :source,
+        :event_type,
+        :stop_id,
+        :prediction_min,
+        :prediction_max,
+        :route_id,
+        :trip_id,
+        :trip_start_date,
+        :trip_start_time,
+        :stop_sequence,
+        :precision_type,
+        :origin_type,
+        :sample_size,
+        :prediction_curve,
+        :schedule_file_name
+    );")
+    .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
+
+    // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
+    Ok(BatchedStatements::new("predictions", conn, vec![update_statement, insert_statement]))
 }

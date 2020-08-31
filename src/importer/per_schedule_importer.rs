@@ -8,11 +8,11 @@ use simple_error::bail;
 use std::fs::File;
 use std::io::prelude::*;
 use mysql::prelude::*;
-use std::sync::{Arc};
+use std::sync::Arc;
 use rayon::prelude::*;
 
 use super::batched_statements::BatchedStatements;
-use super::{Importer, VehicleIdentifier};
+use super::{Importer, VehicleIdentifier, get_predictions_statements};
 use crate::types::PredictionResult;
 
 use crate::{FnResult, OrError, date_and_time_local};
@@ -359,7 +359,8 @@ impl<'a> PerScheduleImporter<'a> {
             "precision_type" => curve_data.precision_type.to_int(),
             "origin_type" => OriginType::Realtime.to_int(),
             "sample_size" => curve_data.sample_size,
-            "prediction_curve" => curve_data.curve.serialize_compact_limited(120)
+            "prediction_curve" => curve_data.curve.serialize_compact_limited(120),
+            "schedule_file_name" => self.filename
         }))?;
         Ok(())
     }
@@ -454,62 +455,8 @@ impl<'a> PerScheduleImporter<'a> {
         Ok(())
     }
 
-    //TODO: needs to be updated for using OriginType!
     fn init_predictions_statements(&mut self) -> FnResult<()> {
-        let mut conn = self.importer.main.pool.get_conn()?;
-        let update_statement = conn.prep(r"UPDATE `predictions`
-        SET 
-            `stop_id` = :stop_id,
-            `prediction_min` = :prediction_min,
-            `prediction_max` = :prediction_max,
-            `precision_type` = :precision_type,
-            `origin_type` = :origin_type,
-            `sample_size` = :sample_size,
-            `prediction_curve` = :prediction_curve
-            WHERE
-            `source` = :source AND
-            `event_type` = :event_type AND
-            `stop_sequence` = :stop_sequence AND
-            `route_id` = :route_id AND
-            `trip_id` = :trip_id AND
-            `trip_start_date` = :trip_start_date AND
-            `trip_start_time` = :trip_start_time;").expect("Could not prepare update statement"); // Should never happen because of hard-coded statement string
-
-        let insert_statement = conn.prep(r"INSERT IGNORE INTO `predictions` (
-            `source`,
-            `event_type`,
-            `stop_id`,
-            `prediction_min`,
-            `prediction_max`,
-            `route_id`,
-            `trip_id`,
-            `trip_start_date`,
-            `trip_start_time`,
-            `stop_sequence`,
-            `precision_type`,
-            `origin_type`,
-            `sample_size`,
-            `prediction_curve`
-        ) VALUES ( 
-            :source,
-            :event_type,
-            :stop_id,
-            :prediction_min,
-            :prediction_max,
-            :route_id,
-            :trip_id,
-            :trip_start_date,
-            :trip_start_time,
-            :stop_sequence,
-            :precision_type,
-            :origin_type,
-            :sample_size,
-            :prediction_curve
-        );")
-        .expect("Could not prepare insert statement"); // Should never happen because of hard-coded statement string
-
-        // TODO: update where old.time_of_recording < new.time_of_recording...; INSERT IGNORE...;
-        self.predictions_statements = Some(BatchedStatements::new("predictions", conn, vec![update_statement, insert_statement]));
+        self.predictions_statements = Some(get_predictions_statements(self.importer.main.pool.clone())?);
         Ok(())
     }
 }
