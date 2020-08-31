@@ -55,7 +55,7 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             verbose,
             predictor: Predictor::new(importer.main, &importer.main.args)?,
             predictions_statements: None,
-            filename: importer.main.get_schedule_filename()?,
+            filename: importer.main.get_schedule_filename()?.split("/").last().unwrap().to_string(),
         };
         instance.init_predictions_statements()?;
         Ok(instance)
