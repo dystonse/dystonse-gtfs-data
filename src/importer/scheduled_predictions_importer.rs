@@ -275,13 +275,25 @@ impl<'a> ScheduledPredictionsImporter<'a> {
 
         let mut conn = self.importer.main.pool.get_conn()?;
         
-        let select_statement = conn.prep(r"SELECT `trip_start_date`,`trip_start_time` 
-            FROM `predictions` WHERE `origin_type` = :origin_type AND `source` = :source
-            ORDER BY trip_start_date + INTERVAL TIME_TO_SEC(trip_start_time) SECOND DESC 
-            LIMIT 0,1;").expect("Could not prepare select statement");
+        let select_statement = conn.prep(r"
+            SELECT 
+                `trip_start_date`,`trip_start_time` 
+            FROM 
+                `predictions` 
+            WHERE 
+                `origin_type` = :origin_type AND `source` = :source AND `schedule_file_name` = :schedule_file_name
+            ORDER BY 
+                trip_start_date + INTERVAL TIME_TO_SEC(trip_start_time) SECOND DESC 
+            LIMIT 
+                0,1;
+        ").expect("Could not prepare select statement");
  
         let query_result : Option<(NaiveDate, Duration)> = conn.exec_first(select_statement, 
-            params!{"source" => self.importer.main.source.clone(), "origin_type" => OriginType::Schedule.to_int()})?; 
+            params!{
+                "source" => self.importer.main.source.clone(), 
+                "origin_type" => OriginType::Schedule.to_int(),
+                "schedule_file_name" => self.filename.clone(),
+            })?; 
             //actual errors will be thrown here if they occur
         if let Some((date, duration)) = query_result {
             return Ok(GtfsDateTime::new(Local.from_local_date(&date).unwrap(), duration.num_seconds() as i32).date_time());
