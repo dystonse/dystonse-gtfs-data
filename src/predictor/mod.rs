@@ -194,23 +194,23 @@ impl<'a> Predictor<'a> {
         // try to find a specific prediction:
         let specific_prediction = self.predict_specific(route_id, route_variant, start, stop_sequence, ts, et, &trip);
 
-        if route_id == "32727_3" {
-            println!(
-                "ROUTE_DEBUG: Made prediction for route {}, trip {}, starting at stop/delay {:?} with trip start time {}, stop_sequence {}, ET {:?}",
-                route_id,
-                trip_id,
-                start,
-                date_time.format("%d.%m. %H:%M"),
-                stop_sequence,
-                et
-            );
-            if let Ok(PredictionResult::CurveData(curve_data)) = &specific_prediction {
-                println!(
-                    "ROUTE_DEBUG: Specific prediction has precision_type: {:?}",
-                    curve_data.precision_type
-                );
-            }
-        }
+        // if route_id == "32727_3" {
+        //     println!(
+        //         "ROUTE_DEBUG: Made prediction for route {}, trip {}, starting at stop/delay {:?} with trip start time {}, stop_sequence {}, ET {:?}",
+        //         route_id,
+        //         trip_id,
+        //         start,
+        //         date_time.format("%d.%m. %H:%M"),
+        //         stop_sequence,
+        //         et
+        //     );
+        //     if let Ok(PredictionResult::CurveData(curve_data)) = &specific_prediction {
+        //         println!(
+        //             "ROUTE_DEBUG: Specific prediction has precision_type: {:?}",
+        //             curve_data.precision_type
+        //         );
+        //     }
+        // }
 
         // unwrap that, or try a default prediction if it failed:
         specific_prediction.or_else(|_| {
@@ -224,16 +224,16 @@ impl<'a> Predictor<'a> {
                 event_type: et
             };
             let default_prediction = self.predict_default(&key);
-            if route_id == "32727_3" {
-                println!(
-                    "ROUTE_DEBUG: No specific prediction. Use default prediction instead, with key: {:?}",
-                    key
-                );
-                println!(
-                    "ROUTE_DEBUG: Default prediction is: {:?}",
-                    default_prediction
-                );
-            }
+            // if route_id == "32727_3" {
+            //     println!(
+            //         "ROUTE_DEBUG: No specific prediction. Use default prediction instead, with key: {:?}",
+            //         key
+            //     );
+            //     println!(
+            //         "ROUTE_DEBUG: Default prediction is: {:?}",
+            //         default_prediction
+            //     );
+            // }
             default_prediction
         })
     }
