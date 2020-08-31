@@ -231,6 +231,34 @@ impl<'a> ScheduledPredictionsImporter<'a> {
             println!("Wrote predictions until {}.", latest_prediction);
         }
 
+        // now cleanup schedule based predictions which are based on an outdated schedule and were not 
+        // updated by the recent batch, even though they were in the relevant time window.
+        // Those are probably caused by changed trip_ids and would show up as duplicate trips in the
+        // monitor if not deleted.
+        self.delete_outdated_predictions(end)?;
+        println!("Deleted outdated predictions before {}", end);
+
+        Ok(())
+    }
+
+    fn delete_outdated_predictions(&self, date_time: DateTime<Local>) -> FnResult<()> {
+        let mut con = self.importer.main.pool.get_conn()?;
+        
+        let statement = con.prep(
+            r"DELETE FROM 
+                predictions 
+            WHERE 
+                `source` = :source AND 
+                `trip_start_date` + INTERVAL TIME_TO_SEC(`trip_start_time`) SECOND < :end AND
+                `schedule_file_name` != :schedule_file_name
+            ;",
+        )?;
+        con.exec_drop(statement, params!{
+            "source" => self.importer.main.source.clone(),
+            "end" => date_time.naive_local(),
+            "schedule_file_name" => self.filename.clone(),
+        })?;
+
         Ok(())
     }
 
