@@ -26,6 +26,7 @@ pub struct JourneyData {
     pub start_date_time: DateTime<Local>,
     pub components: Vec<JourneyComponent>,
     pub monitor: Arc<Monitor>,
+    pub schedule: Arc<Gtfs>
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +172,7 @@ impl JourneyData {
             components: Vec::new(),
             monitor: monitor.clone(),
             start_date_time: Local::now(), // will be overwritten during parse 
+            schedule: monitor.main.get_schedule()?
         };
 
         journey_data.parse_journey(journey)?;
@@ -223,7 +225,7 @@ impl JourneyData {
             format!("/{}/{}/", self.start_date_time.format("%d.%m.%y %H:%M"), stop_string)
         };
 
-        let stops : Vec<Arc<Stop>> = self.monitor.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
+        let stops : Vec<Arc<Stop>> = self.schedule.stops.iter().filter_map(|(_id, stop)| if stop_name == stop.name {Some(stop.clone())} else {None}).collect();
 
         if stops.is_empty() {
             bail!("No stops found for stop_name {}", stop_name);
@@ -236,7 +238,7 @@ impl JourneyData {
         let mut extended_stop_ids : HashSet<String> = HashSet::new();
         let mut extended_stop_names : HashSet<String> = HashSet::new();
         let mut extended_stops_distances : HashMap<String, f32> = HashMap::new();
-        for (other_stop_id, other_stop) in &self.monitor.schedule.stops {
+        for (other_stop_id, other_stop) in &self.schedule.stops {
             let other_stop_geo = point!(x: other_stop.latitude.unwrap(), y: other_stop.longitude.unwrap());
             for stop_geo in &stop_geos {
                 let distance = stop_geo.haversine_distance(&other_stop_geo) as f32;
@@ -268,7 +270,7 @@ impl JourneyData {
         
         if let Some(prev) = &prev_component {
             if let JourneyComponent::Trip(trip_data) = prev {
-                if let Ok(trip) = self.monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id) {
+                if let Ok(trip) = self.schedule.get_trip(&trip_data.vehicle_id.trip_id) {
 
                     // in the next part we find the stop_time at which we get off the vehicle,
                     // and we must check that it's stop_sequence is higher than the stop_sequence on
@@ -378,14 +380,14 @@ impl JourneyData {
 
         // now we will need the schedule, and info about the stop from where we want to start...
 
-        for (id, trip) in &self.monitor.schedule.trips {
+        for (id, trip) in &self.schedule.trips {
             // look up the trips by headsign
             if trip.trip_headsign != some_trip_headsign {
                 continue;
             }
 
             // look up trips with route (by route name and route type)
-            if let Ok(route) = self.monitor.schedule.get_route(&trip.route_id) {
+            if let Ok(route) = self.schedule.get_route(&trip.route_id) {
                 if route.short_name != route_name {
                     continue;
                 }
@@ -402,7 +404,7 @@ impl JourneyData {
             }
 
             // then, filter trips by date (we only want trips that are scheduled to the start_departure_date or the previous or next day)
-            let trip_days : Vec<u16> = self.monitor.schedule.trip_days(&trip.service_id, (journey_start_date - Duration::days(1)).naive_local());
+            let trip_days : Vec<u16> = self.schedule.trip_days(&trip.service_id, (journey_start_date - Duration::days(1)).naive_local());
             let filtered_trip_days : Vec<_> = trip_days.iter().filter(|d| **d <= 2).collect();
             // after this filter, only a subset of these values can be in filtered_trip_days:
             // 0 day before start_departure_date

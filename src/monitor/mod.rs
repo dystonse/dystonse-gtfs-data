@@ -47,11 +47,12 @@ const FAVICON_HEADERS: &'static str = r##"
 
 #[derive(Clone)]
 pub struct Monitor {
-    pub schedule: Arc<Gtfs>,
+    //pub schedule: Arc<Gtfs>,
     pub pool: Arc<Pool>,
     pub source: String,
     pub stats: Arc<DelayStatistics>,
     pub static_server: Static,
+    pub main: Arc<Main>,
 }
 
 impl Monitor {
@@ -60,15 +61,16 @@ impl Monitor {
     }
 
     /// Runs the actions that are selected via the command line args
-    pub fn run(main: &Main, _sub_args: &ArgMatches) -> FnResult<()> {
+    pub fn run(main: Arc<Main>, _sub_args: &ArgMatches) -> FnResult<()> {
         let stats = FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).or_error("No delay statistics (all_curves.exp) found.")?;
 
         let monitor = Monitor {
-            schedule: main.get_schedule()?.clone(),
+            // schedule: main.get_schedule()?.clone(),
             pool: main.pool.clone(),
             source: main.source.clone(),
             stats,
             static_server: Static::new("web-assets/"),
+            main: main.clone(),
         };
 
         let mut rt = tokio::runtime::Runtime::new().unwrap();
@@ -162,7 +164,8 @@ async fn serve_static_file(monitor: &Arc<Monitor>, request: Request<Body>) -> Fn
 }
 
 fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Response<Body>> {
-    println!("{} Haltestellen gefunden.", monitor.schedule.stops.len());
+    let schedule = monitor.main.get_schedule()?;
+    println!("{} Haltestellen gefunden.", schedule.stops.len());
     // TODO: handle the different GTFS_SOURCE_IDs in some way
     // TODO: compress output, of this page specifically. Adding compression to hyper is
     // explained / shown in the middle of this blog post: https://dev.to/deciduously/hyper-webapp-template-4lj7
@@ -214,7 +217,7 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
         target = if embed { "_blank" } else { "_self" },
         initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
     )?;
-    for name in monitor.schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
+    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
         write!(&mut w, r#"
                     <option>{name}</option>"#,
         name=name)?;
@@ -280,6 +283,8 @@ fn generate_error_page(code: StatusCode, message: &str) -> FnResult<Response<Bod
 }
 
 fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_data: &StopData) -> FnResult<Response<Body>> {
+    let schedule = monitor.main.get_schedule()?;
+
     let mut response = Response::new(Body::empty());
     let mut departures : Vec<DbPrediction> = Vec::new();
     let exact_min_time = stop_data.start_curve.typed_x_at_y(0.01);
@@ -294,7 +299,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     //first line: arrival at this stop
     if let Some(arrival_trip) = stop_data.get_previous_trip_data() {
         //let arrival_stop_id = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop.id.clone();
-        let arrival_stop_sequence = arrival_trip.get_trip(&monitor.schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop_sequence;
+        let arrival_stop_sequence = arrival_trip.get_trip(&schedule)?.stop_times[stop_data.arrival_trip_stop_index.unwrap()].stop_sequence;
 
         if let Ok(arrival) = get_prediction_for_first_line(monitor.clone(), arrival_stop_sequence, &arrival_trip.vehicle_id, EventType::Arrival) {
             trip_arrival_option = Some(arrival);
@@ -308,7 +313,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     println!("Found {} departure predictions.", departures.len());
 
     for dep in &mut departures {
-        if let Err(e) = dep.compute_meta_data(monitor){
+        if let Err(e) = dep.compute_meta_data(schedule.clone()){
             eprintln!("Could not compute metadata for departure with trip_id {}: {}", dep.trip_id , e);
         }
     }
@@ -351,8 +356,8 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
     // remove departures where the current stop is the last one (which seem to happen for trains quite often):
     
     // local function for use in predicate below
-    fn is_at_last_stop(dep: &DbPrediction, monitor: &Arc<Monitor>) -> bool {
-        if let Ok(trip) = &monitor.schedule.get_trip(&dep.trip_id) {
+    fn is_at_last_stop(dep: &DbPrediction, schedule: Arc<Gtfs>) -> bool {
+        if let Ok(trip) = &schedule.get_trip(&dep.trip_id) {
             if let Some(stop_time) = &trip.stop_times.last() {
                 let last_stop_id = &stop_time.stop.id;
                 return dep.stop_id == *last_stop_id && dep.stop_sequence == stop_time.stop_sequence as usize;
@@ -361,7 +366,7 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
         false
     }
     
-    departures.retain(|dep| !is_at_last_stop(&dep, &monitor.clone()));
+    departures.retain(|dep| !is_at_last_stop(&dep, schedule.clone()));
 
     println!("Kept {} departure predictions after removing trips that are at their last stop.", departures.len());
 
@@ -426,12 +431,12 @@ fn generate_stop_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, stop_d
 
     //optional first line for arrival by trip:
     if let Some(mut arrival) = trip_arrival_option {
-        arrival.compute_meta_data(monitor)?;
-        write_departure_output(&mut w, &arrival, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Arrival)?;
+        arrival.compute_meta_data(schedule.clone())?;
+        write_departure_output(&mut w, &arrival, &journey_data, &stop_data, min_time, max_time, EventType::Arrival, schedule.clone())?;
     }
 
     for dep in departures {
-        write_departure_output(&mut w, &dep, &journey_data, &stop_data, &monitor.clone(), min_time, max_time, EventType::Departure)?;
+        write_departure_output(&mut w, &dep, &journey_data, &stop_data, min_time, max_time, EventType::Departure, schedule.clone())?;
     }
     generate_timeline(&mut w, min_time, len_time)?;
     write!(&mut w, r#"
@@ -542,9 +547,11 @@ fn generate_breadcrumbs(mut w: &mut Vec<u8>, journey_data: &JourneyData) -> FnRe
 }
 
 fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_data: &TripData) -> FnResult<Response<Body>> {
+    let schedule = monitor.main.get_schedule()?;
+
     let mut response = Response::new(Body::empty());
-    let trip = monitor.schedule.get_trip(&trip_data.vehicle_id.trip_id)?;
-    let route = monitor.schedule.get_route(&trip.route_id)?;
+    let trip = schedule.get_trip(&trip_data.vehicle_id.trip_id)?;
+    let route = schedule.get_route(&trip.route_id)?;
     
     let start_sequence = trip.stop_times[trip_data.boarding_stop_index.unwrap()].stop_sequence;
     //let start_id = &trip.stop_times[trip_data.start_index.unwrap()].stop.id;
@@ -564,12 +571,12 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
     }
 
     for arr in &mut arrivals {
-        if let Err(e) = arr.compute_meta_data(monitor){
+        if let Err(e) = arr.compute_meta_data(schedule.clone()){
             eprintln!("Could not compute metadata for arrival with trip_id {}: {}", arr.trip_id , e);
         }
     }
 
-    departure.compute_meta_data(monitor)?;
+    departure.compute_meta_data(schedule.clone())?;
     let exact_min_time = departure.get_absolute_time_for_probability(0.01).unwrap();
 
     let exact_max_time = if let Some(time) = arrivals.iter().filter_map(|arr| arr.get_absolute_time_for_probability(0.99).ok()).max() {
@@ -703,10 +710,10 @@ fn write_departure_output(
     dep: &DbPrediction, 
     _journey_data: &JourneyData,
     stop_data: &StopData,
-    monitor: &Arc<Monitor>,
     min_time: DateTime<Local>,
     max_time: DateTime<Local>,
     event_type: EventType,
+    schedule: Arc<Gtfs>
     ) -> FnResult<()> {
     let md = dep.meta_data.as_ref().unwrap();
     let a_scheduled = dep.meta_data.as_ref().unwrap().scheduled_time_absolute;
@@ -772,7 +779,7 @@ fn write_departure_output(
     // prepare info for departure from extended stops list
     let mut extended_stop_info : String = String::from("");
     if let Some(d) = stop_data.extended_stops_distances.get(&dep.stop_id) {
-        let alternative_stop_name = monitor.schedule.get_stop(&dep.stop_id)?.name.clone();
+        let alternative_stop_name = schedule.get_stop(&dep.stop_id)?.name.clone();
         extended_stop_info = format!(
             r#"<div class="area walk" title="{min_walk_time} bis {max_walk_time} Fußweg bis {alternative_stop_name}"><span>{d:.0} m</span></div>"#,
             alternative_stop_name = alternative_stop_name,
@@ -1108,14 +1115,16 @@ fn generate_png_data_url(time_curve: &TimeCurve, min_time: DateTime<Local>, max_
 }
 
 fn generate_info_page(monitor: &Arc<Monitor>, journey: &JourneyData) -> FnResult<Response<Body>> {
+    let schedule = monitor.main.get_schedule()?;
+
     let mut response = Response::new(Body::empty());
     println!("generate_info_page");
     let trip_data = match journey.get_last_component().unwrap() {
         JourneyComponent::Trip(trip_data) => trip_data,
         _ => bail!("No trip at journey end"),
     };
-    let route = monitor.schedule.get_route(&trip_data.route_id)?;
-    let trip: &Trip = trip_data.get_trip(&monitor.schedule)?;
+    let route = schedule.get_route(&trip_data.route_id)?;
+    let trip: &Trip = trip_data.get_trip(&schedule)?;
     let route_variant = trip.route_variant.as_ref().unwrap();
 
     let mut w = Vec::new();
@@ -1263,13 +1272,13 @@ pub struct DbPredictionMetaData {
 }
 
 impl DbPrediction {
-    pub fn compute_meta_data(&mut self, monitor: &Arc<Monitor>) -> FnResult<()> {
+    pub fn compute_meta_data(&mut self, schedule: Arc<Gtfs>) -> FnResult<()> {
         if self.meta_data.is_some() {
             return Ok(());
         }
 
-        let trip = monitor.schedule.get_trip(&self.trip_id)?;
-        let route = monitor.schedule.get_route(&self.route_id)?;
+        let trip = schedule.get_trip(&self.trip_id)?;
+        let route = schedule.get_route(&self.route_id)?;
         let route_name = route.short_name.clone();
         let route_type = route.route_type;
         let headsign = trip.trip_headsign.as_ref().or_error("trip_headsign is None")?.clone();
