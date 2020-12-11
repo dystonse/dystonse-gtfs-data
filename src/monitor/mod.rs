@@ -608,7 +608,7 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
     generate_breadcrumbs(&mut w, journey_data)?;
     
     write!(&mut w, r#"
-        <h1>Halte für {route_type} Linie {route_name} nach {headsign} (Trip {trip})</h1>
+        <h1>Halte für {route_type} Linie {route_name} nach {headsign}</h1>
             <div class="header">
             <div class="timing">
                 <div class="head time" title="Abfahrt laut Fahrplan">Plan △</div>
@@ -624,7 +624,6 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
         route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
-        trip = trip.id,
     )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
