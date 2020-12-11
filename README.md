@@ -98,10 +98,11 @@ The following arguments are needed:
 ## Passenger information system / journey planning website
 
 The "monitor" website has some large dependencies that are not needed for any of the other modules, therefore it is configured as an optional feature. If you want to use the `monitor` command, `--features "monitor"` needs to be specified at compile time.
+When starting the `monitor` directly via command line, the (human-readable) long name of the data source / transport provider needs to be specified as an argument. When used in context of the [dystonse-docker](https://github.com/dystonse/dystonse-docker) setup, this argument can be read from the .env files instead.
 
 You can then run the `monitor` functionality with the `monitor` subcommand, e.g.:
 
-    dystonse-gtfs-data --host <db_hostname> --password <db_password> --source <source> --dir <dir> monitor
+    dystonse-gtfs-data --host <db_hostname> --password <db_password> --source <source> --dir <dir> monitor --source-long-name <source_long_name>
 
 The website will then be available on **localhost:3000**.
 

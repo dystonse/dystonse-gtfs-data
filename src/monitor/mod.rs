@@ -4,7 +4,7 @@ mod time_curve;
 use crate::{FnResult, Main, date_and_time_local, OrError};
 use chrono::{Date, DateTime, Local, Duration, Timelike};
 use chrono_locale::LocaleDate;
-use clap::{App, ArgMatches};
+use clap::{App, ArgMatches, Arg};
 use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics, VehicleIdentifier};
 use std::sync::Arc;
 use gtfs_structures::{Gtfs, RouteType, Trip, StopTime};
@@ -49,6 +49,7 @@ pub struct Monitor {
     //pub schedule: Arc<Gtfs>,
     pub pool: Arc<Pool>,
     pub source: String,
+    pub source_long_name: String,
     pub stats: Arc<DelayStatistics>,
     pub static_server: Static,
     pub main: Arc<Main>,
@@ -57,14 +58,22 @@ pub struct Monitor {
 impl Monitor {
     pub fn get_subcommand() -> App<'static>{
         App::new("monitor").about("Starts a web server that serves the monitor website.")
+        .arg(Arg::new("source-long-name")
+            .long("source-long-name")
+            .env("GTFS_DATA_SOURCE_LONG_NAME")
+            .takes_value(true)
+            .about("Human-readable name of the public transport provider that is used as a data source.")
+            .required_unless("help")
+        )
     }
 
     /// Runs the actions that are selected via the command line args
-    pub fn run(main: Arc<Main>, _sub_args: &ArgMatches) -> FnResult<()> {
+    pub fn run(main: Arc<Main>, sub_args: &ArgMatches) -> FnResult<()> {
         let monitor = Monitor {
             // schedule: main.get_schedule()?.clone(),
             pool: main.pool.clone(),
             source: main.source.clone(),
+            source_long_name: String::from(sub_args.value_of("source-long-name").unwrap()),
             stats: main.get_delay_statistics()?,
             static_server: Static::new("web-assets/"),
             main: main.clone(),
@@ -201,8 +210,10 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
             
             <h1>Reiseplaner</h1>
             <p class="official">
-                <b>Hier kannst du deine Reiseroute mit dem öffentlichen Nahverkehr im VBN (Verkehrsverbund Bremen/Niedersachsen) planen.</b>
-            </p>"#)?;
+                <b>Hier kannst du deine Reiseroute mit dem öffentlichen Nahverkehr im {source_long_name} planen.</b>
+            </p>"#,
+            source_long_name = monitor.source_long_name
+        )?;
     }
 
     write!(&mut w, r#"
