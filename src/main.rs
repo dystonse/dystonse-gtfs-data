@@ -47,7 +47,8 @@ pub struct Main {
     dir: String,
     //file caches using Mutexes so main doesn't have to be mutable:
     gtfs_cache: Mutex<FileCache<Gtfs>>,
-    statistics_cache: Mutex<FileCache<DelayStatistics>>,
+    all_statistics_cache: Mutex<FileCache<DelayStatistics>>,
+    default_statistics_cache: Mutex<FileCache<DelayStatistics>>,
 }
 
 fn main() -> FnResult<()> {
@@ -220,7 +221,8 @@ impl Main {
             source,
             dir,
             gtfs_cache: Mutex::new(FileCache::<Gtfs>::new()),
-            statistics_cache: Mutex::new(FileCache::<DelayStatistics>::new()),
+            all_statistics_cache: Mutex::new(FileCache::<DelayStatistics>::new()),
+            default_statistics_cache: Mutex::new(FileCache::<DelayStatistics>::new()),
         })
     }
 
@@ -241,7 +243,7 @@ impl Main {
             },
             #[cfg(feature = "monitor")]
             ("monitor", Some(sub_args)) => {
-                Monitor::run(self.clone(), sub_args)
+                Monitor::run(&self.clone(), sub_args)
             },
             _ => panic!("Invalid arguments."),
         }
@@ -289,6 +291,26 @@ impl Main {
         Ok(schedule_filename)
     }
 
+    pub fn get_delay_statistics(&self) -> FnResult<Arc<DelayStatistics>> {
+        let all_statistics_res     = FileCache::get_cached_simple(&self.all_statistics_cache    , &format!("{}/all_curves.exp"    , self.dir));
+        let default_statistics_res = FileCache::get_cached_simple(&self.default_statistics_cache, &format!("{}/default_curves.exp", self.dir));
+
+        if let Ok(all_statistics) = all_statistics_res {
+            if let Ok(default_statistics) = default_statistics_res {
+                let merged_statistics = DelayStatistics {
+                    specific: all_statistics.as_ref().specific.clone(),
+                    general: default_statistics.as_ref().general.clone(),
+                };
+                return Ok(Arc::new(merged_statistics));
+            } else {
+                return Ok(all_statistics);
+            }
+        } else if let Ok(default_statistics) = default_statistics_res {
+            return Ok(default_statistics);
+        } else {
+            bail!("No delay statistics (neither all_curves.exp nor default_curves.exp were found)."); 
+        }
+    }
 }
 
 pub struct FileCache<T> {

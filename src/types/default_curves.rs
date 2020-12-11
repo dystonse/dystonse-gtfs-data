@@ -19,13 +19,13 @@ use crate::types::{
 };
 
 /// a struct to hold a hash map of all the default curves
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DefaultCurves {
     pub all_default_curves: HashMap<DefaultCurveKey, CurveData>
 }
 
 // Key type for the default curves hashmap, so we don't have to use a tuple:
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub struct DefaultCurveKey {
     pub route_type: RouteType,
     pub route_section: RouteSection,

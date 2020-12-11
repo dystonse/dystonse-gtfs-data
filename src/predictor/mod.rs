@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 use simple_error::bail;
 
-use crate::{Main, FileCache, FnResult, OrError};
+use crate::{Main, FnResult, OrError};
 
 use std::sync::Arc;
 
@@ -94,7 +94,7 @@ impl<'a> Predictor<'a> {
             main,
             args,
             schedule: main.get_schedule()?,
-            delay_statistics: FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).or_error("No delay statistics (all_curves.exp) found.")?,
+            delay_statistics: main.get_delay_statistics()?,
         })
     }
 

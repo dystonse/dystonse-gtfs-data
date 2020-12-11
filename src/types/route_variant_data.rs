@@ -9,14 +9,14 @@ use super::{TimeSlot, CurveSetData, CurveData, EventPair, EventType};
 
 use simple_error::bail;
 
-#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug)]
+#[derive(Serialize, Deserialize, Eq, PartialEq, Hash, Debug, Clone)]
 pub struct CurveSetKey {
     pub start_stop_index: u32,
     pub end_stop_index: u32,
     pub time_slot: TimeSlot
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RouteVariantData {
     pub stop_ids: Vec<String>,
     pub curve_sets: EventPair<HashMap<CurveSetKey, CurveSetData>>,

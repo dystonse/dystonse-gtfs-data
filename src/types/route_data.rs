@@ -10,7 +10,7 @@ use super::RouteVariantData;
 
 use simple_error::bail;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct RouteData {
     pub route_id: String,
     pub variants: HashMap<u64, RouteVariantData>

@@ -6,7 +6,6 @@ use chrono::{Date, DateTime, Local, Duration, Timelike};
 use chrono_locale::LocaleDate;
 use clap::{App, ArgMatches};
 use crate::types::{EventType, OriginType, PrecisionType, CurveSetKey, TimeSlot, DelayStatistics, VehicleIdentifier};
-use crate::FileCache;
 use std::sync::Arc;
 use gtfs_structures::{Gtfs, RouteType, Trip, StopTime};
 use mysql::*;
@@ -62,13 +61,11 @@ impl Monitor {
 
     /// Runs the actions that are selected via the command line args
     pub fn run(main: Arc<Main>, _sub_args: &ArgMatches) -> FnResult<()> {
-        let stats = FileCache::get_cached_simple(&main.statistics_cache, &format!("{}/all_curves.exp", main.dir)).or_error("No delay statistics (all_curves.exp) found.")?;
-
         let monitor = Monitor {
             // schedule: main.get_schedule()?.clone(),
             pool: main.pool.clone(),
             source: main.source.clone(),
-            stats,
+            stats: main.get_delay_statistics()?,
             static_server: Static::new("web-assets/"),
             main: main.clone(),
         };
