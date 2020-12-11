@@ -243,7 +243,7 @@ impl Main {
             },
             #[cfg(feature = "monitor")]
             ("monitor", Some(sub_args)) => {
-                Monitor::run(&self.clone(), sub_args)
+                Monitor::run(self.clone(), sub_args)
             },
             _ => panic!("Invalid arguments."),
         }
