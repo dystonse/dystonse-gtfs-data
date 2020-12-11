@@ -336,7 +336,6 @@ impl JourneyData {
         })))
     }
 
-
     pub fn parse_trip_data(&self, trip_string: &str, prev_component: JourneyComponent) -> FnResult<JourneyComponent> {
         let stop_data = if let JourneyComponent::Stop(stop) = &prev_component {
             stop
@@ -542,6 +541,10 @@ pub fn get_prediction_for_first_line(monitor: Arc<Monitor>, stop_sequence: u16, 
             item
         })
         .collect();
+
+    if db_predictions.len() > 1 {
+        println!("More than one db prediction for first line: {:?}", db_predictions);
+    }
 
     if let Some(pred) = db_predictions.first() {
         return Ok(pred.clone());

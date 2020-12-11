@@ -604,7 +604,7 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
     generate_breadcrumbs(&mut w, journey_data)?;
     
     write!(&mut w, r#"
-        <h1>Halte für {route_type} Linie {route_name} nach {headsign}</h1>
+        <h1>Halte für {route_type} Linie {route_name} nach {headsign} (Trip {trip})</h1>
             <div class="header">
             <div class="timing">
                 <div class="head time" title="Abfahrt laut Fahrplan">Plan △</div>
@@ -620,6 +620,7 @@ fn generate_trip_page(monitor: &Arc<Monitor>, journey_data: &JourneyData, trip_d
         route_type = route_type_to_str(route.route_type),
         route_name = route.short_name,
         headsign = trip.trip_headsign.as_ref().unwrap(),
+        trip = trip.id,
     )?;
     for stop_time in &trip.stop_times {
         // don't display stops that are before the stop where we change into this trip
@@ -822,7 +823,7 @@ fn write_departure_output(
                 </div>
                 <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
                 <div class="area route">{route_name}</div>
-                <div class="area headsign">{headsign}</div>
+                <div class="area headsign">{headsign} (Trip {trip})</div>
                 {extended_stop_info}
                 <div class="area prob {probclass}">{prob:.0} %</div>
                 {source_area}
@@ -845,7 +846,8 @@ fn write_departure_output(
         image_url = image_url,
         prob = prob,
         source_area = get_source_area(Some(dep)),
-        probclass = if prob >= 99.5 { "hundred" } else { "" }
+        probclass = if prob >= 99.5 { "hundred" } else { "" },
+        trip = dep.trip_id,
     )?;
 
     write_marker(w, a_scheduled, min_time, max_time, "plan")?;
