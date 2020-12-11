@@ -51,7 +51,7 @@ pub struct Main {
 }
 
 fn main() -> FnResult<()> {
-    let mut instance = Main::new()?;
+    let instance = Arc::<Main>::new(Main::new()?);
     instance.run()?;
     Ok(())
 }
@@ -225,7 +225,7 @@ impl Main {
     }
 
     /// Runs the actions that are selected via the command line args
-    fn run(&mut self) -> FnResult<()> {
+    fn run(self: Arc<Self>) -> FnResult<()> {
         match self.args.clone().subcommand() {
             ("import", Some(sub_args)) => {
                 let mut importer = Importer::new(&self, sub_args);
@@ -241,7 +241,7 @@ impl Main {
             },
             #[cfg(feature = "monitor")]
             ("monitor", Some(sub_args)) => {
-                Monitor::run(&self, sub_args)
+                Monitor::run(self.clone(), sub_args)
             },
             _ => panic!("Invalid arguments."),
         }
