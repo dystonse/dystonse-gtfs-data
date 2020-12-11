@@ -827,7 +827,7 @@ fn write_departure_output(
                 </div>
                 <div class="area type"><span class="bubble {type_class}">{type_letter}</span></div>
                 <div class="area route">{route_name}</div>
-                <div class="area headsign">{headsign} (Trip {trip})</div>
+                <div class="area headsign">{headsign}</div>
                 {extended_stop_info}
                 <div class="area prob {probclass}">{prob:.0} %</div>
                 {source_area}
@@ -851,7 +851,6 @@ fn write_departure_output(
         prob = prob,
         source_area = get_source_area(Some(dep)),
         probclass = if prob >= 99.5 { "hundred" } else { "" },
-        trip = dep.trip_id,
     )?;
 
     write_marker(w, a_scheduled, min_time, max_time, "plan")?;
