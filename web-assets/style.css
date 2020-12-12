@@ -361,6 +361,20 @@ a.outer:hover .line {
 .area.type .bubble.f {
     background-color: rgb(92, 173, 227);
 }
+.area.type .bubble.c {
+    background-color: rgb(230, 131, 40);
+    border-radius: 0;
+}
+.area.type .bubble.a {
+    color: #000;
+    background-color: rgb(6, 196, 230);
+    border-radius: 0;
+}
+.area.type .bubble.t {
+    color: #000;
+    background-color: rgb(227, 207, 92);
+    border-radius: 0;
+}
 .area.type .bubble.d {
     background-color: #aaa;
 }
