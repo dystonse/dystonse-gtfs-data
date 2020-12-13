@@ -47,7 +47,13 @@ impl<'a> DefaultCurveCreator<'a> {
             RouteType::Subway,
             RouteType::Rail,
             RouteType::Bus,
-            RouteType::Ferry
+            RouteType::Ferry,
+            RouteType::CableCar,
+            RouteType::Gondola,
+            RouteType::Funicular,
+            RouteType::Coach,
+            RouteType::Air,
+            RouteType::Taxi
             ];
             
         let route_sections = [

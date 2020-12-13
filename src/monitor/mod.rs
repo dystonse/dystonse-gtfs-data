@@ -776,10 +776,16 @@ fn write_departure_output(
                 ("Bahn"  , "z")
             }
         },
-        RouteType::Subway  => ("U"  , "u"),
-        RouteType::Tramway => ("Tram"  , "m"),
-        RouteType::Ferry   => ("F"  , "f"),
-        _                  => ("?"  , "d"),
+        RouteType::Subway    => ("U"   , "u"),
+        RouteType::Tramway   => ("Tram", "m"),
+        RouteType::Ferry     => ("F"   , "f"),
+        RouteType::CableCar  => ("Seil", "c"),
+        RouteType::Gondola   => ("Seil", "c"),
+        RouteType::Funicular => ("Seil", "c"),
+        RouteType::Coach     => ("Bus" , "b"),
+        RouteType::Air       => ("Flug", "a"),
+        RouteType::Taxi      => ("Taxi", "t"),
+        _                    => ("?"   , "d"),
     };
 
     let mut stop_url = stop_data.url.clone();
