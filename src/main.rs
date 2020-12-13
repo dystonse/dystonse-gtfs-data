@@ -297,15 +297,19 @@ impl Main {
 
         if let Ok(all_statistics) = all_statistics_res {
             if let Ok(default_statistics) = default_statistics_res {
+                println!("Merging all_curves.exp and default_curves.exp...");
                 let merged_statistics = DelayStatistics {
                     specific: all_statistics.as_ref().specific.clone(),
                     general: default_statistics.as_ref().general.clone(),
                 };
+                println!("Using merged delay statistics.");
                 return Ok(Arc::new(merged_statistics));
             } else {
+                println!("Using generated delay statistics (all_curves.exp).");
                 return Ok(all_statistics);
             }
         } else if let Ok(default_statistics) = default_statistics_res {
+            println!("Using default delay statistics (default_curves.exp).");
             return Ok(default_statistics);
         } else {
             bail!("No delay statistics (neither all_curves.exp nor default_curves.exp were found)."); 
