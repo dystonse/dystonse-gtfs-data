@@ -58,15 +58,20 @@ impl<'a> SpecificCurveCreator<'a> {
     fn create_curves_for_route(&self, route_id: &String)  -> FnResult<RouteData> {
         let schedule = &self.analyser.schedule;
         let route = schedule.get_route(route_id)?;
-        let agency_id = route.agency_id.as_ref().unwrap().clone();
-        let agency_name = schedule
-            .agencies
-            .iter()
-            .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
-            .next()
-            .unwrap()
-            .name
-            .clone();
+        let agencies_count = schedule.agencies.len();
+        let agency_name = if agencies_count > 1 {
+            let agency_id = route.agency_id.as_ref().unwrap().clone();
+            schedule
+                .agencies
+                .iter()
+                .filter(|agency| agency.id.as_ref().unwrap() == &agency_id)
+                .next()
+                .unwrap()
+                .name
+                .clone()
+        } else {
+            schedule.agencies[0].name.clone()
+        };
 
         println!("Working on route {} of agency {}.", route.short_name, agency_name);
 
