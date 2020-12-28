@@ -187,18 +187,24 @@ async fn serve_static_file(monitor: &Arc<Monitor>, request: Request<Body>) -> Fn
     return Ok(response);
 }
 
+fn contains_all(haystack: &str, needles: &Vec<&str>) -> bool {
+    needles.iter().all(|needle| haystack.contains(needle))
+}
+
 fn generate_autocomplete(monitor: &Arc<Monitor>, params: HashMap<String, String>) -> FnResult<Response<Body>>  {
     // TODO check if schedule is available instantly. If not, return a please-wait-message to the client.
     let schedule = monitor.main.get_schedule()?;
     let mut w = Vec::new();
     let term = match params.get("term") {
-        Some(str) => str,
-        None => ""
+        Some(str) => str.to_lowercase(),
+        None => String::new()
     };
     println!("Search term: {}", term);
 
+    let terms: Vec<&str> = term.split(' ').collect();
+
     write!(&mut w, "[\n")?;
-    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().filter(|name| name.contains(term)).take(10) {
+    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().filter(|name| contains_all(&name.to_lowercase(), &terms)).take(10) {
         write!(&mut w, "\"{name}\",\n",
         name=name)?;
     }
