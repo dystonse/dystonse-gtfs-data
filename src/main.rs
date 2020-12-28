@@ -22,6 +22,7 @@ use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
+use std::time::{Instant};
 
 use importer::Importer;
 use analyser::Analyser;
@@ -377,7 +378,10 @@ impl<T> FileCache<T> where T: Loadable<T> {
         //reload file if anything changed:
         if filename_changed || modtime_changed {
             self.object = None;
+            println!("Loading {}...", filename);
+            let now = Instant::now();
             let obj = <T>::load(filename)?;
+            println!("...loading {} took {} seconds.", filename, now.elapsed().as_secs());
             self.object = Some(Arc::new(obj));
         }
 

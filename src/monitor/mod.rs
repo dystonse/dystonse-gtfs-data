@@ -1,6 +1,8 @@
 mod journey_data;
 mod time_curve;
 
+use std::collections::HashMap;
+
 use crate::{FnResult, Main, date_and_time_local, OrError};
 use chrono::{Date, DateTime, Local, Duration, Timelike};
 use chrono_locale::LocaleDate;
@@ -123,11 +125,21 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
 async fn handle_request(req: Request<Body>, monitor: Arc<Monitor>) -> std::result::Result<Response<Body>, Infallible> {
     let path_parts : Vec<String> = req.uri().path().split('/').map(|part| percent_decode_str(part).decode_utf8_lossy().into_owned()).filter(|p| !p.is_empty()).collect();
     let path_parts_str : Vec<&str> = path_parts.iter().map(|string| string.as_str()).collect();
+    let query_params: HashMap<String, String> = req
+        .uri()
+        .query()
+        .map(|v| {
+            url::form_urlencoded::parse(v.as_bytes())
+                .into_owned()
+                .collect()
+        }).unwrap_or_else(HashMap::new);
     println!("path_parts_str: {:?}", path_parts_str);
     let result: FnResult<Response<Body>> = match &path_parts_str[..] {
-        [] => generate_search_page(&monitor, false),
+        [] => generate_search_page(&monitor, false, false),
         ["fonts", _] | ["favicons", _] | ["favicon.ico"] | ["impressum.html"]  | ["style.css"] | ["help", ..] | ["images", ..] => serve_static_file(&monitor, req).await,
-        ["embed"] => generate_search_page(&monitor, true),
+        ["embed"] => generate_search_page(&monitor, true, false),
+        ["noscript"] => generate_search_page(&monitor, false, true),
+        ["autocomplete"] => generate_autocomplete(&monitor, query_params),
         ["stop-by-name"] => {
             // an "stop-by-name" URL just redirects to the corresponding "stop" URL. We can't have pretty URLs in the first place because of the way HTML forms work
             let query_params = url::form_urlencoded::parse(req.uri().query().unwrap().as_bytes());
@@ -169,14 +181,115 @@ async fn serve_static_file(monitor: &Arc<Monitor>, request: Request<Body>) -> Fn
     return Ok(response);
 }
 
-fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Response<Body>> {
+fn generate_autocomplete(monitor: &Arc<Monitor>, params: HashMap<String, String>) -> FnResult<Response<Body>>  {
+    // TODO check if schedule is available instantly. If not, return a please-wait-message to the client.
+    let schedule = monitor.main.get_schedule()?;
+    let mut w = Vec::new();
+    let term = match params.get("term") {
+        Some(str) => str,
+        None => ""
+    };
+    println!("Search term: {}", term);
+
+    write!(&mut w, "[\n");
+    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().filter(|name| name.contains(term)).take(10) {
+        write!(&mut w, "\"{name}\",\n",
+        name=name)?;
+    }
+    write!(&mut w, "\"\"]\n");
+    let mut response = Response::new(Body::from(w));
+    response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
+
+    Ok(response)
+}
+
+fn generate_script_station_form(mut w: &mut Vec<u8>, embed: bool) -> FnResult<()> {
+    write!(&mut w, r#"
+    <form method="get" action="/stop-by-name" target="{target}">
+        <div class="search">
+            <label for="start"><b>Start-Haltestelle:</b></label>
+            <input id="start" name="start" value="{initial_value}" />"#,
+    target = if embed { "_blank" } else { "_self" },
+    initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
+    )?;
+
+    if embed {
+        write!(&mut w, r#"
+        <input class="btn project-btn" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+        </form>"#
+        )?;
+    } else {
+        write!(&mut w, r#"
+        <input class="box" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+        </form>"#
+        )?;
+    }
+    Ok(())
+}
+
+fn generate_noscript_station_form(mut w: &mut Vec<u8>, embed: bool, monitor: &Arc<Monitor>) -> FnResult<()> {
     let schedule = monitor.main.get_schedule()?;
     println!("{} Haltestellen gefunden.", schedule.stops.len());
+    
+    write!(&mut w, r#"
+    <form method="get" action="/stop-by-name" target="{target}">
+        <div class="search">
+            <label for="start"><b>Start-Haltestelle:</b></label>
+            <input list="stop_list" id="start" name="start" value="{initial_value}" />
+            <datalist id="stop_list">"#,
+    target = if embed { "_blank" } else { "_self" },
+    initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
+    )?;
+    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
+        write!(&mut w, r#"
+                    <option>{name}</option>"#,
+        name=name)?;
+    }
+
+    if embed {
+        write!(&mut w, r#"
+        </datalist>
+        <input class="btn project-btn" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+        </form>"#
+        )?;
+    } else {
+        write!(&mut w, r#"
+        </datalist>
+        <input class="box" type="submit" value="Abfahrten anzeigen"/>
+        </div>
+        </form>"#
+        )?;
+    }
+    Ok(())
+}
+
+fn generate_search_page(monitor: &Arc<Monitor>, embed: bool, noscript: bool) -> FnResult<Response<Body>> {
     // TODO: handle the different GTFS_SOURCE_IDs in some way
     // TODO: compress output, of this page specifically. Adding compression to hyper is
     // explained / shown in the middle of this blog post: https://dev.to/deciduously/hyper-webapp-template-4lj7
 
     let mut w = Vec::new();
+
+    let scripts = if noscript {
+        ""
+    } else {
+        r##"
+        <link rel="stylesheet" href="//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+        <script src="https://code.jquery.com/jquery-1.12.4.js"></script>
+        <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
+        <script>
+        $( function() {
+          $( "#start" ).autocomplete({
+            source: "/autocomplete"
+          });
+        } );
+        </script>
+        "##
+    };
+
     write!(&mut w, r#"
     <html>
         <head>
@@ -185,8 +298,10 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
 
             {favicon_headers}
             <meta name=viewport content="width=device-width, initial-scale=1">
+            {scripts}
         </head>"#,
         favicon_headers = FAVICON_HEADERS,
+        scripts = scripts
     )?;
     
     if embed {
@@ -216,36 +331,31 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
         )?;
     }
 
-    write!(&mut w, r#"
-        <form method="get" action="/stop-by-name" target="{target}">
-            <div class="search">
-                <label for="start"><b>Start-Haltestelle:</b></label>
-                <input list="stop_list" id="start" name="start" value="{initial_value}" />
-                <datalist id="stop_list">"#,
-        target = if embed { "_blank" } else { "_self" },
-        initial_value = if embed { "Bremen Hauptbahnhof" } else { "" },
-    )?;
-    for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique() {
-        write!(&mut w, r#"
-                    <option>{name}</option>"#,
-        name=name)?;
+    if noscript {
+        generate_noscript_station_form(&mut w, embed, monitor)?;
+    } else {
+        generate_script_station_form(&mut w, embed)?;
     }
 
-    if embed {
+    if !embed {
+        if noscript {
+            write!(&mut w, r#"
+            <div class="spacer"></div>
+            <div class="noscript-hint">
+            <b>Hinweis:</b> Dies ist die <b>Javascript-freie Version</b> der Stationssuche. Sie enthält die Namen aller Stationen im HTML-Sourcecode, wodurch diese Seite mehrere Megabyte groß sein kann. Falls du Javascript aktiviert hast, oder aktivieren kannst, empfehlen wir die <a href="/">reguläre Version.</a>
+            </div>"#
+            )?;
+        } else {
+            write!(&mut w, r#"
+            <noscript>
+            <div class="spacer"></div>
+            <div class="noscript-hint">
+            <b>Hinweis:</b> Dies ist die Standard-Version der Stationssuche. <b>Sie benötigt aktiviertes Javascript</b>. Du kannst auch die <a href="/noscript">Javascript-freie Version</a> verwenden. Aber Vorsicht: Sie enthält die Namen aller Stationen im HTML-Sourcecode, wodurch diese Seite mehrere Megabyte groß sein kann. Falls du Javascript aktivieren kannst, empfehlen wir dir, dies jetzt zu tun und bei der Standard-Version zu bleiben.
+            </div>
+            </noscript>"#
+            )?;
+        }
         write!(&mut w, r#"
-        </datalist>
-        <input class="btn project-btn" type="submit" value="Abfahrten anzeigen"/>
-        </div>
-        </form>
-        </body>
-        </html>"#
-        )?;
-    } else {
-        write!(&mut w, r#"
-        </datalist>
-        <input class="box" type="submit" value="Abfahrten anzeigen"/>
-        </div>
-        </form>
         <div class="spacer"></div>
         <div class="disclaimer-hint">
         <b>Hinweis:</b> Der erweiterte Abfahrtsmonitor ist ein experimenteller Prototyp, der sicherlich noch einige Fehler enthält. Verlasse dich nicht unkritisch auf die Daten, die dir hier angezeigt werden! <span><a href="/help/#disclaimer">➞ zum Disclaimer</a></span>
@@ -254,11 +364,13 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool) -> FnResult<Respons
         </div>
         <div class="footer">
             <a class="boxlink" href="/impressum.html">Impressum</a> 
-        </div>
-        </body>
-        </html>"#
+        </div>"#
         )?;
     }
+    write!(&mut w, r#"
+    </body>
+    </html>"#
+    )?;
 
     let mut response = Response::new(Body::from(w));
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));

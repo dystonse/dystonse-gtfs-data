@@ -132,6 +132,14 @@ div.spacer {
     margin-top: 50px;
 }
 
+div.noscript-hint {
+    border-radius: 5px;
+    border: 1px solid #aaa;
+    padding: 20px;
+    margin-top: 30px;
+    background-color: #ffc4c4;
+}
+
 div.disclaimer-hint {
     border-radius: 5px;
     border: 1px solid #aaa;
