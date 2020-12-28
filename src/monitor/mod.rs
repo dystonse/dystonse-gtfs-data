@@ -95,6 +95,7 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
     let port = 3000;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let monitor = monitor.clone();
+    let monitor2 = monitor.clone();
 
     // A `Service` is needed for every connection, so this
     // creates one from our `handle_request` function.
@@ -114,6 +115,11 @@ async fn serve_monitor(monitor: Arc<Monitor>) {
     });
 
     let server = Server::bind(&addr).serve(make_svc);
+
+    // TODO let the server listen, then load the schedule.
+    // Some requests can be served before the schedule is loaded.
+    println!("Initially loading schedule…");
+    monitor2.main.get_schedule().ok();
 
     println!("Waiting for connections on {}…", addr);
     // Run this server for... forever!
@@ -191,12 +197,12 @@ fn generate_autocomplete(monitor: &Arc<Monitor>, params: HashMap<String, String>
     };
     println!("Search term: {}", term);
 
-    write!(&mut w, "[\n");
+    write!(&mut w, "[\n")?;
     for name in schedule.stops.iter().map(|(_, stop)| stop.name.clone()).sorted().unique().filter(|name| name.contains(term)).take(10) {
         write!(&mut w, "\"{name}\",\n",
         name=name)?;
     }
-    write!(&mut w, "\"\"]\n");
+    write!(&mut w, "\"\"]\n")?;
     let mut response = Response::new(Body::from(w));
     response.headers_mut().append(hyper::header::CONTENT_TYPE, HeaderValue::from_static("application/json; charset=utf-8"));
 
