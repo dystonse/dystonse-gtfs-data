@@ -383,7 +383,7 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool, noscript: bool) -> 
         </div>
         </div>
         <div class="footer">
-            <a class="boxlink" href="/impressum.html">Impressum</a>, Datenquelle(n): {sources} 
+            <a class="boxlink" href="/impressum.html">Impressum</a> · Datenquelle(n): {sources} 
         </div>"#,
         sources = monitor.source_attribution
         )?;
