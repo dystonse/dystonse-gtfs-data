@@ -52,6 +52,7 @@ pub struct Monitor {
     pub pool: Arc<Pool>,
     pub source: String,
     pub source_long_name: String,
+    pub source_attribution: String,
     pub stats: Arc<DelayStatistics>,
     pub static_server: Static,
     pub main: Arc<Main>,
@@ -66,7 +67,13 @@ impl Monitor {
             .takes_value(true)
             .about("Human-readable name of the public transport provider that is used as a data source.")
             .required_unless("help")
-        )
+        )       
+        .arg(Arg::new("source-attribution")
+        .long("source-attribution")
+        .env("GTFS_DATA_ATTRIBUTION")
+        .takes_value(true)
+        .about("Attribution for the data, in humand readable format. HTML can be used and will be written verbatim.")
+    )
     }
 
     /// Runs the actions that are selected via the command line args
@@ -76,6 +83,7 @@ impl Monitor {
             pool: main.pool.clone(),
             source: main.source.clone(),
             source_long_name: String::from(sub_args.value_of("source-long-name").unwrap()),
+            source_attribution: String::from(sub_args.value_of("source-attribution").unwrap_or("unbekannt")),
             stats: main.get_delay_statistics()?,
             static_server: Static::new("web-assets/"),
             main: main.clone(),
@@ -375,8 +383,9 @@ fn generate_search_page(monitor: &Arc<Monitor>, embed: bool, noscript: bool) -> 
         </div>
         </div>
         <div class="footer">
-            <a class="boxlink" href="/impressum.html">Impressum</a> 
-        </div>"#
+            <a class="boxlink" href="/impressum.html">Impressum</a>, Datenquelle(n): {sources} 
+        </div>"#,
+        sources = monitor.source_attribution
         )?;
     }
     write!(&mut w, r#"
